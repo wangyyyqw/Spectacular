@@ -118,6 +118,100 @@ void main() {
     );
   });
 
+  test('分卷旧书的卷内插章同步到书脊、嵌套 NAV 和 NCX，不挪用番外正文', () async {
+    final archive = ZipDecoder().decodeBytes(_book([1, 5]));
+    const volumes = ['正文卷', '番外卷'];
+    for (final isNav in [true, false]) {
+      final path = isNav ? 'OEBPS/nav.xhtml' : 'OEBPS/toc.ncx';
+      final xml = XmlDocument.parse(
+        utf8.decode(archive.findFile(path)!.content),
+      );
+      final root = xml.descendants.whereType<XmlElement>().firstWhere(
+        (item) => item.name.local == (isNav ? 'ol' : 'navMap'),
+      );
+      for (final (index, item) in root.childElements.toList().indexed) {
+        final title = volumes[index];
+        final target = 'text/chapter_000${index + 1}.xhtml#volume';
+        final group = XmlDocument.parse(
+          isNav
+              ? '<li><a href="$target">$title</a><ol/></li>'
+              : '<navPoint id="vol$index"><navLabel><text>$title</text></navLabel>'
+                    '<content src="$target"/></navPoint>',
+        ).rootElement.copy();
+        item.remove();
+        (isNav ? group.childElements.last : group).children.add(item);
+        root.children.add(group);
+      }
+      archive.addFile(ArchiveFile.string(path, xml.toXmlString()));
+    }
+    final file = File('${dir.path}/volumes.epub');
+    final legacy = Archive();
+    for (final part in archive.files) {
+      if (!part.name.endsWith('online_chapters.json')) legacy.addFile(part);
+    }
+    await file.writeAsBytes(ZipEncoder().encodeBytes(legacy));
+    final updater = await OnlineEpubUpdate.open(file.path);
+    expect(updater.chapters.map((row) => [row['title'], row['volume']]), [
+      ['第1章', volumes.first],
+      ['第5章', volumes.last],
+    ]);
+    final remote = [
+      for (final chapter in _toc(5))
+        OnlineChapter(
+          index: chapter.index,
+          title: chapter.title,
+          url: chapter.url,
+          volume: chapter.index < 3 ? volumes.first : volumes.last,
+        ),
+    ];
+    expect(updater.newChapters(remote).map((chapter) => chapter.title), [
+      '第2章',
+      '第3章',
+      '第4章',
+    ]);
+    final bytes = updater.append(_book([2, 3, 4]), remote);
+    final updated = (await openEpub(bytes)).document!;
+    try {
+      expect(updated.toc.map((item) => item.title), volumes);
+      expect(updated.toc.first.children.map((item) => item.title), [
+        '第1章',
+        '第2章',
+        '第3章',
+      ]);
+      expect(updated.toc.last.children.map((item) => item.title), [
+        '第4章',
+        '第5章',
+      ]);
+      expect(updated.spine.last.href, 'text/chapter_0002.xhtml');
+      for (final (index, chapter) in remote.indexed) {
+        expect(updated.chapterXhtml(index), contains('${chapter.title}原有正文'));
+      }
+      final ncx = XmlDocument.parse(
+        updated.archive.readString('OEBPS/toc.ncx')!,
+      );
+      final points = ncx.descendants.whereType<XmlElement>().where(
+        (node) => node.name.local == 'navPoint',
+      );
+      expect(points.map((point) => point.getAttribute('playOrder')), [
+        '1',
+        '2',
+        '3',
+        '4',
+        '5',
+        '6',
+        '7',
+      ]);
+      expect(
+        points
+            .where((point) => point.parentElement?.name.local == 'navPoint')
+            .map((point) => point.parentElement!.getAttribute('id')),
+        ['vol0', 'vol0', 'vol0', 'vol1', 'vol1'],
+      );
+    } finally {
+      updated.archive.close();
+    }
+  });
+
   test('阅微完整索引使用 URL 和 POST 参数核对身份，不退回同名章节匹配', () async {
     final archive = ZipDecoder().decodeBytes(_book([1, 2]));
     final original = Archive();

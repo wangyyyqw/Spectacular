@@ -15,13 +15,14 @@ import 'package:reader_mobile/book_source/book_source_service.dart';
 import 'package:reader_mobile/book_source/book_source_store.dart';
 import 'package:reader_mobile/book_source/online_book_controller.dart';
 import 'package:reader_mobile/book_source/online_epub_builder.dart';
+import 'package:reader_mobile/book_source/online_epub_metadata.dart';
 import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/storage/db.dart';
 import 'package:reader_mobile/storage/drift_progress_store.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-  test('正式更新入口只请求新增正文，再次更新无下载且失败保留原书', () async {
+  test('番外末卷不阻断正文插章，书架检查、实际下载与续读保持一致', () async {
     final dir = await Directory.systemTemp.createTemp('online-controller-');
     final db = AppDatabase(NativeDatabase.memory());
     addTearDown(() async {
@@ -53,22 +54,31 @@ void main() {
           'chapterList': r'$.chapters[*]',
           'chapterName': r'$.title',
           'chapterUrl': r'$.url',
+          'updateTime': r'$.time',
         },
         'ruleContent': {'content': r'$.content'},
       }),
     );
     final entry = await library.importBytes(
       const OnlineEpubBuilder().build(
-        const OnlineEpubInput(
+        OnlineEpubInput(
           title: '在线书',
           author: '作者',
           sourceName: '测试源',
+          sourceId: source.id,
           bookUrl: 'https://example.test/book',
-          chapters: [
+          chapters: const [
             OnlineEpubChapter(
               title: '第一章',
               html: '<p>原正文</p>',
               sourceUrl: 'https://example.test/1',
+              volume: '正文',
+            ),
+            OnlineEpubChapter(
+              title: '旧番外',
+              html: '<p>原番外正文</p>',
+              sourceUrl: 'https://example.test/extra',
+              volume: '番外',
             ),
           ],
         ),
@@ -78,13 +88,15 @@ void main() {
     final chapter = await document.loadAnchorChapter(0);
     final start = chapter.cfiAt(chapter.text.indexOf('原正文'))!;
     final end = chapter.cfiAt(chapter.text.indexOf('原正文') + 3)!;
+    final extra = await document.loadAnchorChapter(1);
+    final extraCfi = extra.cfiAt(extra.text.indexOf('原番外正文'))!;
     final progress = DriftProgressStore(db);
     await progress.save(
       entry.id,
       ReaderProgress(
-        spineIndex: 0,
+        spineIndex: 1,
         pageIndex: 0,
-        cfi: start,
+        cfi: extraCfi,
         contentRevision: entry.contentRevision,
       ),
     );
@@ -137,7 +149,14 @@ void main() {
                     {
                       'title': index == 1 ? '第一章' : '第$index章',
                       'url': 'https://example.test/$index',
+                      'volume_name': '正文',
                     },
+                  {
+                    'title': '旧番外',
+                    'url': 'https://example.test/extra',
+                    'volume_name': '番外',
+                    'time': '2020-01-01',
+                  },
                 ],
               }),
               200,
@@ -164,25 +183,43 @@ void main() {
     var updateNotifications = 0;
     controller.addListener(() => updateNotifications++);
     await controller.refreshShelfOnlineUpdates();
-    final checked =
+    Future<Map<String, dynamic>> record() async =>
         (jsonDecode((await library.getSetting('bookshelf.onlineUpdates.v1'))!)
                 as Map<String, dynamic>)[entry.id]
             as Map<String, dynamic>;
-    expect(checked['chapterCount'], 2);
+    final checked = await record();
+    expect(checked['chapterCount'], 3);
+    expect(checked['latestChapter'], '第2章');
+    expect(checked['updatedAt'], checked['checkedAt']);
     expect(checked['updated'], isTrue);
     expect(updateNotifications, greaterThan(0));
+    await controller.refreshShelfOnlineUpdates();
+    expect((await record())['updatedAt'], checked['updatedAt']);
+    expect((await record())['latestChapter'], '第2章');
+    expect(contentRequests, isEmpty);
 
     final updated = await controller.updateBook(entry);
     expect(updated.id, entry.id);
     expect(controller.lastAddedChapters, 1);
     expect(contentRequests, ['/2']);
-    final cleared =
-        (jsonDecode((await library.getSetting('bookshelf.onlineUpdates.v1'))!)
-                as Map<String, dynamic>)[entry.id]
-            as Map<String, dynamic>;
+    final cleared = await record();
     expect(cleared['updated'], isFalse);
+    expect(cleared['latestChapter'], '第2章');
+    expect(cleared['updatedAt'], checked['updatedAt']);
+    final indexed = (await OnlineEpubMetadata.read(library, updated))!.chapters;
+    expect(indexed.map((chapter) => chapter.title), ['第一章', '第2章', '旧番外']);
+    expect(indexed.last.href, 'OEBPS/text/chapter_0002.xhtml');
     expect(updateNotifications, greaterThan(1));
-    expect((await progress.load(entry.id))!.cfi, start);
+    final resumed = (await progress.load(entry.id))!;
+    expect(resumed.spineIndex, 2);
+    final reopened = await EpubChapterSource.openFile(File(updated.filePath));
+    final savedChapter = await reopened.loadAnchorChapter(resumed.spineIndex);
+    expect(
+      savedChapter.text.substring(savedChapter.offsetFor(resumed.cfi!)!),
+      startsWith('原番外正文'),
+    );
+    reopened.close();
+    await reopened.preparationsStopped;
     final retained = (await library.listBookAnnotations(entry.id)).single;
     expect(retained.id, annotation.id);
     expect(retained.startCfi, start);
@@ -194,6 +231,9 @@ void main() {
     expect(controller.lastAddedChapters, 0);
     expect(contentRequests, ['/2']);
     expect((await library.bookById(entry.id))!.contentRevision, revision);
+    await controller.refreshShelfOnlineUpdates();
+    expect((await record())['updated'], isFalse);
+    expect((await record())['latestChapter'], '第2章');
     await library.setSetting(
       'online_reading_progress:${entry.id}',
       '{"spine":1,"finished":true}',

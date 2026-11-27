@@ -272,31 +272,22 @@ class OnlineBookController extends ChangeNotifier {
         final old = records[entry.id] is Map
             ? (records[entry.id] as Map).cast<String, Object?>()
             : null;
-        final oldCount =
-            old?['chapterCount'] as int? ??
-            (metadata?.chapters.isNotEmpty == true
-                ? metadata!.chapters.length
-                : entry.spineCount != null && entry.spineCount! > 0
-                ? entry.spineCount
-                : null);
-        final count = chapters.length;
-        final changed = oldCount != null && count > oldCount;
-        final rawTime = chapters.last.updateTime.trim().isNotEmpty
-            ? chapters.last.updateTime
-            : info.updateTime;
-        final sourceTime = _parseSourceUpdateTime(rawTime);
-        final observedAt = DateTime.now().millisecondsSinceEpoch;
-        records[entry.id] = <String, Object?>{
-          'chapterCount': count,
-          'latestChapter': chapters.last.title,
-          'updatedAt':
-              sourceTime ??
-              (changed ? observedAt : old?['updatedAt'] as int? ?? observedAt),
-          // 目录变化后保持上浮标记，直到用户手动更新成功；重复检查只
-          // 刷新目录基线，不应因为一次无变化检查吞掉待处理提示。
-          'updated': changed || old?['updated'] == true,
-          'checkedAt': observedAt,
-        };
+        final added = metadata?.requiresOnlineReading == true
+            ? _missingOnlineChapters(metadata!, chapters)
+            : [
+                for (final index in OnlineEpubUpdate.insertionIndices(
+                  await OnlineEpubUpdate.readChapterIndex(
+                    entry.filePath,
+                    sourceMetadata: metadata,
+                    memoryBytes: entry.filePath.isEmpty
+                        ? await library.readBytes(entry)
+                        : null,
+                  ),
+                  chapters,
+                ))
+                  chapters[index],
+              ];
+        records[entry.id] = _shelfChapterRecord(info, chapters, added, old);
       } on Object catch (error, stack) {
         recordAppError(
           'shelf_online_update_check_failed',
@@ -308,6 +299,86 @@ class OnlineBookController extends ChangeNotifier {
     records.removeWhere((id, _) => !originalIds.contains(id));
     await library.setSetting(bookshelfOnlineUpdatesKey, jsonEncode(records));
     if (!_disposed) notifyListeners();
+  }
+
+  List<OnlineChapter> _missingOnlineChapters(
+    OnlineEpubMetadata metadata,
+    List<OnlineChapter> chapters,
+  ) {
+    final known = {
+      for (final chapter in metadata.chapters)
+        onlineChapterIdentity(chapter.toChapter(0, metadata.detailUrl)),
+    };
+    return chapters
+        .where((chapter) => !known.contains(onlineChapterIdentity(chapter)))
+        .toList();
+  }
+
+  Map<String, Object?> _shelfChapterRecord(
+    OnlineBook book,
+    List<OnlineChapter> chapters,
+    List<OnlineChapter> added,
+    Map<String, Object?>? previous, {
+    bool applied = false,
+  }) {
+    final priorPending =
+        (previous?['pendingChapterIds'] as List?)?.toSet() ?? {};
+    final fresh = added
+        .where(
+          (chapter) => !priorPending.contains(onlineChapterIdentity(chapter)),
+        )
+        .toList();
+    final priorId = previous?['latestChapterId'];
+    final prior = priorId == null
+        ? null
+        : chapters
+              .where((chapter) => onlineChapterIdentity(chapter) == priorId)
+              .firstOrNull;
+    final candidates = fresh.isNotEmpty ? fresh : chapters;
+    final hint = cleanOnlineChapterTitle(book.lastChapter);
+    final hinted = candidates
+        .where((chapter) => chapter.title == hint)
+        .lastOrNull;
+    OnlineChapter? dated;
+    int? maxTime;
+    for (final chapter in candidates) {
+      final time = _parseSourceUpdateTime(chapter.updateTime);
+      if (time != null && (maxTime == null || time >= maxTime)) {
+        dated = chapter;
+        maxTime = time;
+      }
+    }
+    final hasObservedLatest =
+        previous?['observedLatest'] == true && prior != null;
+    final latest = fresh.isNotEmpty
+        ? hinted ?? dated ?? fresh.last
+        : hasObservedLatest
+        ? prior
+        : hinted ?? dated ?? chapters.last;
+    final observedLatest = fresh.isNotEmpty || hasObservedLatest;
+    final title = !observedLatest && hint.isNotEmpty ? hint : latest.title;
+    final observedAt = DateTime.now().millisecondsSinceEpoch;
+    final priorTime = previous?['updatedAt'] as int?;
+    return {
+      'chapterCount': chapters.length,
+      'latestChapter': title,
+      if (observedLatest) 'observedLatest': true,
+      if (title == latest.title)
+        'latestChapterId': onlineChapterIdentity(latest),
+      'updatedAt':
+          (title == latest.title
+              ? _parseSourceUpdateTime(latest.updateTime)
+              : null) ??
+          _parseSourceUpdateTime(book.updateTime) ??
+          (fresh.isEmpty && title == previous?['latestChapter']
+              ? priorTime
+              : null) ??
+          observedAt,
+      'updated': !applied && added.isNotEmpty,
+      if (!applied && added.isNotEmpty)
+        'pendingChapterIds': added.map(onlineChapterIdentity).toList(),
+      'checkedAt': observedAt,
+    };
   }
 
   Future<bool> _onlineProgressFinished(String bookId) async {
@@ -939,7 +1010,7 @@ class OnlineBookController extends ChangeNotifier {
     }
   }
 
-  /// 获取最新目录，只追加新增正文，复用原章节和阅读数据。
+  /// 获取最新目录，按目录位置合入新增正文，复用原章节和阅读数据。
   Future<BookEntry> updateBook(
     BookEntry entry, {
     ReaderProgressStore? progressStore,
@@ -950,7 +1021,7 @@ class OnlineBookController extends ChangeNotifier {
       throw const BookSourceException('这本书正在下载，请查看通知中的进度');
     }
     try {
-      final updated = await _withDownloadNotification(
+      return await _withDownloadNotification(
         entry.title,
         (progress, cancelled) => _updateBook(
           entry,
@@ -961,37 +1032,32 @@ class OnlineBookController extends ChangeNotifier {
         onProgress: onProgress,
         isCancelled: isCancelled,
       );
-      await _clearOnlineUpdate(updated);
-      return updated;
     } finally {
       _updatingBookIds.remove(entry.id);
     }
   }
 
-  Future<void> _clearOnlineUpdate(BookEntry entry) async {
-    final raw = await library.getSetting(bookshelfOnlineUpdatesKey);
-    if (raw == null || raw.isEmpty) return;
+  Future<void> _recordAppliedCatalog(
+    BookEntry entry,
+    OnlineReadingCatalog catalog,
+    List<OnlineChapter> added,
+  ) async {
     try {
-      final decoded = jsonDecode(raw);
+      final raw = await library.getSetting(bookshelfOnlineUpdatesKey);
+      final decoded = raw == null || raw.isEmpty
+          ? <String, Object?>{}
+          : jsonDecode(raw);
       if (decoded is! Map) return;
       final record = decoded[entry.id];
-      if (record is Map) {
-        final previous = record.cast<String, Object?>();
-        final metadata = await OnlineEpubMetadata.read(library, entry);
-        decoded[entry.id] = <String, Object?>{
-          ...previous,
-          if (metadata != null && metadata.chapters.isNotEmpty)
-            'chapterCount': metadata.chapters.length,
-          if (metadata != null && metadata.chapters.isNotEmpty)
-            'latestChapter': metadata.chapters.last.title,
-          'updated': false,
-        };
-        await library.setSetting(
-          bookshelfOnlineUpdatesKey,
-          jsonEncode(decoded),
-        );
-        if (!_disposed) notifyListeners();
-      }
+      decoded[entry.id] = _shelfChapterRecord(
+        catalog.book,
+        catalog.chapters,
+        added,
+        record is Map ? record.cast<String, Object?>() : null,
+        applied: true,
+      );
+      await library.setSetting(bookshelfOnlineUpdatesKey, jsonEncode(decoded));
+      if (!_disposed) notifyListeners();
     } on Object catch (error, stackTrace) {
       recordAppError(
         'shelf_online_update_clear_failed',
@@ -1140,6 +1206,11 @@ class OnlineBookController extends ChangeNotifier {
       }
       _lastAddedChapters = catalog.chapters.length;
       _shelfEntries[entry.id] = updated;
+      await _recordAppliedCatalog(
+        updated,
+        catalog,
+        _missingOnlineChapters(metadata!, catalog.chapters),
+      );
       notifyListeners();
       return updated;
     }
@@ -1154,7 +1225,10 @@ class OnlineBookController extends ChangeNotifier {
       throw const BookSourceException('已取消更新', code: 'ONLINE_CANCELLED');
     }
     final added = original.newChapters(toc);
-    if (added.isEmpty) return entry;
+    if (added.isEmpty) {
+      await _recordAppliedCatalog(entry, catalog, added);
+      return entry;
+    }
     final result = await service.download(
       source,
       book,
@@ -1199,6 +1273,7 @@ class OnlineBookController extends ChangeNotifier {
     });
     _lastSkippedChapters = result.skippedChapters;
     _lastSkippedReasons = List<String>.unmodifiable(result.skippedReasons);
+    await _recordAppliedCatalog(updated, catalog, added);
     notifyListeners();
     return updated;
   }

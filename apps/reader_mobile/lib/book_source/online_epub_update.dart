@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:archive/archive.dart';
 import 'package:path/path.dart' as p;
 import 'package:reader_core/epub/epub_document.dart';
+import 'package:reader_core/epub/toc.dart';
 import 'package:reader_core/api.dart';
 import 'package:xml/xml.dart';
 
@@ -12,7 +13,7 @@ import 'book_source_models.dart';
 import 'online_chapter_request.dart';
 import 'online_epub_metadata.dart';
 
-/// 对现有在线 EPUB 只追加新章，原章节文件、样式、资源和标识保持原值。
+/// 将新增章节合入远端目录对应位置，保留原章节文件、样式、资源和标识。
 class OnlineEpubUpdate {
   /// 按需书转为完整 EPUB 时保留原 OPF 身份，避免更换书架主键。
   static Future<Uint8List> preserveBookIdentity(
@@ -61,6 +62,23 @@ class OnlineEpubUpdate {
   final String opfPath;
   final List<Map<String, String>> chapters;
 
+  static Future<List<Map<String, String>>> readChapterIndex(
+    String path, {
+    OnlineEpubMetadata? sourceMetadata,
+    Uint8List? memoryBytes,
+  }) async {
+    final opened = memoryBytes == null
+        ? await openEpubFile(File(path))
+        : await openEpub(memoryBytes, verifyCrc: false);
+    final document = opened.document;
+    if (document == null) throw const BookSourceException('本地 EPUB 无法打开');
+    try {
+      return _chapterRows(document, sourceMetadata);
+    } finally {
+      document.archive.close();
+    }
+  }
+
   static Future<OnlineEpubUpdate> open(
     String path, {
     OnlineEpubMetadata? sourceMetadata,
@@ -70,88 +88,118 @@ class OnlineEpubUpdate {
     final document = opened.document;
     if (document == null) throw const BookSourceException('本地 EPUB 无法打开');
     try {
-      final dir = p.posix.dirname(document.opfPath);
-      final stored = document.archive.readString('$dir/online_chapters.json');
-      final rows = <Map<String, String>>[];
-      if (stored != null) {
-        final json = jsonDecode(stored) as Map;
-        for (final row
-            in (json['chapters'] as List).whereType<Map<Object?, Object?>>()) {
-          rows.add({
-            for (final item in row.entries) '${item.key}': '${item.value}',
-          });
-        }
-      } else if (sourceMetadata != null) {
-        for (final (index, chapter) in sourceMetadata.chapters.indexed) {
-          final request = chapter.toChapter(index, sourceMetadata.detailUrl);
-          rows.add({
-            'href': p.posix.relative(chapter.href, from: dir),
-            'title': chapter.title,
-            'url': request.url,
-            'volume': chapter.volume,
-            'requestOptions': jsonEncode(request.requestOptions),
-          });
-        }
-      } else {
-        // 旧下载包无源章节索引，沿用参考项目按原目录标题匹配一次。
-        final titles = <int, String>{};
-        void visit(List<TocEntry> entries) {
-          for (final entry in entries) {
-            titles.putIfAbsent(entry.spineIndex, () => entry.title);
-            visit(entry.children);
-          }
-        }
-
-        visit(document.toc);
-        for (var index = 0; index < document.spine.length; index++) {
-          final item = document.spine[index];
-          if (item.href.endsWith('cover.xhtml') ||
-              item.properties.contains('cover-image')) {
-            continue;
-          }
-          final title = titles[index];
-          if (title == null) throw const BookSourceException('本地章节缺少目录标题');
-          rows.add({
-            'href': item.href,
-            'title': title,
-            'url': '',
-            'volume': '',
-          });
-        }
-      }
-      if (rows.isEmpty) throw const BookSourceException('本地章节索引为空');
-      return OnlineEpubUpdate._(bytes, document.opfPath, rows);
+      return OnlineEpubUpdate._(
+        bytes,
+        document.opfPath,
+        _chapterRows(document, sourceMetadata),
+      );
     } finally {
       document.archive.close();
     }
   }
 
-  /// URL 身份优先，旧包按标题匹配；失配、重排或目录缩短时保留原书。
-  List<OnlineChapter> newChapters(List<OnlineChapter> remote) {
-    if (remote.length < chapters.length) {
-      throw const BookSourceException('远端目录少于本地章节，已停止更新');
-    }
-    for (var index = 0; index < chapters.length; index++) {
-      final stored = chapters[index];
-      final latest = remote[index];
-      final url = stored['url'] ?? '';
-      final matches = url.isNotEmpty
-          ? stored.containsKey('requestOptions')
-                ? onlineRequestIdentity(
-                        url,
-                        bookSourceRuleMap(stored['requestOptions']),
-                      ) ==
-                      onlineChapterIdentity(latest)
-                : _chapterKey(url) == _chapterKey(latest.url)
-          : (stored['title'] ?? '').trim() == latest.title.trim();
-      if (!matches) {
-        throw const BookSourceException('目录身份或顺序发生变化，已停止更新以保留原有正文');
+  static List<Map<String, String>> _chapterRows(
+    EpubDocumentImpl document,
+    OnlineEpubMetadata? sourceMetadata,
+  ) {
+    final dir = p.posix.dirname(document.opfPath);
+    final stored = document.archive.readString('$dir/online_chapters.json');
+    final rows = <Map<String, String>>[];
+    if (stored != null) {
+      final json = jsonDecode(stored) as Map;
+      for (final row
+          in (json['chapters'] as List).whereType<Map<Object?, Object?>>()) {
+        rows.add({
+          for (final item in row.entries) '${item.key}': '${item.value}',
+        });
+      }
+    } else if (sourceMetadata != null) {
+      for (final (index, chapter) in sourceMetadata.chapters.indexed) {
+        final request = chapter.toChapter(index, sourceMetadata.detailUrl);
+        rows.add({
+          'href': p.posix.relative(chapter.href, from: dir),
+          'title': chapter.title,
+          'url': request.url,
+          'volume': chapter.volume,
+          'requestOptions': jsonEncode(request.requestOptions),
+        });
+      }
+    } else {
+      // 旧下载包无源章节索引，沿用参考项目按原目录标题匹配一次。
+      final titles = <int, ({String title, String volume})>{};
+      final headings = <int>{};
+      void visit(List<TocEntry> entries, String volume) {
+        for (final entry in entries) {
+          if (entry.children.isEmpty) {
+            titles[entry.spineIndex] = (title: entry.title, volume: volume);
+          } else {
+            headings.add(entry.spineIndex);
+            visit(entry.children, entry.title);
+          }
+        }
+      }
+
+      final entries = switch (document.tocSource) {
+        'nav' => TocFallback.parseNav(
+          archive: document.archive,
+          package: document.package,
+          opfPath: document.opfPath,
+          item: TocFallback.findNavItem(document.package)!,
+        ).entries,
+        'ncx' => TocParser.parseNcx(
+          archive: document.archive,
+          package: document.package,
+          opfPath: document.opfPath,
+        ).entries,
+        _ => document.toc,
+      };
+      visit(entries, '');
+      for (var index = 0; index < document.spine.length; index++) {
+        final item = document.spine[index];
+        if (item.href.endsWith('cover.xhtml') ||
+            item.properties.contains('cover-image')) {
+          continue;
+        }
+        final title = titles[index];
+        if (title == null && headings.contains(index)) continue;
+        if (title == null) throw const BookSourceException('本地章节缺少目录标题');
+        rows.add({
+          'href': item.href,
+          'title': title.title,
+          'url': '',
+          'volume': title.volume,
+        });
       }
     }
-    return remote.sublist(chapters.length);
+    if (rows.isEmpty) throw const BookSourceException('本地章节索引为空');
+    return rows;
   }
 
+  static Set<int> insertionIndices(
+    List<Map<String, String>> stored,
+    List<OnlineChapter> remote,
+  ) {
+    final added = <int>{};
+    var cursor = 0;
+    for (final (index, chapter) in remote.indexed) {
+      if (cursor < stored.length && _matchesChapter(stored[cursor], chapter)) {
+        cursor++;
+      } else {
+        added.add(index);
+      }
+    }
+    if (cursor != stored.length) {
+      throw const BookSourceException('目录身份或顺序发生变化，已停止更新以保留原有正文');
+    }
+    return added;
+  }
+
+  List<OnlineChapter> newChapters(List<OnlineChapter> remote) => [
+    for (final index in insertionIndices(chapters, remote)) remote[index],
+  ];
+
   Uint8List append(Uint8List downloaded, List<OnlineChapter> remote) {
+    final additions = insertionIndices(chapters, remote);
     final original = ZipDecoder().decodeBytes(bytes);
     final incoming = ZipDecoder().decodeBytes(downloaded);
     final dir = p.posix.dirname(opfPath);
@@ -192,14 +240,69 @@ class OnlineEpubUpdate {
       );
     }
     final spine = element(opf, 'spine');
-    for (final item in element(nextOpf, 'spine').childElements) {
-      if (item.getAttribute('idref') == 'cover-page') continue;
-      final copy = item.copy();
-      copy.setAttribute('idref', '$idPrefix${item.getAttribute('idref')}');
-      spine.children.add(copy);
+    final manifestHrefs = {
+      for (final item in manifest.childElements)
+        item.getAttribute('id'): item.getAttribute('href'),
+    };
+    void merge(
+      XmlElement root,
+      Map<String, XmlElement> byHref,
+      List<XmlElement> incomingNodes,
+    ) {
+      if (incomingNodes.length != additions.length) {
+        throw const BookSourceException('新增章节与目录不一致，已停止更新');
+      }
+      var storedIndex = 0;
+      var newIndex = 0;
+      XmlElement? previous;
+      for (final (index, chapter) in remote.indexed) {
+        final next = storedIndex < chapters.length
+            ? byHref[chapters[storedIndex]['href']]
+            : null;
+        if (!additions.contains(index)) {
+          previous = next;
+          storedIndex++;
+          continue;
+        }
+        final node = incomingNodes[newIndex++];
+        final samePrevious =
+            index > 0 && remote[index - 1].volume == chapter.volume;
+        final sameNext =
+            storedIndex < chapters.length &&
+            chapters[storedIndex]['volume'] == chapter.volume;
+        final before =
+            previous == null || (!samePrevious && sameNext && next != null);
+        final neighbor = before ? next : previous;
+        if (neighbor == null) {
+          throw const BookSourceException('无法定位新增章节的目录位置，已停止更新');
+        }
+        var anchor = neighbor;
+        if (!(before ? sameNext : samePrevious)) {
+          while (anchor.parentElement != root) {
+            anchor = anchor.parentElement!;
+          }
+        }
+        final siblings = anchor.parentElement!.children;
+        siblings.insert(siblings.indexOf(anchor) + (before ? 0 : 1), node);
+        previous = node;
+      }
     }
+
+    merge(
+      spine,
+      {
+        for (final item in spine.childElements)
+          if (manifestHrefs[item.getAttribute('idref')] case final href?)
+            p.posix.normalize(href): item,
+      },
+      [
+        for (final item in element(nextOpf, 'spine').childElements)
+          if (item.getAttribute('idref') != 'cover-page')
+            item.copy()
+              ..setAttribute('idref', '$idPrefix${item.getAttribute('idref')}'),
+      ],
+    );
     replacements[opfPath] = opf.toXmlString();
-    // 原生下载包同时包含 NAV 和 NCX，两份目录同步追加。
     for (final item in manifest.childElements.toList()) {
       final href = item.getAttribute('href') ?? '';
       final path = p.posix.normalize('$dir/$href');
@@ -213,6 +316,19 @@ class OnlineEpubUpdate {
       final next = XmlDocument.parse(
         read(incoming, isNav ? 'OEBPS/nav.xhtml' : 'OEBPS/toc.ncx'),
       );
+      String localHref(String href) => p.posix.relative(
+        p.posix.normalize('${p.posix.dirname(path)}/${href.split('#').first}'),
+        from: dir,
+      );
+      Map<String, XmlElement> targets(
+        XmlElement root,
+        String tag,
+        String attr,
+      ) => {
+        for (final link in root.descendants.whereType<XmlElement>())
+          if (link.name.local == tag && link.getAttribute(attr) != null)
+            localHref(link.getAttribute(attr)!): link.parentElement!,
+      };
       if (isNav) {
         final nav = doc.descendants.whereType<XmlElement>().firstWhere(
           (node) =>
@@ -224,6 +340,7 @@ class OnlineEpubUpdate {
         final list = nav.descendants.whereType<XmlElement>().firstWhere(
           (node) => node.name.local == 'ol',
         );
+        final nodes = <XmlElement>[];
         for (final li in element(next, 'ol').childElements) {
           final copy = li.copy();
           for (final anchor in copy.descendants.whereType<XmlElement>().where(
@@ -237,16 +354,15 @@ class OnlineEpubUpdate {
               ),
             );
           }
-          list.children.add(copy);
+          nodes.add(copy);
         }
+        merge(list, targets(list, 'a', 'href'), nodes);
       } else {
         final map = element(doc, 'navMap');
-        final count = map.childElements.length;
-        var offset = 0;
+        final nodes = <XmlElement>[];
         for (final point in element(next, 'navMap').childElements) {
           final copy = point.copy();
           copy.setAttribute('id', '$idPrefix${point.getAttribute('id')}');
-          copy.setAttribute('playOrder', '${count + ++offset}');
           for (final content in copy.descendants.whereType<XmlElement>().where(
             (node) => node.name.local == 'content',
           )) {
@@ -258,39 +374,76 @@ class OnlineEpubUpdate {
               ),
             );
           }
-          map.children.add(copy);
+          nodes.add(copy);
+        }
+        merge(map, targets(map, 'content', 'src'), nodes);
+        var order = 0;
+        for (final point in map.descendants.whereType<XmlElement>()) {
+          if (point.name.local == 'navPoint') {
+            point.setAttribute('playOrder', '${++order}');
+          }
         }
       }
       replacements[path] = doc.toXmlString();
     }
     final nextIndex =
         jsonDecode(read(incoming, 'OEBPS/online_chapters.json')) as Map;
-    final upgraded = [
-      for (var index = 0; index < chapters.length; index++)
-        {
-          ...chapters[index],
-          'url': remote[index].url,
-          'volume': remote[index].volume,
-          'requestOptions': jsonEncode(remote[index].requestOptions),
-        },
-      for (final (offset, item)
-          in (nextIndex['chapters'] as List)
-              .whereType<Map<Object?, Object?>>()
-              .indexed)
-        {
-          ...item,
-          'href': '$prefix/${item['href']}',
-          'url': remote[chapters.length + offset].url,
-          'volume': remote[chapters.length + offset].volume,
-          'requestOptions': jsonEncode(
-            remote[chapters.length + offset].requestOptions,
-          ),
-        },
-    ];
+    final incomingRows = (nextIndex['chapters'] as List)
+        .cast<Map<String, Object?>>();
+    var storedIndex = 0;
+    var newIndex = 0;
+    final upgraded = <Map<String, String>>[];
+    for (final (index, chapter) in remote.indexed) {
+      final row = additions.contains(index)
+          ? {
+              'href': '$prefix/${incomingRows[newIndex++]['href']}',
+              'title': chapter.title,
+            }
+          : chapters[storedIndex++];
+      upgraded.add({
+        ...row,
+        'url': chapter.url,
+        'volume': chapter.volume,
+        'requestOptions': jsonEncode(chapter.requestOptions),
+      });
+    }
     replacements['$dir/online_chapters.json'] = jsonEncode({
       'version': 1,
       'chapters': upgraded,
     });
+    if (original.findFile(OnlineEpubMetadata.indexPath) != null) {
+      final metadata =
+          jsonDecode(read(original, OnlineEpubMetadata.indexPath)) as Map;
+      final oldRows = (metadata['chapters'] as List)
+          .cast<Map<String, Object?>>();
+      final byHref = {
+        for (final row in oldRows)
+          p.posix.normalize(
+            '${row['href']}'.replaceFirst(RegExp(r'^OEBPS/'), ''),
+          ): row,
+      };
+      final absoluteHrefs = oldRows.any(
+        (row) => '${row['href']}'.startsWith('OEBPS/'),
+      );
+      metadata['chapters'] = [
+        for (final (index, row) in upgraded.indexed)
+          {
+            ...?byHref[row['href']],
+            'href':
+                byHref[row['href']]?['href'] ??
+                (absoluteHrefs
+                    ? p.posix.normalize('$dir/${row['href']}')
+                    : row['href']),
+            'title': row['title'],
+            'volumeTitle': remote[index].volume,
+            'url': remote[index].requestOptions.isEmpty
+                ? remote[index].url
+                : '${remote[index].url},${jsonEncode(remote[index].requestOptions)}',
+            'state': 'READY',
+          },
+      ];
+      replacements[OnlineEpubMetadata.indexPath] = jsonEncode(metadata);
+    }
     final output = Archive()
       ..addFile(
         ArchiveFile.noCompress(
@@ -319,6 +472,26 @@ class OnlineEpubUpdate {
     }
     return Uint8List.fromList(ZipEncoder().encodeBytes(output));
   }
+}
+
+bool _matchesChapter(Map<String, String> stored, OnlineChapter chapter) {
+  final url = stored['url'] ?? '';
+  if (url.isEmpty) {
+    return stored['title']?.trim() == chapter.title.trim() &&
+        ((stored['volume'] ?? '').isEmpty ||
+            stored['volume'] == chapter.volume);
+  }
+  final request = splitBookSourceUrlOptions(url);
+  if (stored.containsKey('requestOptions') ||
+      request.options.isNotEmpty ||
+      chapter.requestOptions.isNotEmpty) {
+    return onlineRequestIdentity(
+          url,
+          bookSourceRuleMap(stored['requestOptions']),
+        ) ==
+        onlineChapterIdentity(chapter);
+  }
+  return _chapterKey(url) == _chapterKey(chapter.url);
 }
 
 String _chapterKey(String value) {

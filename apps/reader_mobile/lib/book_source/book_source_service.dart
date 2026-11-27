@@ -63,6 +63,17 @@ const List<String> _onlineUpdateTimeFields = <String>[
   'first_pass_time',
 ];
 
+const _onlineLastChapterFields = [
+  'lastChapter',
+  'latestChapter',
+  'last_chapter',
+  'last_chapter_title',
+  'latest_chapter_name',
+  'lastChapterTitle',
+  'latest_chapter_title',
+  'latestChapterTitle',
+];
+
 /// 单个来源的搜索结果或错误。
 class OnlineSourceSearchResult {
   const OnlineSourceSearchResult({
@@ -836,17 +847,12 @@ class BookSourceService {
           ]);
           if (thumbnail.isNotEmpty) cover = thumbnail;
         }
-        final lastChapter = _field(node, fields.lastChapter, context, script)
-            .ifBlank(
-              _commonJsonField(node, const <String>[
-                'lastChapter',
-                'latestChapter',
-                'last_chapter',
-                'last_chapter_title',
-                'latest_chapter_name',
-                'lastChapterTitle',
-              ]),
-            );
+        final lastChapter = _field(
+          node,
+          fields.lastChapter,
+          context,
+          script,
+        ).ifBlank(_commonJsonField(node, _onlineLastChapterFields));
         final kindRaw = _field(node, fields.kind, context, script).ifBlank(
           _commonJsonField(node, const <String>[
             'kind',
@@ -978,12 +984,10 @@ class BookSourceService {
         context,
         script,
       );
-      final lastChapter = _field(
-        root,
-        source.bookInfo.lastChapter,
-        context,
-        script,
-      ).ifBlank(book.lastChapter);
+      final lastChapter =
+          _field(root, source.bookInfo.lastChapter, context, script)
+              .ifBlank(_commonJsonField(root, _onlineLastChapterFields))
+              .ifBlank(book.lastChapter);
       final kindRaw = _field(
         root,
         source.bookInfo.kind,

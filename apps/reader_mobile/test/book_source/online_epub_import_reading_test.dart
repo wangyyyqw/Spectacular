@@ -738,6 +738,46 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
+  testWidgets('无本地差集时书架展示最新章节时间或详情标题，不默认显示末卷', (tester) async {
+    final f = (await tester.runAsync(_Fixture.create))!;
+    addTearDown(f.dispose);
+    await pumpReaderTask(tester, f.library.importBytes(_epub()));
+    f.remoteChapters = [
+      {
+        'title': '第一章正文',
+        'url': '/1',
+        'volume_name': '正文',
+        'time': '2026-11-21',
+      },
+      {'title': '旧番外', 'url': '/2', 'volume_name': '番外', 'time': '2024-01-01'},
+    ];
+    await pumpReaderTask(tester, f.controller.registerImportedBooks());
+    await pumpReaderTask(
+      tester,
+      f.library.setSetting('bookshelf.grid', 'false'),
+    );
+    await pumpReaderTask(tester, f.controller.refreshShelfOnlineUpdates());
+    await tester.pumpWidget(
+      MaterialApp(
+        home: BookshelfPage(
+          library: f.library,
+          progressStore: f.progress,
+          onlineBooks: f.controller,
+        ),
+      ),
+    );
+    await pumpReaderUntil(tester, find.textContaining(' · 第一章正文'));
+    f.latestTitle = '书源公告的新章';
+    await pumpReaderTask(tester, f.controller.refreshShelfOnlineUpdates());
+    await pumpReaderUntil(tester, find.textContaining(' · 书源公告的新章'));
+    expect(find.textContaining(' · 旧番外'), findsNothing);
+    expect(
+      f.requested.where((url) => RegExp(r'^/\d+$').hasMatch(url)),
+      isEmpty,
+    );
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets('书架打开在线同步书等待目录，退出首帧恢复入口并保留身份和续读', (tester) async {
     final f = (await tester.runAsync(_Fixture.create))!;
     addTearDown(f.dispose);
@@ -1040,6 +1080,7 @@ Map<String, Object?> _sourceJson() => {
     'chapterList': r'$.chapters[*]',
     'chapterName': r'$.title',
     'chapterUrl': r'$.url',
+    'updateTime': r'$.time',
   },
   'ruleContent': {'content': r'$.content'},
 };
@@ -1067,6 +1108,7 @@ class _Fixture {
   final requestUrls = <Uri>[];
   final requestBodies = <String>[];
   String tocUrl = '/toc';
+  String latestTitle = '';
   List<int> remoteOrder = [1, 2, 3];
   List<Map<String, Object?>>? remoteChapters;
   Completer<void>? catalogGate;
@@ -1115,7 +1157,10 @@ class _Fixture {
           }
           return http.Response(
             jsonEncode(switch (path) {
-              '/book' => {'toc': fixture.tocUrl},
+              '/book' => {
+                'toc': fixture.tocUrl,
+                'last_chapter_title': fixture.latestTitle,
+              },
               '/toc' => {
                 'chapters':
                     fixture.remoteChapters ??
