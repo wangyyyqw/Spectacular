@@ -47,13 +47,22 @@ void FlutterWindow::RegisterAppearanceChannel() {
       "com.spectacular.reader_mobile/window",
       &flutter::StandardMethodCodec::GetInstance());
   channel.SetMethodCallHandler([this](const auto& call, auto result) {
-    if (call.method_name() != "setDarkMode") {
-      result->NotImplemented();
-    } else if (const auto* dark = std::get_if<bool>(call.arguments())) {
-      SetTitleBarDarkMode(*dark);
-      result->Success();
+    if (call.method_name() == "setDarkMode") {
+      if (const auto* dark = std::get_if<bool>(call.arguments())) {
+        SetWindowDarkMode(*dark);
+        result->Success();
+      } else {
+        result->Error("invalid_argument");
+      }
+    } else if (call.method_name() == "setReaderWindowMode") {
+      if (const auto* reading = std::get_if<bool>(call.arguments())) {
+        SetReaderWindowMode(*reading);
+        result->Success();
+      } else {
+        result->Error("invalid_argument");
+      }
     } else {
-      result->Error("invalid_argument");
+      result->NotImplemented();
     }
   });
 }

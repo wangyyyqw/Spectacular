@@ -15,6 +15,7 @@ import 'reader_settings.dart';
 import 'reader_background_store.dart';
 import 'reader_decoration_image_store.dart';
 import 'reader_font_store.dart';
+import 'reader_route.dart';
 
 /// 统一处理打开图书的读盘、转场、设置持久化与最近阅读更新时间。
 class BookOpener {
@@ -169,6 +170,7 @@ class BookOpener {
   ) {
     final readerBuilder = _readerBuilder(entry, opening);
     return PageRouteBuilder<EpubReaderExit>(
+      settings: const RouteSettings(name: readerWindowRouteName),
       transitionDuration: const Duration(milliseconds: 220),
       reverseTransitionDuration: Duration.zero,
       pageBuilder: (_, _, _) {

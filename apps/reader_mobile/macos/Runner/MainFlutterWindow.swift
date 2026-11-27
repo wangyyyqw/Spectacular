@@ -10,11 +10,12 @@ class MainFlutterWindow: NSWindow, NSWindowDelegate {
   )
 
   private var windowChannel: FlutterMethodChannel?
+  private var isReaderWindowMode = false
 
   override func awakeFromNib() {
     self.appearance = NSAppearance(named: .aqua)
     self.titlebarSeparatorStyle = .none
-    // 标题栏融入内容：隐藏标题文字，保留左上角红绿灯。
+    // 标题栏融入内容，非阅读页保留左上角系统窗口按钮。
     self.titleVisibility = .hidden
     self.titlebarAppearsTransparent = true
     self.styleMask.insert(.fullSizeContentView)
@@ -54,6 +55,18 @@ class MainFlutterWindow: NSWindow, NSWindowDelegate {
         self?.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
         self?.backgroundColor = dark ? Self.darkBackground : .white
         result(nil)
+      case "setReaderWindowMode":
+        guard let reading = call.arguments as? Bool else {
+          result(FlutterError(code: "invalid_argument", message: nil, details: nil))
+          return
+        }
+        self?.isReaderWindowMode = reading
+        self?.updateWindowControls()
+        result(nil)
+        self?.windowChannel?.invokeMethod(
+          "windowInsetsChanged",
+          arguments: self?.windowInsets
+        )
       case "getWindowInsets":
         result(self?.windowInsets ?? ["top": 0.0])
       default:
@@ -89,13 +102,23 @@ class MainFlutterWindow: NSWindow, NSWindowDelegate {
   }
 
   private var windowInsets: [String: Any] {
-    // 标准窗口标题栏高度；全屏时红绿灯隐藏，不再占用顶部空间。
-    let top = styleMask.contains(.fullScreen) ? 0.0 : 28.0
+    let top = styleMask.contains(.fullScreen) || isReaderWindowMode ? 0.0 : 28.0
     return ["top": top]
   }
 
+  private func updateWindowControls() {
+    for button in [
+      NSWindow.ButtonType.closeButton,
+      .miniaturizeButton,
+      .zoomButton,
+    ] {
+      standardWindowButton(button)?.isHidden = isReaderWindowMode
+    }
+  }
+
   private func updateWindowBackground() {
-    let dark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua])
+    let dark =
+      effectiveAppearance.bestMatch(from: [.darkAqua, .aqua])
       == .darkAqua
     backgroundColor = dark ? Self.darkBackground : .white
   }
@@ -103,4 +126,5 @@ class MainFlutterWindow: NSWindow, NSWindowDelegate {
   @objc private func windowFullScreenChanged(_ notification: Notification) {
     windowChannel?.invokeMethod("windowInsetsChanged", arguments: windowInsets)
   }
+
 }

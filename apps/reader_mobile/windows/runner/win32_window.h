@@ -50,7 +50,8 @@ class Win32Window {
   RECT GetClientArea();
 
  protected:
-  void SetTitleBarDarkMode(bool dark);
+  void SetWindowDarkMode(bool dark);
+  void SetReaderWindowMode(bool reading);
 
   // 处理并分发鼠标、尺寸变化和 DPI 相关窗口消息，委托给子类可重写的成员函数。
   virtual LRESULT MessageHandler(HWND window,
@@ -77,14 +78,15 @@ class Win32Window {
   // 获取 |window| 对应的类实例指针。
   static Win32Window* GetThisFromHandle(HWND const window) noexcept;
 
-  void UpdateTitleBar(HWND const window);
+  void UpdateWindowFrame(HWND const window);
 
   // 在当前用户的应用偏好中保存、恢复窗口大小和显示状态。
   void RestorePlacement();
   void SavePlacement();
 
   bool quit_on_close_ = false;
-  bool dark_title_bar_ = false;
+  bool dark_window_frame_ = false;
+  bool reader_window_mode_ = false;
   UINT show_command_ = SW_SHOWNORMAL;
 
   // 顶层窗口句柄。

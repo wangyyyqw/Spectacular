@@ -7,8 +7,10 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/main.dart';
+import 'package:reader_mobile/reader/reader_route.dart';
 import 'package:reader_mobile/storage/db.dart';
 import 'package:reader_ui/reader_session.dart';
+import 'package:reader_ui/theme/reader_common_widgets.dart';
 import 'package:reader_ui/theme/reader_sheet_form.dart';
 
 import '../support/reader_pump.dart';
@@ -62,7 +64,7 @@ Future<void> _selectMode(
   await tester.tap(
     find.descendant(
       of: drawer,
-      matching: find.widgetWithText(RadioListTile<ThemeMode>, label),
+      matching: find.widgetWithText(ReaderOptionTile, label),
     ),
   );
   await pumpReaderUntilComplete(
@@ -79,6 +81,56 @@ Future<void> _selectMode(
 }
 
 void main() {
+  testWidgets(
+    '仅阅读路由隐藏系统标题栏，其他路由及离开阅读后恢复',
+    (tester) async {
+      final modes = <bool>[];
+      const window = MethodChannel('com.spectacular.reader_mobile/window');
+      final messenger = tester.binding.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(window, (call) async {
+        if (call.method == 'getWindowInsets') return {'top': 28.0};
+        if (call.method == 'setReaderWindowMode') {
+          modes.add(call.arguments as bool);
+          return null;
+        }
+        if (call.method == 'setDarkMode') return null;
+        fail('未知桌面窗口方法：${call.method}');
+      });
+      addTearDown(() => messenger.setMockMethodCallHandler(window, null));
+
+      await _showApp(tester);
+      final navigator = tester.state<NavigatorState>(find.byType(Navigator));
+      navigator.push<void>(
+        MaterialPageRoute<void>(
+          settings: const RouteSettings(name: readerWindowRouteName),
+          builder: (_) => const Scaffold(body: Text('阅读页')),
+        ),
+      );
+      await _pumpApp(tester);
+      expect(modes, [true]);
+
+      navigator.push<void>(
+        MaterialPageRoute<void>(
+          builder: (_) => const Scaffold(body: Text('阅读设置')),
+        ),
+      );
+      await _pumpApp(tester);
+      expect(modes, [true, false]);
+
+      navigator.pop();
+      await _pumpApp(tester);
+      expect(modes, [true, false, true]);
+      navigator.pop();
+      await _pumpApp(tester);
+      expect(modes, [true, false, true, false]);
+      expect(tester.takeException(), isNull);
+    },
+    variant: const TargetPlatformVariant({
+      TargetPlatform.macOS,
+      TargetPlatform.windows,
+    }),
+  );
+
   testWidgets('应用四页保留可见的状态栏和导航栏图标样式', (tester) async {
     await _showApp(tester);
     for (final label in ['书架', '统计', '笔记', '我的']) {
@@ -138,6 +190,7 @@ void main() {
       const window = MethodChannel('com.spectacular.reader_mobile/window');
       final messenger = tester.binding.defaultBinaryMessenger;
       messenger.setMockMethodCallHandler(window, (call) async {
+        if (call.method == 'getWindowInsets') return {'top': 28.0};
         expect(call.method, 'setDarkMode');
         windowModes.add(
           call.arguments as bool? ??
@@ -218,6 +271,8 @@ void main() {
       const window = MethodChannel('com.spectacular.reader_mobile/window');
       final messenger = tester.binding.defaultBinaryMessenger;
       messenger.setMockMethodCallHandler(window, (call) async {
+        if (call.method == 'getWindowInsets') return {'top': 28.0};
+        if (call.method == 'setReaderWindowMode') return null;
         windowArguments.add(call.arguments);
         windowModes.add(
           call.arguments as bool? ??
@@ -294,14 +349,14 @@ void main() {
       expect(drawer, findsOneWidget);
       expect(
         tester
-            .widget<RadioGroup<ThemeMode>>(
+            .widget<ReaderOptionTile>(
               find.descendant(
                 of: drawer,
-                matching: find.byType(RadioGroup<ThemeMode>),
+                matching: find.widgetWithText(ReaderOptionTile, '跟随系统'),
               ),
             )
-            .groupValue,
-        ThemeMode.system,
+            .selected,
+        isTrue,
       );
       await tester.tap(
         find.descendant(of: drawer, matching: find.byTooltip('关闭')),

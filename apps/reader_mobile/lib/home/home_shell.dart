@@ -75,7 +75,7 @@ class HomeShell extends StatefulWidget {
   final VoidCallback? onBookshelfReady;
   final VoidCallback? onSyncPreferences;
 
-  /// macOS 标题栏红绿灯区域的顶部高度；侧边栏背景需要补到该区域。
+  /// macOS 系统标题栏的高度，侧边栏背景需要延伸覆盖该区域。
   final double windowTopInset;
 
   @override
