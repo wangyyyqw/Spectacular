@@ -20,6 +20,7 @@ import 'package:reader_mobile/book_source/online_chapter_content_store.dart';
 import 'package:reader_mobile/book_source/online_chapter_request.dart';
 import 'package:reader_mobile/book_source/online_reading_book.dart';
 import 'package:reader_mobile/book_source/online_search_page.dart';
+import 'package:reader_mobile/home/stats_page.dart';
 import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/reader/book_opener.dart';
 import 'package:reader_mobile/reader/reader_settings.dart';
@@ -34,6 +35,80 @@ import '../support/reader_pump.dart';
 import '../support/test_epub.dart';
 
 void main() {
+  testWidgets('统计排行用书架身份打开在线书，慢刷新时也能读取刚检查到的插章', (tester) async {
+    final fixture = (await tester.runAsync(() => _ReadingFixture.create(2)))!;
+    addTearDown(() => fixture.dispose(tester: tester));
+    final entry = await pumpReaderTask(
+      tester,
+      fixture.controller.addToShelf(
+        fixture.source,
+        fixture.readingBook.book,
+        fixture.readingBook.chapters,
+      ),
+    );
+    fixture.remoteOrder = [1, 3, 2];
+    await pumpReaderTask(tester, fixture.controller.refreshShelfOnlineUpdates());
+    final snapshot = await pumpReaderTask(
+      tester,
+      fixture.controller.catalogs.read(fixture.source, fixture.readingBook.book),
+    );
+    expect(snapshot!.chapters.map((chapter) => chapter.title), [
+      '第1章', '第3章', '第2章',
+    ]);
+    final now = DateTime(2026, 11, 27, 12);
+    await pumpReaderTask(
+      tester,
+      fixture.library.readingSessionStore()!.add(
+        bookId: entry.id,
+        startedAt: now.subtract(const Duration(minutes: 6)),
+        endedAt: now,
+      ),
+    );
+    final progress = MemoryReaderProgressStore();
+    fixture.catalogGate = Completer<void>();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: StatsPage(
+          library: fixture.library,
+          progressStore: progress,
+          now: now,
+          bookOpener: BookOpener(
+            library: fixture.library,
+            progressStore: progress,
+            onlineBooks: fixture.controller,
+          ),
+        ),
+      ),
+    );
+    final ranking = find.byKey(ValueKey('stats-ranking-${entry.id}'));
+    final total = find.byKey(const ValueKey('stats-book-duration-period-total'));
+    await pumpReaderUntil(tester, total);
+    await tester.ensureVisible(total);
+    await tester.tap(total);
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      ranking,
+      300,
+      scrollable: find.byWidgetPredicate(
+        (widget) => widget is Scrollable && widget.axisDirection == AxisDirection.down,
+      ).first,
+    );
+    await tester.tap(ranking);
+    await pumpReaderUntil(tester, find.byType(ReaderPage));
+    final page = tester.widget<ReaderPage>(find.byType(ReaderPage));
+    expect(page.bookId, entry.id);
+    final chapter = await pumpReaderTask(
+      tester,
+      (page.source as EpubChapterSource).loadAnchorChapter(1),
+    );
+    expect(chapter.text, contains('第3章的缓存正文'));
+    expect(fixture.requested, contains('/3'));
+    fixture.catalogGate!.complete();
+    Navigator.of(tester.element(find.byType(ReaderPage))).pop();
+    await pumpReaderUntil(tester, ranking);
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets('详情在线阅读复用封面动画及书签标注装饰存储，缓存目录显示云朵', (tester) async {
     final f = (await tester.runAsync(() => _ReadingFixture.create(4)))!;
     addTearDown(() => f.dispose(tester: tester));

@@ -347,6 +347,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
       active: _index == 1,
     ),
     2 => StatsPage(
+      bookOpener: _bookOpener,
       library: widget.library,
       progressStore: _progressStore,
       refreshToken: _statsRefreshToken,

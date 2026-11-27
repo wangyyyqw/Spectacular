@@ -34,6 +34,7 @@ class StatsPage extends StatefulWidget {
     this.refreshToken = 0,
     this.active = true,
     this.onReadingFinished,
+    this.bookOpener,
     this.reaMicro,
     this.now,
   });
@@ -58,6 +59,7 @@ class StatsPage extends StatefulWidget {
 
   /// 阅读会话落盘并关闭阅读页后通知，供阅微自动同步。
   final VoidCallback? onReadingFinished;
+  final BookOpener? bookOpener;
 
   /// 阅微同步控制器；登录后统计页展示云端完整阅读数据。
   final ReaMicroController? reaMicro;
@@ -70,7 +72,13 @@ class StatsPage extends StatefulWidget {
 }
 
 class _StatsPageState extends State<StatsPage> {
-  late final BookOpener _bookOpener;
+  late final BookOpener _fallbackOpener = BookOpener(
+    library: widget.library,
+    progressStore: widget.progressStore,
+    onReadingFinished: widget.onReadingFinished,
+    loadTtsVoices: widget.reaMicro == null ? null : _loadTtsVoices,
+  );
+  BookOpener get _bookOpener => widget.bookOpener ?? _fallbackOpener;
   late final ReadingBookColorCache _bookColors =
       widget.bookColorCache ??
       ReadingBookColorCache(store: SettingsBookColorStore(widget.library));
@@ -98,12 +106,6 @@ class _StatsPageState extends State<StatsPage> {
     widget.library.addListener(_onLibraryChanged);
     widget.reaMicro?.addListener(_onReaMicroChanged);
     _cloudMode = _useCloudStats;
-    _bookOpener = BookOpener(
-      library: widget.library,
-      progressStore: widget.progressStore,
-      onReadingFinished: widget.onReadingFinished,
-      loadTtsVoices: widget.reaMicro == null ? null : _loadTtsVoices,
-    );
     if (widget.active) _reload();
   }
 
@@ -459,8 +461,7 @@ class _StatsPageState extends State<StatsPage> {
           .showSnackBar(const SnackBar(content: Text('本地书籍已不在书架中')));
       return;
     }
-    await _bookOpener.open(context, book);
-    if (mounted) await _reload();
+    await _openBook(book);
   }
 
   @override
