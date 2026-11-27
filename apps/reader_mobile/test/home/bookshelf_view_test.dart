@@ -377,8 +377,13 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('测试作者'), findsNWidgets(entries.length));
-    expect(find.text('已读 0 分钟'), findsNWidgets(entries.length));
-    expect(find.text('已读 0 / 1 章'), findsNWidgets(entries.length));
+    expect(find.text('尚未开始阅读'), findsNWidgets(entries.length));
+    for (final entry in entries) {
+      expect(
+        find.byKey(ValueKey('book-row-progress-${entry.id}')),
+        findsOneWidget,
+      );
+    }
     expect(find.textContaining('文件名与元数据不同'), findsNothing);
     expect(
       find.byWidgetPredicate(

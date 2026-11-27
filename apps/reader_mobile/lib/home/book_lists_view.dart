@@ -625,7 +625,7 @@ class _BookListDetailSheetState extends State<_BookListDetailSheet> {
                           overflow: TextOverflow.ellipsis,
                         ),
                         subtitle: Text(
-                          entry.author.isEmpty ? '未知作者' : entry.author,
+                          entry.author.trim().isEmpty ? '佚名' : entry.author,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
@@ -726,7 +726,7 @@ class _BookPickerSheetState extends State<_BookPickerSheet> {
                               overflow: TextOverflow.ellipsis,
                             ),
                             subtitle: Text(
-                              book.author.isEmpty ? '未知作者' : book.author,
+                              book.author.trim().isEmpty ? '佚名' : book.author,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                             ),

@@ -14,6 +14,7 @@ import 'package:reader_core/position/location_anchor.dart';
 import 'package:reader_core/source/chapter_source.dart'
     show ChapterLayoutPriority, ChapterLoadCancelled;
 import 'package:reader_core/source/toc.dart' show flattenToc;
+import 'package:reader_core/text/reader_text_conversion.dart';
 
 import '../../util/bounded_cache.dart';
 import 'book_resources.dart';
@@ -87,11 +88,18 @@ typedef _StructureConfig = ({
 });
 
 class _StructureInput {
-  const _StructureInput(this.parsed, this.sheets, this.footnotes, this.config);
+  const _StructureInput(
+    this.parsed,
+    this.sheets,
+    this.footnotes,
+    this.config,
+    this.textConversion,
+  );
   final ParsedDocument parsed;
   final List<CssStylesheet> sheets;
   final Map<String, FootnoteAnchor> footnotes;
   final _StructureConfig config;
+  final ReaderTextConversion? textConversion;
 }
 
 /// 只保存三章准备数据，关闭后晚到 isolate 结果不能回填。
@@ -109,6 +117,7 @@ class ChapterStructureStore {
   final ComputedStyle baseStyle;
   final ChapterPreviewCache<ChapterStructure>? previewCache;
   final Map<String, String> resourceVersions;
+  ReaderTextConversion? textConversion;
   late final _cache = BoundedCache<String, ChapterStructure>(
     capacity,
     isPinned: (key) => key == _currentKey || key == _visibleKey,
@@ -177,6 +186,7 @@ class ChapterStructureStore {
       config.title,
       config.readable,
       config.fixed,
+      textConversion?.id,
     ]);
   }
 
@@ -250,7 +260,13 @@ class ChapterStructureStore {
       resources.scheduleFootnotes(spine, priority: task.priority),
     );
     task.check();
-    return _StructureInput(parsed, sheets, footnotes, _config(spine, width));
+    return _StructureInput(
+      parsed,
+      sheets,
+      footnotes,
+      _config(spine, width),
+      textConversion,
+    );
   }
 
   void _check(int epoch, PreparationTask task) {
@@ -314,7 +330,11 @@ ChapterStructure _buildStructure(_StructureInput input) {
     input.config.width,
     input.sheets,
   );
-  final display = buildAnchorDisplayDocument(input.parsed, input.footnotes, raw);
+  final display = buildAnchorDisplayDocument(
+    input.parsed,
+    input.footnotes,
+    raw,
+  );
   final structural = analyzeFullBleed(display);
   final visible = structural.isFullBleed || input.config.fixed
       ? analyzeFullBleed(
@@ -328,7 +348,8 @@ ChapterStructure _buildStructure(_StructureInput input) {
   final fonts = raw.collectFonts(selectors.chains, input.sheets);
   return ChapterStructure(
     parsed: input.parsed,
-    document: document,
+    // 原文锚点先生成；只替换用于排版的文字树，并保留每个来源 CFI。
+    document: input.textConversion?.apply(document) ?? document,
     selectors: selectors,
     anchor: AnchorChapter(
       spineIndex: input.parsed.spineIndex,

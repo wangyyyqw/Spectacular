@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/font_face.dart';
+import 'package:reader_core/text/reader_text_conversion.dart';
 import 'package:reader_ui/panels/settings_panel.dart';
 import 'package:reader_ui/footnote_dialog.dart';
 import 'package:drift/native.dart';
@@ -82,6 +83,7 @@ void main() {
     final store = ReaderSettingsStore(library);
     await library.setSetting(ReaderSettingsStore.keyThemeId, 'sepia');
     final legacy = await store.load();
+    expect(legacy.chineseMode, ReaderChineseMode.original);
     expect(legacy.themeForBrightness(Brightness.light), ReaderTheme.sepia);
     expect(legacy.themeForBrightness(Brightness.dark), ReaderTheme.black);
 
@@ -90,6 +92,7 @@ void main() {
         .copyWithTheme('moss')
         .copyWithFootnoteStyle(ReaderFootnoteStyle.bubble)
         .copyWithTts(tts)
+        .copyWithChineseMode(ReaderChineseMode.traditional)
         .copyWithBackgroundImageOpacity(0.65);
     for (final changed in [
       settings.copyWithOverrides(settings.overrides.copyWith(fontSize: 22)),
@@ -111,6 +114,7 @@ void main() {
       final reloaded = await store.load();
       expect(reloaded, changed);
       expect(reloaded.tts, tts);
+      expect(reloaded.chineseMode, ReaderChineseMode.traditional);
       expect(reloaded.footnoteStyle, changed.footnoteStyle);
       expect(reloaded.backgroundImageOpacity, 0.65);
       expect(reloaded.themeForBrightness(Brightness.light), ReaderTheme.sepia);
@@ -126,6 +130,8 @@ void main() {
       reloaded.forBrightness(Brightness.dark).backgroundImageOpacity,
       0.65,
     );
+    await library.setSetting(ReaderSettingsStore.keyChineseMode, 'invalid');
+    expect((await store.load()).chineseMode, ReaderChineseMode.original);
     expect(
       ReaderSettings.fromOverrides(
         settings.overrides,

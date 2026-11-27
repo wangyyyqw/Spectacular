@@ -151,7 +151,26 @@ void main() {
     await tester.pumpAndSettle();
     final body = find.byKey(const ValueKey('reviews-section-body'));
 
-    await tester.drag(body, const Offset(-220, 0));
+    final gesture = await tester.startGesture(tester.getCenter(body));
+    await gesture.moveBy(const Offset(-80, 0));
+    await tester.pump();
+    await gesture.moveBy(const Offset(-80, 0));
+    await tester.pump();
+    final pages = tester
+        .widgetList<FractionalTranslation>(
+          find.descendant(
+            of: body,
+            matching: find.byType(FractionalTranslation),
+          ),
+        )
+        .toList();
+    expect(pages, hasLength(2));
+    expect(pages.first.translation.dx, lessThan(0));
+    expect(
+      pages.last.translation.dx - pages.first.translation.dx,
+      closeTo(1, .01),
+    );
+    await gesture.up();
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('review-pending-book')), findsOneWidget);
 

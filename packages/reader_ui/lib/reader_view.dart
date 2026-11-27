@@ -296,17 +296,15 @@ class _ReaderDominantHorizontalDragRecognizer
   }
 }
 
-/// 水平路径沿用既有起拖采样，向上斜滑越过横向容差即可起拖。
+/// 水平及向上斜滑越过设备容差即可起拖，不额外等待后续 MOVE。
 class _ReaderHorizontalDragRecognizer extends HorizontalDragGestureRecognizer {
   _ReaderHorizontalDragRecognizer({super.debugOwner});
 
   bool _started = false;
-  PointerMoveEvent? _sample;
-  PointerMoveEvent? _anchor;
-  int _moveCount = -1;
+  PointerEvent? _sample;
+  PointerEvent? _anchor;
   int? _acceptedPointer;
   bool _panZoom = false;
-  bool _upwardDiagonal = false;
 
   /// 仅在起拖前停止多指检测，由 SDK 拒绝竞争并发出取消回调。
   bool cancelPending() {
@@ -329,7 +327,9 @@ class _ReaderHorizontalDragRecognizer extends HorizontalDragGestureRecognizer {
   @override
   void handleEvent(PointerEvent event) {
     if (!_started) {
-      if (event is PointerMoveEvent && !event.synthesized) {
+      if (event is PointerDownEvent) {
+        _sample = event;
+      } else if (event is PointerMoveEvent && !event.synthesized) {
         _sampleMove(event);
       } else if (event is! PointerMoveEvent) {
         _sample = null;
@@ -340,13 +340,10 @@ class _ReaderHorizontalDragRecognizer extends HorizontalDragGestureRecognizer {
   }
 
   void _sampleMove(PointerMoveEvent event) {
+    if (_anchor != null) return;
     final sample = _sample;
     if (sample == null || sample.pointer != event.pointer) {
       _sample = event;
-      return;
-    }
-    if (_moveCount >= 0) {
-      _moveCount++;
       return;
     }
     final delta = event.position - sample.position;
@@ -359,10 +356,8 @@ class _ReaderHorizontalDragRecognizer extends HorizontalDragGestureRecognizer {
     // 向上斜滑继续累计到横移越过设备容差，纯竖滑和小幅抖动不会起拖。
     if (upwardDiagonal && delta.dx.abs() <= slop) return;
     if (horizontal || upwardDiagonal) {
-      _moveCount = 0;
-      // 交付容差前的锚点和本次移动，短促斜滑不必等待额外采样。
-      _anchor = upwardDiagonal ? sample : event;
-      _upwardDiagonal = upwardDiagonal;
+      // 交付容差前的锚点和本次移动，首帧保留已经发生的横向位移。
+      _anchor = sample;
     }
     _sample = event;
   }
@@ -376,7 +371,7 @@ class _ReaderHorizontalDragRecognizer extends HorizontalDragGestureRecognizer {
           pointerDeviceKind,
           deviceTouchSlop,
         )
-      : _upwardDiagonal || _moveCount > 2;
+      : _anchor != null;
 
   void start(
     DragStartDetails details,
@@ -417,10 +412,8 @@ class _ReaderHorizontalDragRecognizer extends HorizontalDragGestureRecognizer {
     _started = false;
     _sample = null;
     _anchor = null;
-    _moveCount = -1;
     _acceptedPointer = null;
     _panZoom = false;
-    _upwardDiagonal = false;
   }
 
   @override

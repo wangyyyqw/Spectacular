@@ -18,6 +18,7 @@ import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/paint/image_cache.dart';
 import 'package:reader_core/perf/trace.dart';
 import 'package:reader_core/source/format_opener.dart';
+import 'package:reader_core/text/reader_text_conversion.dart';
 import 'package:reader_ui/loading_skeleton.dart';
 import 'package:reader_ui/annotations/annotation.dart';
 import 'package:reader_ui/decorations/decoration.dart';
@@ -53,6 +54,7 @@ import 'package:reader_core/epub/epub_format_opener.dart';
 
 import 'reading_session_tracker.dart';
 import 'reader_settings.dart';
+import 'reader_chinese_converter.dart';
 import 'reader_background_store.dart';
 import 'reader_background_color_theme.dart';
 import 'reader_font_store.dart';
@@ -222,6 +224,68 @@ class _EpubReaderPageState extends State<EpubReaderPage>
   String _contentRevision = '';
   List<ReaderFontOption> _customFonts = const [];
   bool _reportedClosingProgressFailure = false;
+  final _chineseConverter = ReaderChineseConverter();
+  bool _chineseConversionBusy = false;
+  bool _chineseModeFallback = false;
+
+  Future<void> _changeChineseMode(ReaderChineseMode mode) async {
+    final source = _source;
+    final session = _readerSession;
+    if (_chineseConversionBusy ||
+        source == null ||
+        session == null ||
+        mode == _settings.chineseMode) {
+      return;
+    }
+    final previous = _settings.chineseMode;
+    setState(() => _chineseConversionBusy = true);
+    var applied = false;
+    try {
+      final conversion = await _chineseConverter.load(mode);
+      await session.flushProgress();
+      if (!mounted || _closing) return;
+      source.applyTextConversion(conversion);
+      applied = true;
+      if (!await session.refreshLayout()) {
+        throw StateError('转换后的章节未能完成排版');
+      }
+      if (!mounted || _closing) return;
+      _changeSettings(_settings.copyWithChineseMode(mode));
+    } catch (error, stackTrace) {
+      recordAppError(
+        'reader_chinese_conversion_failed',
+        error,
+        stackTrace: stackTrace,
+      );
+      if (applied && mounted && !_closing) {
+        await _restoreChineseConversion(source, session, previous);
+      }
+      if (mounted && !_closing) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('简繁转换失败：$error')));
+      }
+    } finally {
+      if (mounted) setState(() => _chineseConversionBusy = false);
+    }
+  }
+
+  /// 转换失败时恢复原显示；恢复本身失败只记录，避免掩盖首次错误。
+  Future<void> _restoreChineseConversion(
+    EpubChapterSource source,
+    ReaderSession session,
+    ReaderChineseMode mode,
+  ) async {
+    try {
+      source.applyTextConversion(await _chineseConverter.load(mode));
+      await session.refreshLayout();
+    } catch (error, stackTrace) {
+      recordAppError(
+        'reader_chinese_conversion_restore_failed',
+        error,
+        stackTrace: stackTrace,
+      );
+    }
+  }
 
   Future<void> _prepareInitialSettings() async {
     final pending = widget.settingsFuture;
@@ -1002,7 +1066,30 @@ class _EpubReaderPageState extends State<EpubReaderPage>
         _prepareSource(revision, watch),
       ], eagerError: true);
       if (!mounted || _closing) return;
+      final mode = _settings.chineseMode;
+      if (mode != ReaderChineseMode.original) {
+        try {
+          _source!.applyTextConversion(await _chineseConverter.load(mode));
+        } catch (error, stackTrace) {
+          // 转换不可用不能阻止开书；退回原文并同步偏好。
+          recordAppError(
+            'reader_chinese_conversion_open_failed',
+            error,
+            stackTrace: stackTrace,
+          );
+          _source!.applyTextConversion(null);
+          _chineseModeFallback = true;
+        }
+      }
+      if (!mounted || _closing) return;
       _showSource();
+      if (!_chineseModeFallback) return;
+      _chineseModeFallback = false;
+      _changeSettings(
+        _settings.copyWithChineseMode(ReaderChineseMode.original),
+      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('简繁转换不可用，已显示原文')));
     } catch (error) {
       _openingFailed = true;
       if (mounted && !_closing) {
@@ -1375,6 +1462,9 @@ class _EpubReaderPageState extends State<EpubReaderPage>
       onToggleDayNight: AppThemeScope.maybeOf(context) == null
           ? null
           : _toggleDayNight,
+      chineseMode: settings.chineseMode,
+      onChineseModeChanged: (mode) => unawaited(_changeChineseMode(mode)),
+      chineseConversionBusy: _chineseConversionBusy,
       onBackgroundChanged: (backgroundId) =>
           _changeSettings(_activeSettings.copyWithBackground(backgroundId)),
       onBackgroundImageOpacityChanged: (opacity) => _changeSettings(

@@ -416,7 +416,7 @@ Future<({ReaderSession session, Completer<String?> resolved})>
 _startDelayedSearch(WidgetTester tester) async {
   final pending = await _showDelayedSearchReader(tester);
   await _openSearch(tester);
-  await tester.tap(find.byType(ListTile));
+  await tester.tap(find.byKey(const ValueKey('search-hit-0-200')));
   await tester.pumpAndSettle();
   return pending;
 }
@@ -1087,6 +1087,98 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  for (final start in [false, true]) {
+    testWidgets('单页${start ? '起点' : '终点'}跨行反复越过另一端仍保留固定端点并正确复制', (
+      tester,
+    ) async {
+      final clipboardText = _captureClipboard(tester);
+      final session = await _showReader(tester);
+      final page = session.page!;
+      await _selectWord(tester, page);
+      final lines = TextHitTester.lineBoxes(page);
+      Offset position(int line, double x) =>
+          Offset(lines[line].rect.left + x, lines[line].rect.center.dy);
+      await _dragHandle(tester, 'end', position(1, 112));
+      await _dragHandle(tester, 'start', position(1, 64));
+      final initial = _selectionLayer(tester).selection;
+      final fixed = start ? initial.end : initial.start;
+      final origin = tester.getTopLeft(find.byType(ReaderView));
+      final gesture = await tester.startGesture(
+        tester.getCenter(_handle(start ? 'start' : 'end')),
+      );
+      final targets = start
+          ? [
+              position(1, 144),
+              position(2, 64),
+              position(1, 112),
+              position(1, 80),
+              position(2, 96),
+            ]
+          : [
+              position(1, 48),
+              position(0, 80),
+              position(1, 64),
+              position(1, 96),
+              position(0, 32),
+            ];
+      for (final target in targets) {
+        await gesture.moveTo(origin + _padding.topLeft + target);
+        await tester.pump();
+        final actual = _selectionLayer(tester).selection;
+        final expected = ReaderSelection.normalized(
+          fixed,
+          SelectionOps.charAt(page, target),
+        );
+        expect(
+          (
+            actual.start.sliceIndex,
+            actual.start.lineIndex,
+            actual.start.charOffset,
+          ),
+          (
+            expected.start.sliceIndex,
+            expected.start.lineIndex,
+            expected.start.charOffset,
+          ),
+        );
+        expect(
+          (actual.end.sliceIndex, actual.end.lineIndex, actual.end.charOffset),
+          (
+            expected.end.sliceIndex,
+            expected.end.lineIndex,
+            expected.end.charOffset,
+          ),
+        );
+        expect(
+          identical(actual.start, fixed) || identical(actual.end, fixed),
+          isTrue,
+        );
+        expect(actual.startPageIndex, page.pageIndex);
+        expect(actual.endPageIndex, page.pageIndex);
+      }
+      await gesture.up();
+      await tester.pumpAndSettle();
+
+      // 松手后按新的起止顺序拖动，不能复用上一轮的固定端点。
+      final nextFixed = _selectionLayer(tester).selection.end;
+      final nextTarget = position(0, 16);
+      await _dragHandle(tester, 'start', nextTarget);
+      final next = _selectionLayer(tester).selection;
+      expect(next.end, same(nextFixed));
+      expect(next.start.lineIndex, 0);
+      expect(
+        next.start.charOffset,
+        SelectionOps.charAt(page, nextTarget).charOffset,
+      );
+      final expectedText = SelectionOps.textOf(page, next);
+      expect(expectedText, isNotEmpty);
+      await tester.tap(find.byKey(const ValueKey('selection-action-copy')));
+      await tester.pumpAndSettle();
+      expect(clipboardText(), expectedText);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   testWidgets('正文内缩不改变整页边缘跨页扩选热区', (tester) async {
     final session = await _showReader(tester);
     await _selectWord(tester, session.page!);
@@ -1354,7 +1446,7 @@ void main() {
     final observer = _NavigationObserver();
     await _pushSearchReader(tester, observer);
     await _openSearch(tester);
-    await tester.tap(find.byType(ListTile));
+    await tester.tap(find.byKey(const ValueKey('search-hit-0-10')));
     await tester.pumpAndSettle();
     expect(observer.pops, 0);
     expect(find.byType(ReaderPage), findsOneWidget);
@@ -1385,7 +1477,7 @@ void main() {
     final observer = _NavigationObserver();
     await _pushSearchReader(tester, observer, elementAnchor: true);
     await _openSearch(tester);
-    await tester.tap(find.byType(ListTile));
+    await tester.tap(find.byKey(const ValueKey('search-hit-0-10')));
     await tester.pumpAndSettle();
     expect(observer.pops, 0);
     expect(find.byType(ReaderPage), findsOneWidget);
@@ -1497,7 +1589,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(source.started.isCompleted, isTrue);
     await _openSearch(tester);
-    await tester.tap(find.byType(ListTile));
+    await tester.tap(find.byKey(const ValueKey('search-hit-0-200')));
     await tester.pumpAndSettle();
     final expected = pending.session.progress;
     final expectedCfi = pending.session.readingCfi;

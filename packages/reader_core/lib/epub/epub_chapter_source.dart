@@ -43,6 +43,7 @@ import 'chapter/chapter_layout_pipeline.dart';
 import 'chapter/chapter_block_walker.dart';
 import 'chapter/chapter_text_overlays.dart';
 import 'chapter/chapter_page_flags.dart';
+import '../text/reader_text_conversion.dart';
 import 'chapter/full_page_layout.dart';
 
 export 'chapter/chapter_page_flags.dart';
@@ -337,6 +338,19 @@ class EpubChapterSource
   String _overrideFingerprint = const ReaderOverrides().fingerprint;
 
   ChapterTextOverlays _chapterOverlays = ChapterTextOverlays(const []);
+  ReaderTextConversion? _textConversion;
+
+  /// 只失效显示树和分页；原文、进度锚点、书签与标注仍使用原始内容。
+  void applyTextConversion(ReaderTextConversion? conversion) {
+    if (_closed || _textConversion?.id == conversion?.id) return;
+    _textConversion = conversion;
+    _layoutGeneration += 1;
+    cancelPendingLayouts();
+    _structures.textConversion = conversion;
+    _clearViewportStructure();
+    _preparerTasks.clear();
+    _lastSnapshots.clear();
+  }
 
   /// 阅读页传入的正文区尺寸（旋转/窗口变化后由 ReaderSession 设置）。
   double? _viewportContentWidth;
@@ -455,7 +469,7 @@ class EpubChapterSource
       '|sides=${_contentSideInsets.left},${_contentSideInsets.right}'
       '|spacing=$textSpacingRevision|index=${PageIndex.currentSchemaVersion}'
       '|platform=${Platform.operatingSystem}:${Platform.operatingSystemVersion}'
-      '|${_overrides.fingerprint}';
+      '|${_overrides.fingerprint}|conversion=${_textConversion?.id ?? 'original'}';
 
   String get _preparationKey =>
       '$_configurationKey|generation=$_layoutGeneration';
@@ -639,6 +653,7 @@ class EpubChapterSource
   @override
   String get layoutDependency =>
       'base=$_baseStyleKey;'
+      'conversion=${_textConversion?.id ?? 'original'};'
       'fonts=${_fonts.freeze().dependency({...baseStyle.fontFamilies, ?_overrides.fontFamily})}';
 
   @override
@@ -646,7 +661,8 @@ class EpubChapterSource
     final snapshot = _lastSnapshots[spineIndex];
     return snapshot == null
         ? layoutDependency
-        : 'base=$_baseStyleKey;fonts=${snapshot.fontDependency}';
+        : 'base=$_baseStyleKey;conversion=${_textConversion?.id ?? 'original'};'
+              'fonts=${snapshot.fontDependency}';
   }
 
   /// 全书只持有条目权重；原文索引按目标章准备。

@@ -177,7 +177,7 @@ class _BookNotesCard extends StatelessWidget {
       ),
       const SizedBox(height: 4),
       Text(
-        book.author.trim().isEmpty ? '未知作者' : book.author,
+        book.author.trim().isEmpty ? '佚名' : book.author,
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
         style: Theme.of(context).textTheme.bodySmall,

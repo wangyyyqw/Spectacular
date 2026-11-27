@@ -21,6 +21,7 @@ import 'book_cover_image.dart';
 import 'book_lists_view.dart';
 import 'book_notes_list.dart';
 import 'desktop_layout.dart';
+import 'horizontal_page_switcher.dart';
 import 'review_ticket.dart';
 import 'reviews_cloud.dart';
 import '../diagnostics/reader_log.dart';
@@ -66,7 +67,6 @@ class _ReviewsPageState extends State<ReviewsPage>
     with SingleTickerProviderStateMixin {
   late final TabController _tabs;
   int _section = 0;
-  double _dragDx = 0;
   final _sectionBooks = <int, List<BookEntry>>{};
   List<BookEntry>? get _books => _sectionBooks[_section];
   Map<String, BookNoteCounts> _counts = const {};
@@ -172,20 +172,6 @@ class _ReviewsPageState extends State<ReviewsPage>
     });
     if (usesDesktopLayout(context)) _keyboardFocus.requestFocus();
     if (widget.active && !_bookListsTab) _reload();
-  }
-
-  void _endSwipe(DragEndDetails details) {
-    final velocity = details.primaryVelocity ?? 0;
-    final distance = _dragDx;
-    _dragDx = 0;
-    final next = velocity < -150 || (velocity.abs() <= 150 && distance <= -60);
-    final previous =
-        velocity > 150 || (velocity.abs() <= 150 && distance >= 60);
-    if (next && _section < 2) {
-      _tabs.animateTo(_section + 1);
-    } else if (previous && _section > 0) {
-      _tabs.animateTo(_section - 1);
-    }
   }
 
   void _onLibraryChanged() {
@@ -661,17 +647,13 @@ class _ReviewsPageState extends State<ReviewsPage>
                   children: [
                     _header(desktop),
                     Expanded(
-                      child: GestureDetector(
-                        key: const ValueKey('reviews-section-body'),
-                        behavior: HitTestBehavior.opaque,
-                        onHorizontalDragStart: (_) => _dragDx = 0,
-                        onHorizontalDragUpdate: (details) =>
-                            _dragDx += details.delta.dx,
-                        onHorizontalDragEnd: _endSwipe,
-                        child: _SectionTransition(
-                          index: _section,
-                          child: _sectionBody(),
-                        ),
+                      child: HorizontalPageSwitcher<int>(
+                        gestureKey: const ValueKey('reviews-section-body'),
+                        items: const [0, 1, 2],
+                        value: _section,
+                        enabled: widget.active,
+                        onChanged: _tabs.animateTo,
+                        builder: _sectionBody,
                       ),
                     ),
                   ],
@@ -932,22 +914,22 @@ class _ReviewsPageState extends State<ReviewsPage>
     }
   }
 
-  Widget _sectionBody() {
-    if (_bookListsTab) {
+  Widget _sectionBody(int section) {
+    if (section == 2) {
       return BookListsView(
         library: widget.library,
-        active: widget.active,
+        active: widget.active && section == _section,
         query: _query,
       );
     }
-    final books = _books;
+    final books = _sectionBooks[section];
     if (books == null) {
-      return _error == null
+      return _error == null || section != _section
           ? const Center(child: CircularProgressIndicator())
           : _ReviewLoadError(message: _error!, onRetry: _reload);
     }
     Widget body;
-    if (_notes) {
+    if (section == 0) {
       body = BookNotesList(
         books: books,
         counts: _counts,
@@ -977,7 +959,7 @@ class _ReviewsPageState extends State<ReviewsPage>
         ),
       );
     }
-    final cloudError = _cloudErrors[_section];
+    final cloudError = _cloudErrors[section];
     if (cloudError == null) return body;
     return Column(
       children: [
@@ -986,73 +968,6 @@ class _ReviewsPageState extends State<ReviewsPage>
       ],
     );
   }
-}
-
-/// 切换笔记、书评、书单时沿用书架的轻微横向滑入淡入。
-class _SectionTransition extends StatefulWidget {
-  const _SectionTransition({required this.index, required this.child});
-
-  final int index;
-  final Widget child;
-
-  @override
-  State<_SectionTransition> createState() => _SectionTransitionState();
-}
-
-class _SectionTransitionState extends State<_SectionTransition> {
-  double _direction = 0;
-
-  @override
-  void didUpdateWidget(_SectionTransition oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.index != widget.index) {
-      _direction = (widget.index - oldWidget.index).sign.toDouble();
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (MediaQuery.disableAnimationsOf(context)) {
-      return widget.child;
-    }
-    final key = ValueKey(widget.index);
-    return ClipRect(
-      child: AnimatedSwitcher(
-        duration: const Duration(milliseconds: 200),
-        reverseDuration: const Duration(milliseconds: 150),
-        switchInCurve: Curves.easeOutCubic,
-        switchOutCurve: Curves.easeOutCubic,
-        layoutBuilder: _layoutLayers,
-        transitionBuilder: (child, animation) {
-          final direction = child.key == key ? _direction : -_direction;
-          return FadeTransition(
-            opacity: animation,
-            child: SlideTransition(
-              position: Tween(
-                begin: Offset(direction * .1, 0),
-                end: Offset.zero,
-              ).animate(animation),
-              child: RepaintBoundary(child: child),
-            ),
-          );
-        },
-        child: KeyedSubtree(key: key, child: widget.child),
-      ),
-    );
-  }
-
-  Widget _layoutLayers(Widget? current, List<Widget> previous) => Stack(
-    fit: StackFit.expand,
-    children: [
-      for (final child in previous)
-        ExcludeFocus(
-          child: ExcludeSemantics(
-            child: IgnorePointer(child: HeroMode(enabled: false, child: child)),
-          ),
-        ),
-      ?current,
-    ],
-  );
 }
 
 class _ReviewList extends StatelessWidget {

@@ -117,7 +117,7 @@ class BookDetailSheet extends StatelessWidget {
                         const SizedBox(height: 4),
                         if (!hasOnlineSource) const Spacer(),
                         Text(
-                          entry.author.isEmpty ? '未知作者' : entry.author,
+                          entry.author.isEmpty ? '佚名' : entry.author,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: metadataStyle,

@@ -3,6 +3,7 @@ import 'dart:ui' show Brightness;
 
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/css/reader_overrides.dart';
+import 'package:reader_core/text/reader_text_conversion.dart';
 import 'package:reader_ui/annotations/annotation.dart';
 import 'package:reader_ui/annotations/mark_settings.dart';
 import 'package:reader_ui/bookmarks/bookmark_style.dart';
@@ -293,6 +294,7 @@ class ReaderSettings {
     this.bookmarkStyle = const ReaderBookmarkStyle(),
     this.footnoteStyle = ReaderFootnoteStyle.dialog,
     this.tts = ReaderTtsSettings.defaults,
+    this.chineseMode = ReaderChineseMode.original,
   });
 
   /// 字号。
@@ -370,6 +372,9 @@ class ReaderSettings {
   /// 听书偏好。
   final ReaderTtsSettings tts;
 
+  /// 仅控制阅读文字显示，不改写原书或原文锚点。
+  final ReaderChineseMode chineseMode;
+
   /// 默认设置。
   static const ReaderSettings defaults = ReaderSettings();
 
@@ -440,6 +445,7 @@ class ReaderSettings {
     ReaderBookmarkStyle bookmarkStyle = const ReaderBookmarkStyle(),
     ReaderFootnoteStyle footnoteStyle = ReaderFootnoteStyle.dialog,
     ReaderTtsSettings tts = ReaderTtsSettings.defaults,
+    ReaderChineseMode chineseMode = ReaderChineseMode.original,
   }) => ReaderSettings(
     fontSize: overrides.fontSize ?? ReaderSettingsDefaults.fontSize,
     fontFamily: overrides.fontFamily,
@@ -467,6 +473,7 @@ class ReaderSettings {
     bookmarkStyle: bookmarkStyle,
     footnoteStyle: footnoteStyle,
     tts: tts,
+    chineseMode: chineseMode,
   );
 
   /// 复制并替换排版设置，保留主题、背景、墨水屏、边距与点击区域。
@@ -499,6 +506,7 @@ class ReaderSettings {
     bookmarkStyle: bookmarkStyle,
     footnoteStyle: footnoteStyle,
     tts: tts,
+    chineseMode: chineseMode,
   );
 
   /// 复制并替换字体，保留其它阅读设置。
@@ -529,6 +537,7 @@ class ReaderSettings {
     bookmarkStyle: bookmarkStyle,
     footnoteStyle: footnoteStyle,
     tts: tts,
+    chineseMode: chineseMode,
   );
 
   /// 复制并替换主题。
@@ -566,6 +575,7 @@ class ReaderSettings {
       bookmarkStyle: bookmarkStyle,
       footnoteStyle: footnoteStyle,
       tts: tts,
+      chineseMode: chineseMode,
     );
   }
 
@@ -597,6 +607,7 @@ class ReaderSettings {
     bookmarkStyle: bookmarkStyle,
     footnoteStyle: footnoteStyle,
     tts: tts,
+    chineseMode: chineseMode,
   );
 
   /// 修改图片淡化程度，保留全部阅读设置。
@@ -628,6 +639,7 @@ class ReaderSettings {
         bookmarkStyle: bookmarkStyle,
         footnoteStyle: footnoteStyle,
         tts: tts,
+        chineseMode: chineseMode,
       );
 
   /// 复制并替换墨水屏开关。
@@ -658,6 +670,7 @@ class ReaderSettings {
     bookmarkStyle: bookmarkStyle,
     footnoteStyle: footnoteStyle,
     tts: tts,
+    chineseMode: chineseMode,
   );
 
   /// 复制并替换页边距。
@@ -688,6 +701,7 @@ class ReaderSettings {
     bookmarkStyle: bookmarkStyle,
     footnoteStyle: footnoteStyle,
     tts: tts,
+    chineseMode: chineseMode,
   );
 
   /// 修改四角显示，保留全部阅读偏好。
@@ -718,6 +732,7 @@ class ReaderSettings {
     bookmarkStyle: bookmarkStyle,
     footnoteStyle: footnoteStyle,
     tts: tts,
+    chineseMode: chineseMode,
   );
 
   /// 复制并替换九宫格点击区域。
@@ -748,6 +763,7 @@ class ReaderSettings {
     bookmarkStyle: bookmarkStyle,
     footnoteStyle: footnoteStyle,
     tts: tts,
+    chineseMode: chineseMode,
   );
 
   /// 复制并替换翻页方式。
@@ -778,6 +794,7 @@ class ReaderSettings {
     bookmarkStyle: bookmarkStyle,
     footnoteStyle: footnoteStyle,
     tts: tts,
+    chineseMode: chineseMode,
   );
 
   /// 复制并替换屏幕常亮开关。
@@ -808,6 +825,7 @@ class ReaderSettings {
     bookmarkStyle: bookmarkStyle,
     footnoteStyle: footnoteStyle,
     tts: tts,
+    chineseMode: chineseMode,
   );
 
   /// 复制并替换音量键翻页开关。
@@ -838,6 +856,7 @@ class ReaderSettings {
     bookmarkStyle: bookmarkStyle,
     footnoteStyle: footnoteStyle,
     tts: tts,
+    chineseMode: chineseMode,
   );
 
   /// 复制并替换系统栏显示开关。
@@ -898,6 +917,7 @@ class ReaderSettings {
         bookmarkStyle: bookmarkStyle,
         footnoteStyle: footnoteStyle,
         tts: tts,
+        chineseMode: chineseMode,
       );
 
   /// 修改书签样式，保留全部正文排版与阅读交互设置。
@@ -929,6 +949,7 @@ class ReaderSettings {
         bookmarkStyle: value,
         footnoteStyle: footnoteStyle,
         tts: tts,
+        chineseMode: chineseMode,
       );
 
   /// 修改阅读页注释样式，保留其它阅读偏好。
@@ -959,6 +980,7 @@ class ReaderSettings {
         bookmarkStyle: bookmarkStyle,
         footnoteStyle: value,
         tts: tts,
+        chineseMode: chineseMode,
       );
 
   /// 修改听书偏好，保留全部正文排版与阅读交互设置。
@@ -989,6 +1011,35 @@ class ReaderSettings {
     bookmarkStyle: bookmarkStyle,
     footnoteStyle: footnoteStyle,
     tts: value,
+    chineseMode: chineseMode,
+  );
+
+  /// 切换简繁显示，沿用全部排版、主题和交互偏好。
+  ReaderSettings copyWithChineseMode(ReaderChineseMode value) => ReaderSettings(
+    fontSize: fontSize,
+    fontFamily: fontFamily,
+    overrideEmbeddedFonts: overrideEmbeddedFonts,
+    lineHeight: lineHeight,
+    paragraphSpacing: paragraphSpacing,
+    horizontalPadding: horizontalPadding,
+    themeId: themeId,
+    dayThemeId: dayThemeId,
+    nightThemeId: nightThemeId,
+    customThemeId: customThemeId,
+    backgroundId: backgroundId,
+    backgroundImageOpacity: backgroundImageOpacity,
+    inkMode: inkMode,
+    margins: margins,
+    cornerInfo: cornerInfo,
+    tapZones: tapZones,
+    pageTurnMode: pageTurnMode,
+    keepScreenOn: keepScreenOn,
+    volumeKeyPaging: volumeKeyPaging,
+    markSettings: markSettings,
+    bookmarkStyle: bookmarkStyle,
+    footnoteStyle: footnoteStyle,
+    tts: tts,
+    chineseMode: value,
   );
 
   @override
@@ -1019,6 +1070,7 @@ class ReaderSettings {
       other.markSettings == markSettings &&
       other.bookmarkStyle == bookmarkStyle &&
       other.footnoteStyle == footnoteStyle &&
+      other.chineseMode == chineseMode &&
       other.tts == tts;
 
   @override
@@ -1045,7 +1097,7 @@ class ReaderSettings {
     volumeKeyPaging,
     showSystemBars,
     markSettings,
-    Object.hash(bookmarkStyle, footnoteStyle, tts),
+    Object.hash(bookmarkStyle, footnoteStyle, tts, chineseMode),
   ]);
 }
 
@@ -1083,6 +1135,7 @@ class ReaderSettingsStore {
   static const String keyShowSystemBars = 'reader.showSystemBars';
   static const String keyBookmarkStyle = 'reader.bookmarkStyle';
   static const String keyFootnoteStyle = 'reader.footnoteStyle';
+  static const String keyChineseMode = 'reader.chineseMode';
 
   /// 听书偏好（JSON）。
   static const String keyTts = 'reader.tts';
@@ -1148,6 +1201,9 @@ class ReaderSettingsStore {
       showSystemBars: (await _library.getSetting(keyShowSystemBars)) == 'true',
       markSettings: await _loadMarkSettings(),
       tts: _readTts(await _library.getSetting(keyTts)),
+      chineseMode: ReaderChineseMode.fromId(
+        await _library.getSetting(keyChineseMode),
+      ),
       bookmarkStyle: _readBookmarkStyle(
         await _library.getSetting(keyBookmarkStyle),
       ),
@@ -1338,6 +1394,7 @@ class ReaderSettingsStore {
       jsonEncode(settings.bookmarkStyle.toJson()),
     );
     await _library.setSetting(keyFootnoteStyle, settings.footnoteStyle.name);
+    await _library.setSetting(keyChineseMode, settings.chineseMode.name);
     await _library.setSetting(keyTts, jsonEncode(settings.tts.toJson()));
     final mark = settings.markSettings;
     final color = mark.lastColor >= 0 && mark.lastColor <= 0xffffffff

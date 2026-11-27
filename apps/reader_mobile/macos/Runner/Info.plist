@@ -32,6 +32,17 @@
 	<string>用于从文稿文件夹导入您选择的电子书、字体和图片，以及保存导出的电子书与报告。</string>
 	<key>NSDownloadsFolderUsageDescription</key>
 	<string>用于导入下载文件夹中的电子书、字体和图片，以及保存导出的电子书与报告。</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSExceptionDomains</key>
+		<dict>
+			<key>127.0.0.1</key>
+			<dict>
+				<key>NSExceptionAllowsInsecureHTTPLoads</key>
+				<true/>
+			</dict>
+		</dict>
+	</dict>
 	<key>NSMainNibFile</key>
 	<string>MainMenu</string>
 	<key>NSLocalNetworkUsageDescription</key>

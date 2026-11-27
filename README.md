@@ -6,7 +6,7 @@
 ![Flutter](https://img.shields.io/badge/Flutter-Dart-02569B?logo=flutter&logoColor=white)
 ![EPUB 与 TXT](https://img.shields.io/badge/%E6%A0%BC%E5%BC%8F-EPUB%20%7C%20TXT-795548)
 ![开发中](https://img.shields.io/badge/%E7%8A%B6%E6%80%81-%E5%BC%80%E5%8F%91%E4%B8%AD-orange)
-[![原创代码 Apache 2.0](https://img.shields.io/badge/%E5%8E%9F%E5%88%9B%E4%BB%A3%E7%A0%81-Apache%202.0-blue)](LICENSE)
+[![原创代码 GPLv3](https://img.shields.io/badge/%E5%8E%9F%E5%88%9B%E4%BB%A3%E7%A0%81-GPLv3-blue)](LICENSE)
 
 </div>
 
@@ -19,7 +19,7 @@
 | 场景 | 当前能力 |
 | --- | --- |
 | **导入与书库** | 本机 EPUB/TXT 导入；百度、夸克、阿里、123、天翼、PikPak、蓝奏个人网盘选书导入；TXT 编码选择、章节识别与正则重新分章；书架搜索、分组、排序、置顶、多选和导出。 |
-| **中文阅读** | 书内 XHTML 与 CSS 解析，中文两端对齐、标点处理、表格、浮动、竖排、注音及图片排版。 |
+| **中文阅读** | 书内 XHTML 与 CSS 解析，中文两端对齐、标点处理、表格、浮动、竖排、注音及图片排版；阅读菜单可切换原文、简体或繁体显示，使用原生 OpenCC 按词组转换，不改写原书。 |
 | **阅读外观** | 仅内置思源宋体中文精简版（常规、粗体），支持书内字体或导入字体；调整字号、行高、段距、六向边距、主题、背景及四角信息。 |
 | **翻页与导航** | 八种阅读方式，目录、进度跳转、全文搜索、脚注弹窗、图片预览与画廊；支持音量键翻页和墨水屏设置。 |
 | **书签与笔记** | 下拉添加书签，选区划线、记录想法、设置文字装饰；按书查看笔记与划线。 |
@@ -180,6 +180,10 @@ bash ../../packages/epub_toolkit/tool/bundle_cwebp_macos.sh \
 仓库另有 [分类测试入口](tool/run_tests.py) 与 [分类配置](tool/test_groups.json)。可按职责选择测试；`--all` 覆盖四个包的本地测试及 Python 工具回归，`--check` 校验未分类条目与失效规则。
 
 合成样本可通过 `python3 tests/corpus/build_epubs.py` 重建至 `test_corpus/`。私人书籍、数据库、截图、日志和构建产物仅用于本地验证，不随源码提交。
+
+## 许可证
+
+本项目有权发布的原创代码采用 GNU GPL v3.0（GPL-3.0-only）。分发基于本项目代码的衍生作品时，须将该衍生作品整体按 GPL v3.0 发布，并提供对应源代码。第三方代码、字体、数据和模型继续遵守各自的原始许可证，详见[第三方资源与来源说明](THIRD_PARTY_NOTICES.md)。
 
 ## 常见问题
 

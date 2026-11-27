@@ -72,7 +72,12 @@ Uint8List buildMultiChapterEpub({
   String title = '多章测试书',
   String? identifier,
   bool rawBody = false,
+  List<String>? chapterTitles,
 }) {
+  assert(
+    chapterTitles == null || chapterTitles.length == chapters.length,
+    'chapterTitles 必须与 chapters 等长',
+  );
   final buffer = StringBuffer();
   final manifest = StringBuffer();
   final spine = StringBuffer();
@@ -88,6 +93,12 @@ Uint8List buildMultiChapterEpub({
       '${rawBody ? chapters[i] : '<p>${chapters[i]}</p>'}</body></html>',
     );
     buffer.write('\u0000');
+  }
+  if (chapterTitles != null) {
+    manifest.write(
+      '<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" '
+      'properties="nav"/>',
+    );
   }
   final opf =
       '<?xml version="1.0" encoding="UTF-8"?>'
@@ -114,6 +125,17 @@ Uint8List buildMultiChapterEpub({
   final parts = buffer.toString().split('\u0000');
   for (var i = 0; i < chapters.length; i++) {
     files['OEBPS/c${i + 1}.xhtml'] = parts[i];
+  }
+  if (chapterTitles != null) {
+    final items = StringBuffer();
+    for (var i = 0; i < chapterTitles.length; i++) {
+      items.write('<li><a href="c${i + 1}.xhtml">${chapterTitles[i]}</a></li>');
+    }
+    files['OEBPS/nav.xhtml'] =
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<html xmlns="http://www.w3.org/1999/xhtml" '
+        'xmlns:epub="http://www.idpf.org/2007/ops"><head><title>目录</title>'
+        '</head><body><nav epub:type="toc"><ol>$items</ol></nav></body></html>';
   }
   final archive = Archive();
   files.forEach((name, content) {

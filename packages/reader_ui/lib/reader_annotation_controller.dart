@@ -320,7 +320,7 @@ extension _ReaderAnnotationController on _ReaderPageState {
     } catch (_) {
       if (mounted) _showToast('词典打开失败，请重试');
     } finally {
-      if (mounted) _changeReaderState(() => _hideSelectionMenu = false);
+      if (mounted) _clearSelection();
     }
   }
 
@@ -458,7 +458,7 @@ extension _ReaderAnnotationController on _ReaderPageState {
     } catch (_) {
       if (mounted) _showToast('想法编辑失败，请重试');
     } finally {
-      if (mounted) _changeReaderState(() => _hideSelectionMenu = false);
+      if (mounted) _clearSelection();
     }
   }
 

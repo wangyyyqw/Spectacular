@@ -54,7 +54,8 @@ class PageTurnController extends ChangeNotifier {
   bool _preparationVisible = false;
   bool _lifting = false, _rejected3dDrag = false;
   bool _starting3dAnimation = false;
-  Timer? _tapRelease;
+  bool _tapTurn = false;
+  Timer? _tapInputGuard;
   Curl3dGeometry? _lastCurlGeometry;
 
   static const _catchUpFrameLimit = Duration(milliseconds: 16);
@@ -143,7 +144,7 @@ class PageTurnController extends ChangeNotifier {
   /// 已松手的活动翻页接住后续输入，仍按住纸面时避免新输入覆盖触点。
   void request(bool next) {
     if (active) {
-      if (!mode.is3d || _released) {
+      if (!mode.is3d || (_released && _tapInputGuard == null)) {
         _queued.add(next);
         _report('turn_queued');
       }
@@ -151,7 +152,7 @@ class PageTurnController extends ChangeNotifier {
     }
     if (mode == PageTurnMode.simulation3d) {
       _down = ui.Offset(
-        next != rtl ? 0 : size.width,
+        next != rtl ? size.width : 0,
         _pointerDown?.dy ?? size.height / 2,
       );
       _pointerDown = null;
@@ -168,7 +169,7 @@ class PageTurnController extends ChangeNotifier {
         : _pointerDown ?? details.localPosition;
     _pointerDown = null;
     if (active) {
-      if (mode.is3d && !_released) {
+      if (mode.is3d && (!_released || _tapInputGuard != null)) {
         _rejected3dDrag = true;
         return;
       }
@@ -337,7 +338,14 @@ class PageTurnController extends ChangeNotifier {
         _report('turn_prepare_slow');
       }
     });
-    _released = !dragging && mode != PageTurnMode.simulation3d;
+    _released = !dragging;
+    _tapTurn = !dragging && mode == PageTurnMode.simulation3d;
+    if (_tapTurn) {
+      _tapInputGuard = Timer(
+        Duration(milliseconds: next ? 50 : 75),
+        () => _tapInputGuard = null,
+      );
+    }
     progress = 0;
     _preparationVisible = false;
     SchedulerBinding.instance.addPostFrameCallback((_) {
@@ -393,7 +401,6 @@ class PageTurnController extends ChangeNotifier {
     _originMicros = _turnTimer?.elapsedMicroseconds ?? 0;
     if (mode == PageTurnMode.simulation3d) {
       if (!_released) _startLifting(token);
-      if (!dragging) _scheduleTapRelease(token);
     } else if (dragging) {
       _updateDragFrame();
     }
@@ -405,11 +412,11 @@ class PageTurnController extends ChangeNotifier {
     _startPoint = grab;
     _endPoint = _curlPointer();
     _settlingCurve = Curves.easeOutCubic;
-    // 拖动只短暂接上纸面；点击仍保留起卷与自动释放的衔接。
+    // 拖动只短暂接上纸面，点击由完整收尾轨迹驱动。
     _settling.duration = Duration(
       milliseconds: (160 * (_endPoint! - _startPoint!).distance / size.width)
           .round()
-          .clamp(16, _dragging ? 60 : 100),
+          .clamp(16, 60),
     );
     unawaited(_runLifting(token));
   }
@@ -429,17 +436,6 @@ class PageTurnController extends ChangeNotifier {
     if (!_lifting) return;
     _settling.stop(canceled: true);
     _lifting = false;
-  }
-
-  void _scheduleTapRelease(int token) {
-    if (!_valid(token)) return;
-    _tapRelease = Timer(Duration(milliseconds: next ? 50 : 75), () {
-      if (!_valid(token)) return;
-      _tapRelease = null;
-      _stopLifting();
-      _released = true;
-      if (phase == PageTurnPhase.dragging) _settle(true);
-    });
   }
 
   bool _valid(int token) => !_disposed && token == _token;
@@ -706,6 +702,11 @@ class PageTurnController extends ChangeNotifier {
   }
 
   Duration _dragSettlingDuration() {
+    if (_tapTurn) {
+      // 单次点击共用一个时钟，起卷和落页速度均归零，不在中途重启缓出。
+      _settlingCurve = const Cubic(1 / 3, 0, 2 / 3, 1);
+      return pageTurnAnimationDuration;
+    }
     final pointBased =
         mode == PageTurnMode.simulationBessel ||
         mode == PageTurnMode.simulation3d;
@@ -811,6 +812,11 @@ class PageTurnController extends ChangeNotifier {
     final value = _settling.value;
     final t = _settlingCurve.transform(value);
     point = ui.Offset.lerp(_startPoint, _endPoint, t);
+    if (_tapTurn) {
+      // 页角逐渐向点击高度抬起，再落回页边；中央点击保持整条侧边起卷。
+      final lift = horizontal ? 0.0 : _canonical(_down!).dy - grab!.dy;
+      point = point!.translate(0, 4 * t * (1 - t) * lift);
+    }
     if (value == 1) {
       _settling.stop(canceled: false);
       if (_lifting) {
@@ -897,13 +903,14 @@ class PageTurnController extends ChangeNotifier {
   void _resetTurn() {
     _token++;
     _dragAtBookEnd = false;
-    _tapRelease?.cancel();
-    _tapRelease = null;
     _slowPreparation?.cancel();
     _slowPreparation = null;
     _turnTimer = null;
     _lastAnimationMicros = _lastFadeMicros = _maxFrameGapMicros = 0;
     _originMicros = _targetMicros = 0;
+    _tapTurn = false;
+    _tapInputGuard?.cancel();
+    _tapInputGuard = null;
     _lifting = false;
     _lastCurlGeometry = null;
     _settlingClock?.stop(canceled: true);
