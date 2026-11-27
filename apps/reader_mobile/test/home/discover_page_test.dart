@@ -128,6 +128,9 @@ void main() {
               'books': [
                 if (request.url.path.contains('search') && request.url.host != 'second.example.com')
                   {'name': '第一来源弱匹配', 'author': '其他', 'url': '/book/weak'},
+                if (request.url.host == 'second.example.com' &&
+                    request.url.queryParameters['q'] == '第二来源书')
+                  {'name': '第二来源备选', 'author': '其他', 'url': '/book/extra'},
                 {
                   'name': name,
                   'author': request.url.path.contains('search') && request.url.host == 'second.example.com'
@@ -337,12 +340,26 @@ void main() {
     expect(find.text('加载更多'), findsNothing);
     await tester.enterText(search, '搜索书');
     await tester.testTextInput.receiveAction(TextInputAction.search);
-    await pumpReaderUntil(tester, find.text('搜索书'));
+    await pumpReaderUntil(tester, find.text('2 个书源 · 3 条结果'));
     await tester.pumpAndSettle();
-    expect(find.text('搜索书'), findsWidgets);
-    double bookTop(String title) => tester.getTopLeft(find.text(title).first).dy;
+    final results = find.byKey(const ValueKey('discover-search-results'));
+    final cards = find.descendant(of: results, matching: find.byType(Card));
+    Finder resultText(String title) => find.descendant(of: results, matching: find.text(title));
+    double bookTop(String title) => tester.getTopLeft(resultText(title).first).dy;
+    expect(cards, findsNWidgets(2));
     expect(bookTop('搜索书'), lessThan(bookTop('第二来源书')));
-    expect(bookTop('第二来源书'), lessThan(bookTop('第一来源弱匹配')));
+    expect(resultText('第一来源弱匹配'), findsNothing);
+    final toggle = find.byKey(ValueKey('discover-expand-${searchSource.id}'));
+    final secondId = controller.sources.singleWhere((source) => source.name == '第二来源').id;
+    final secondToggle = find.byKey(ValueKey('discover-expand-$secondId'));
+    expect(secondToggle, findsNothing);
+    expect(find.byKey(const ValueKey('discover-toggle-view')), findsNothing);
+    final beforeExpand = requested.length;
+    await tester.tap(toggle);
+    await tester.pumpAndSettle();
+    expect(cards, findsNWidgets(2));
+    expect(bookTop('搜索书'), lessThan(bookTop('第一来源弱匹配')));
+    expect(bookTop('第一来源弱匹配'), lessThan(bookTop('第二来源书')));
     final searchCard = find.byKey(
       ValueKey('discover-book-${searchSource.id}-${searchBook.bookUrl}'),
     );
@@ -350,6 +367,7 @@ void main() {
       of: searchCard,
       matching: find.text('测试平台'),
     );
+    expect(searchCard, findsOneWidget);
     final searchShelfBadge = find.descendant(
       of: searchCard,
       matching: find.text('已在书架'),
@@ -361,6 +379,30 @@ void main() {
       closeTo(tester.getRect(searchShelfBadge).right, 0.5),
     );
     expect(find.text('人气书'), findsNothing);
+    await tester.tap(toggle);
+    await tester.pumpAndSettle();
+    expect(resultText('第一来源弱匹配'), findsNothing);
+    expect(requested, hasLength(beforeExpand));
+    await tester.tap(toggle);
+    await tester.pumpAndSettle();
+    await tester.enterText(search, '第二来源书');
+    await tester.testTextInput.receiveAction(TextInputAction.search);
+    await pumpReaderUntil(tester, find.text('2 个书源 · 4 条结果'));
+    expect(resultText('第二来源备选'), findsNothing);
+    expect(resultText('第一来源弱匹配'), findsWidgets);
+    expect(bookTop('第二来源书'), lessThan(bookTop('第一来源弱匹配')));
+    expect(resultText('搜索书'), findsNothing);
+    await tester.tap(secondToggle);
+    await tester.pumpAndSettle();
+    expect(resultText('第二来源备选'), findsOneWidget);
+    expect(resultText('搜索书'), findsNothing);
+    await tester.tap(toggle);
+    await tester.pumpAndSettle();
+    expect(resultText('搜索书'), findsOneWidget);
+    await tester.tap(secondToggle);
+    await tester.pumpAndSettle();
+    expect(resultText('第二来源备选'), findsNothing);
+    expect(resultText('搜索书'), findsOneWidget);
     expect(tester.takeException(), isNull);
     await tester.tap(find.byTooltip('返回发现'));
     await pumpReaderUntil(tester, find.text('人气书'));
@@ -391,6 +433,13 @@ void main() {
           .crossAxisCount,
       greaterThanOrEqualTo(3),
     );
+    await tester.enterText(search, '搜索书');
+    await tester.testTextInput.receiveAction(TextInputAction.search);
+    await pumpReaderUntil(tester, find.text('2 个书源 · 3 条结果'));
+    expect(cards, findsNWidgets(2));
+    expect(resultText('第一来源弱匹配'), findsNothing);
+    await tester.tap(find.byTooltip('返回发现'));
+    await pumpReaderUntil(tester, find.byKey(const ValueKey('discover-grid')));
     await tester.tap(find.byTooltip('筛选管理'));
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('切换书源'));

@@ -19,6 +19,8 @@ import 'book_search_bar.dart';
 import 'desktop_layout.dart';
 import '../diagnostics/reader_log.dart';
 
+typedef _SearchGroup = ({BookSource source, List<OnlineBook> books});
+
 /// 发现页沿用书架的搜索、按钮栏和图书列表布局。
 class DiscoverPage extends StatefulWidget {
   const DiscoverPage({
@@ -48,6 +50,8 @@ class _DiscoverPageState extends State<DiscoverPage> {
   List<BookDiscoverCategory> _categories = const [];
   BookDiscoverCategory? _category;
   List<({BookSource source, OnlineBook book})> _books = const [];
+  List<_SearchGroup> _searchGroups = const [];
+  final _expandedSources = <String>{};
   bool _loading = false;
   bool _searchMode = false;
   bool _hasMore = true;
@@ -120,6 +124,10 @@ class _DiscoverPageState extends State<DiscoverPage> {
     }
     if (previous != null && current != null) _cache.clear();
     if (sources.isEmpty) {
+      if (_searchMode && previous == null) {
+        setState(() {});
+        return;
+      }
       ++_version;
       setState(() {
         _source = null;
@@ -127,6 +135,8 @@ class _DiscoverPageState extends State<DiscoverPage> {
         _category = null;
         _categories = const [];
         _books = const [];
+        _searchMode = false;
+        _searchGroups = const [];
         _loading = false;
         _error = null;
       });
@@ -151,6 +161,7 @@ class _DiscoverPageState extends State<DiscoverPage> {
       _loading = true;
       _error = null;
       _searchMode = false;
+      _searchGroups = const [];
       _filteredCategory = null;
       _query.clear();
     });
@@ -345,8 +356,20 @@ class _DiscoverPageState extends State<DiscoverPage> {
   Future<void> _search() async {
     final query = _query.text.trim();
     if (query.isEmpty) {
-      setState(() => _searchMode = false);
-      await _load(reset: true);
+      ++_version;
+      setState(() {
+        _searchMode = false;
+        _searchGroups = const [];
+        _expandedSources.clear();
+        _loading = false;
+        _error = null;
+      });
+      final source = _source;
+      if (source != null && _category == null) {
+        await _selectSource(source);
+      } else {
+        await _load(reset: true);
+      }
       return;
     }
     FocusScope.of(context).unfocus();
@@ -355,19 +378,28 @@ class _DiscoverPageState extends State<DiscoverPage> {
       _searchMode = true;
       _loading = true;
       _error = null;
-      _books = const [];
+      _searchGroups = const [];
+      _expandedSources.clear();
     });
+    if (_scroll.hasClients) _scroll.jumpTo(0);
     try {
       final results = await widget.controller.search(query);
       if (!mounted || version != _version) return;
       setState(() {
-        _books = rankOnlineSearchResults(query, [
+        _searchGroups = rankOnlineSearchResults(query, [
           for (final result in results)
-            for (final book in result.books)
-              (source: result.source, book: book),
-        ], (item) => item.book);
+            if (result.books.isNotEmpty)
+              (
+                source: result.source,
+                books: rankOnlineSearchResults(
+                  query,
+                  result.books,
+                  (book) => book,
+                ),
+              ),
+        ], (group) => group.books.first);
         final failures = results.where((result) => result.error.isNotEmpty);
-        _error = _books.isEmpty && failures.isNotEmpty
+        _error = _searchGroups.isEmpty && failures.isNotEmpty
             ? failures
                   .map((result) => '${result.source.name}：${result.error}')
                   .join('\n')
@@ -522,6 +554,26 @@ class _DiscoverPageState extends State<DiscoverPage> {
         children: [
           LayoutBuilder(
             builder: (context, constraints) {
+              if (_searchMode) {
+                final count = _searchGroups.fold<int>(
+                  0,
+                  (sum, group) => sum + group.books.length,
+                );
+                return Container(
+                  key: const ValueKey('discover-category-toolbar'),
+                  alignment: AlignmentDirectional.centerStart,
+                  constraints: const BoxConstraints(
+                    minHeight: kMinInteractiveDimension,
+                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Text(
+                    _loading
+                        ? '搜索结果'
+                        : '${_searchGroups.length} 个书源 · $count 条结果',
+                    style: theme.textTheme.bodyMedium,
+                  ),
+                );
+              }
               final categories = [?_filteredCategory, ..._categories];
               var categoryWidth = 32.0;
               for (final category in categories) {
@@ -541,7 +593,6 @@ class _DiscoverPageState extends State<DiscoverPage> {
                 painter.dispose();
               }
               final showPicker =
-                  !_searchMode &&
                   categories.isNotEmpty &&
                   categoryWidth > constraints.maxWidth - 56;
               return Row(
@@ -553,12 +604,7 @@ class _DiscoverPageState extends State<DiscoverPage> {
                       padding: const EdgeInsets.symmetric(horizontal: 16),
                       child: Row(
                         children: [
-                          if (_searchMode)
-                            Text(
-                              '搜索结果 ${_books.length}',
-                              style: theme.textTheme.bodyMedium,
-                            )
-                          else if (_categories.isEmpty)
+                          if (_categories.isEmpty)
                             Text(
                               _source?.name ?? '发现',
                               style: theme.textTheme.bodyMedium,
@@ -629,7 +675,7 @@ class _DiscoverPageState extends State<DiscoverPage> {
   }
 
   Widget _buildList(double width) {
-    if (_books.isEmpty) {
+    if (_searchMode ? _searchGroups.isEmpty : _books.isEmpty) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
@@ -669,11 +715,24 @@ class _DiscoverPageState extends State<DiscoverPage> {
         ),
       );
     }
-    final footer = !_searchMode && (_hasMore || _error != null);
     final inset = BookCollectionLayout.listInset(context, width);
+    if (_searchMode) {
+      return RefreshIndicator(
+        onRefresh: _search,
+        child: ListView.separated(
+          key: const ValueKey('discover-search-results'),
+          controller: _scroll,
+          padding: EdgeInsets.fromLTRB(inset, 8, inset, 28),
+          physics: const AlwaysScrollableScrollPhysics(),
+          itemCount: _searchGroups.length,
+          separatorBuilder: (_, _) => const SizedBox(height: 8),
+          itemBuilder: (_, index) => _searchCard(_searchGroups[index]),
+        ),
+      );
+    }
+    final footer = _hasMore || _error != null;
     return RefreshIndicator(
-      onRefresh: () =>
-          _searchMode ? _search() : _load(reset: true, force: true),
+      onRefresh: () => _load(reset: true, force: true),
       child: _grid
           ? GridView.builder(
               key: const ValueKey('discover-grid'),
@@ -705,6 +764,88 @@ class _DiscoverPageState extends State<DiscoverPage> {
                   ? _footer()
                   : _bookTile(_books[index].source, _books[index].book),
             ),
+    );
+  }
+
+  Widget _searchCard(_SearchGroup group) {
+    final source = group.source;
+    final books = group.books;
+    final expanded = _expandedSources.contains(source.id);
+    return Card(
+      key: ValueKey('discover-source-card-${source.id}'),
+      margin: EdgeInsets.zero,
+      clipBehavior: Clip.antiAlias,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        child: Column(
+          children: [
+            Row(
+              children: [
+                Expanded(child: _bookTile(source, books.first)),
+                if (books.length > 1)
+                  Semantics(
+                    expanded: expanded,
+                    child: TextButton(
+                      key: ValueKey('discover-expand-${source.id}'),
+                      onPressed: () => setState(() {
+                        if (expanded) {
+                          _expandedSources.remove(source.id);
+                        } else {
+                          _expandedSources.add(source.id);
+                        }
+                      }),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          AppIcon(
+                            expanded
+                                ? AppGlyph.chevronUp
+                                : AppGlyph.chevronDown,
+                            size: 18,
+                          ),
+                          Text(
+                            '${books.length} 条',
+                            semanticsLabel:
+                                '${expanded ? '收起' : '展开'}${source.name}的 ${books.length} 条结果',
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            if (expanded)
+              for (final book in books.skip(1)) ...[
+                const Divider(height: 1),
+                ListTile(
+                  key: ValueKey('discover-book-${source.id}-${book.bookUrl}'),
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(
+                    book.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  subtitle: Text(
+                    book.author.isEmpty ? '佚名' : book.author,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  trailing:
+                      widget.controller.shelfEntryFor(source, book) == null
+                      ? null
+                      : Text(
+                          '已在书架',
+                          style: Theme.of(context).textTheme.labelSmall
+                              ?.copyWith(
+                                color: Theme.of(context).colorScheme.primary,
+                              ),
+                        ),
+                  onTap: () => _open(source, book),
+                ),
+              ],
+          ],
+        ),
+      ),
     );
   }
 
