@@ -103,12 +103,12 @@ void _expectNativeHandoff(List<Object> events, Offset origin) {
   expect(events, [isA<DragStartDetails>(), isA<DragUpdateDetails>()]);
   final start = events[0] as DragStartDetails;
   final update = events[1] as DragUpdateDetails;
-  expect(start.localPosition, const Offset(143, 90));
-  expect(start.globalPosition, origin + const Offset(143, 90));
-  expect(start.sourceTimeStamp, const Duration(milliseconds: 100));
-  expect(update.localPosition, const Offset(140, 96));
-  expect(update.globalPosition, origin + const Offset(140, 96));
-  expect(update.delta, const Offset(-3, 6));
+  expect(start.localPosition, const Offset(180, 90));
+  expect(start.globalPosition, origin + const Offset(180, 90));
+  expect(start.sourceTimeStamp, const Duration(milliseconds: 40));
+  expect(update.localPosition, const Offset(143, 92));
+  expect(update.globalPosition, origin + const Offset(143, 92));
+  expect(update.delta, const Offset(-37, 2));
   expect(update.primaryDelta, isNull);
   expect(update.sourceTimeStamp, start.sourceTimeStamp);
 }
@@ -949,7 +949,49 @@ void main() {
       expect(await _boundaryDragVelocity(tester, estimate + 0.01), 0);
     });
 
-    testWidgets('原生起拖交付越 slop 锚点，再更新第三个后续 MOVE 的实际位置', (tester) async {
+    for (final direction in [-1.0, 1.0]) {
+      testWidgets('3D 短促横滑越过设备阈值立即起拖：$direction', (tester) async {
+        final events = <Object>[];
+        var taps = 0;
+        await _pumpGestureView(
+          tester,
+          ReaderView(
+            config: const ReaderGestureConfig(minimumFlingVelocity: 20),
+            onDragStart: events.add,
+            onDragUpdate: events.add,
+            onDragEnd: events.add,
+            onNext: () => taps++,
+            onPrevious: () => taps++,
+          ),
+          touchSlop: 36,
+        );
+        final origin = tester.getTopLeft(find.byType(ReaderView));
+        final down = origin + Offset(direction < 0 ? 270 : 30, 100);
+        final gesture = await tester.startGesture(down);
+        await gesture.moveBy(
+          Offset(direction * 45, 0),
+          timeStamp: const Duration(milliseconds: 30),
+        );
+        expect(events.whereType<DragStartDetails>(), hasLength(1));
+        expect(
+          events.whereType<DragStartDetails>().single.localPosition,
+          down - origin,
+        );
+        expect(
+          events.whereType<DragUpdateDetails>().single.delta,
+          Offset(direction * 45, 0),
+        );
+        await gesture.moveBy(
+          Offset(direction * 135, 0),
+          timeStamp: const Duration(milliseconds: 60),
+        );
+        await gesture.up(timeStamp: const Duration(milliseconds: 70));
+        expect(events.whereType<DragEndDetails>(), hasLength(1));
+        expect(taps, 0, reason: '快扫不能退化成点击或被漏掉');
+      });
+    }
+
+    testWidgets('起拖立即交付容差前锚点和实际位置，保留坐标与时间戳', (tester) async {
       final events = <Object>[];
       await _pumpGestureView(
         tester,
@@ -964,27 +1006,21 @@ void main() {
       final origin = tester.getTopLeft(find.byType(ReaderView));
       final down = origin + const Offset(180, 90);
       final gesture = await tester.startGesture(down);
-      await _moveSamples(tester, gesture, [
-        for (final delta in [
-          Offset(-1, 0),
-          Offset(-37, 0),
-          Offset(-38, 2),
-          Offset(-39, 4),
-        ])
-          down + delta,
-      ]);
-      await tester.pump(const Duration(milliseconds: 50));
+      await gesture.moveTo(
+        down + const Offset(-1, 0),
+        timeStamp: const Duration(milliseconds: 20),
+      );
       expect(events, isEmpty);
       await gesture.moveTo(
-        down + const Offset(-40, 6),
-        timeStamp: const Duration(milliseconds: 100),
+        down + const Offset(-37, 2),
+        timeStamp: const Duration(milliseconds: 40),
       );
       _expectNativeHandoff(events, origin);
-      await gesture.moveTo(down + const Offset(-45, 8));
+      await gesture.moveTo(down + const Offset(-42, 8));
       expect(events, hasLength(3));
       final update = events.last as DragUpdateDetails;
       expect(update.delta, const Offset(-5, 0));
-      expect(update.localPosition, const Offset(135, 98));
+      expect(update.localPosition, const Offset(138, 98));
       await gesture.up();
     });
 
@@ -1020,7 +1056,7 @@ void main() {
       });
     }
 
-    testWidgets('已过 slop 但采样未起拖的双指取消，第二指移动也不恢复翻页', (tester) async {
+    testWidgets('未过设备阈值时双指取消，第二指移动也不恢复翻页', (tester) async {
       final events = <String>[];
       await _pumpGestureView(
         tester,
@@ -1037,7 +1073,7 @@ void main() {
       final first = await tester.startGesture(down, pointer: 1);
       await _moveSamples(tester, first, [
         down + const Offset(-1, 0),
-        down + const Offset(-40, 0),
+        down + const Offset(-12, 0),
       ]);
       expect(events, isEmpty);
       final second = await tester.startGesture(

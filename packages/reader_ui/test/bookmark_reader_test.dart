@@ -415,6 +415,60 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
   });
 
+  testWidgets('3D 真机视口短促横滑及时起卷，连续点击不重置活动纸面', (tester) async {
+    const viewport = Size(384, 853.3334);
+    await tester.binding.setSurfaceSize(viewport);
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final bookmarks = _Bookmarks();
+    final session = await _open(
+      tester,
+      bookmarks,
+      mode: PageTurnMode.simulation3d,
+      viewport: viewport,
+      devicePixelRatio: 2.8125,
+      touchSlop: 36,
+    );
+    final initial = session.currentCfi;
+    final controller = tester
+        .state<PageTurnViewState>(find.byType(PageTurnView))
+        .controller;
+    final origin = tester.getTopLeft(find.byType(ReaderView));
+    for (final direction in [-1.0, 1.0]) {
+      final down = origin + Offset(direction < 0 ? 340 : 44, 660);
+      final drag = await tester.startGesture(down);
+      await drag.moveTo(
+        down + Offset(direction * 60, -15),
+        timeStamp: const Duration(milliseconds: 30),
+      );
+      await tester.pump(const Duration(milliseconds: 16));
+      expect(controller.active, isTrue, reason: '短促快扫不能等到松手后才起卷');
+      await drag.moveTo(
+        down + Offset(direction * 240, -60),
+        timeStamp: const Duration(milliseconds: 70),
+      );
+      await tester.pump(const Duration(milliseconds: 16));
+      final displayed = controller.point;
+      await drag.up(timeStamp: const Duration(milliseconds: 80));
+      expect(controller.point, displayed, reason: '快速松手不重置已显示位置');
+      await tester.pumpAndSettle(const Duration(milliseconds: 16));
+      expect(session.page!.pageIndex, direction < 0 ? 1 : 0);
+    }
+    expect(session.currentCfi, initial);
+    await tester.tapAt(origin + const Offset(350, 160));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 32));
+    final displayed = controller.point;
+    expect(displayed, isNotNull);
+    await tester.tapAt(origin + const Offset(350, 690));
+    expect(controller.point, displayed, reason: '活动期间再次点击不能跳到新起卷点');
+    await tester.pumpAndSettle(const Duration(milliseconds: 16));
+    expect(session.page!.pageIndex, 1);
+    expect(session.pageTurns, 3);
+    expect(bookmarks.items, isEmpty);
+    await session.flushProgress();
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   for (final mode in PageTurnMode.values.where(
     (mode) => mode != PageTurnMode.scroll && mode != PageTurnMode.none,
   )) {

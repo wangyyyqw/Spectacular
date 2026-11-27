@@ -856,6 +856,46 @@ void main() {
     });
   }
 
+  for (final rtl in [false, true]) {
+    for (final next in [false, true]) {
+      for (final y in [160.0, 426.6667, 690.0]) {
+        testWidgets('3D 点击轨迹连续起卷且不中途重启：$rtl/$next/$y', (tester) async {
+          final controller = (await _curlController(tester, rtl: rtl))
+            ..size = const ui.Size(384, 853.3334);
+          controller.pointerDown(ui.Offset(next != rtl ? 350 : 34, y));
+          controller.request(next);
+          await tester.pump();
+          await tester.pump();
+          var previous = controller.point!;
+          var previousStep = 0.0;
+          for (var elapsed = 8; elapsed < 280; elapsed += 8) {
+            await tester.pump(const Duration(milliseconds: 8));
+            final current = controller.point!;
+            final step = previous.dx - current.dx;
+            expect(step, greaterThanOrEqualTo(0), reason: '纸面不能回跳');
+            expect(
+              (current - previous).distance,
+              lessThan(controller.size.width * (elapsed == 8 ? 0.025 : 0.12)),
+              reason: '首帧从纸边起卷，后续每帧连续推进',
+            );
+            expect(
+              (step - previousStep).abs(),
+              lessThan(controller.size.width * 0.02),
+              reason: '不能在定时释放时重新启动另一段速度曲线',
+            );
+            expect(controller.session.pageTurns, 0);
+            previous = current;
+            previousStep = step;
+          }
+          await tester.pumpAndSettle(const Duration(milliseconds: 8));
+          expect(controller.session.page!.pageIndex, next ? 2 : 0);
+          expect(controller.session.pageTurns, 1);
+          await controller.session.flushProgress();
+        });
+      }
+    }
+  }
+
   testWidgets('3D 短距离起卷快速贴合，新的位移不重启动画', (tester) async {
     final controller = await _curlController(tester);
     await _startCurlDrag(
@@ -1022,25 +1062,19 @@ void main() {
 
   for (final rtl in [false, true]) {
     for (final next in [false, true]) {
-      testWidgets('3D $rtl 点击${next ? '前进等待 50' : '后退等待 75'} ms 并复用按下纵坐标', (
-        tester,
-      ) async {
+      testWidgets('3D $rtl/$next 点击沿连续弧线抬向按下高度并落页', (tester) async {
         final controller = await _curlController(tester, rtl: rtl);
         controller.pointerDown(const ui.Offset(290, 80));
         controller.request(next);
         await tester.pump();
         await tester.pump();
         expect(controller.grab, const ui.Offset(320, 0));
-        expect(controller.phase, PageTurnPhase.dragging);
-        final delay = next ? 50 : 75;
-        await tester.pump(Duration(milliseconds: delay - 1));
-        final displayed = controller.point;
-        expect(displayed!.dx, inExclusiveRange(0, 320));
-        expect(controller.progress, greaterThan(0));
-        expect(controller.phase, PageTurnPhase.dragging);
-        await tester.pump(const Duration(milliseconds: 1));
         expect(controller.phase, PageTurnPhase.settling);
-        expect(controller.point, displayed);
+        expect(controller.point, controller.grab);
+        await tester.pump(const Duration(milliseconds: 140));
+        expect(controller.point!.dx, closeTo(0, 0.001));
+        expect(controller.point!.dy, closeTo(80, 0.001));
+        expect(controller.session.pageTurns, 0);
         await tester.pumpAndSettle();
         expect(controller.session.page!.pageIndex, next ? 2 : 0);
         await controller.session.flushProgress();
@@ -1111,7 +1145,7 @@ void main() {
     expect(controller.session.pageTurns, 0);
   });
 
-  testWidgets('3D 取消后的旧点击等待不能覆盖新 token', (tester) async {
+  testWidgets('3D 取消后的旧点击动画不能覆盖新 token', (tester) async {
     final controller = await _curlController(tester);
     controller.request(true);
     await tester.pump();
@@ -1120,7 +1154,7 @@ void main() {
     controller.request(false);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 25));
-    expect(controller.phase, PageTurnPhase.dragging);
+    expect(controller.phase, PageTurnPhase.settling);
     expect(controller.next, isFalse);
     expect(controller.session.pageTurns, 0);
     controller.cancel();
