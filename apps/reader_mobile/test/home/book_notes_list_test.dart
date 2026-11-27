@@ -97,9 +97,14 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('其他书'), findsNothing);
     final cover = find.byType(BookCoverImage);
-    final card = tester.widget<Material>(
-      find.ancestor(of: cover, matching: find.byType(Material)).first,
+    final frame = find
+        .ancestor(of: cover, matching: find.byType(Material))
+        .first;
+    expect(
+      tester.getTopLeft(cover) - tester.getTopLeft(frame),
+      const Offset(6, 6),
     );
+    final card = tester.widget<Material>(frame);
     expect(
       (card.shape! as RoundedRectangleBorder).borderRadius,
       bookCoverRadius,
@@ -181,7 +186,7 @@ void main() {
           tester.getTopLeft(covers.last).dy -
           tester.getTopLeft(covers.first).dy;
       expect(rowHeight, lessThan(140));
-      expect(rowHeight, greaterThanOrEqualTo(82 + 24 + 12));
+      expect(rowHeight, greaterThanOrEqualTo(82 + bookCardCoverInset * 2 + 12));
       expect(tester.takeException(), isNull);
     },
     variant: const TargetPlatformVariant({

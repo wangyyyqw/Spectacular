@@ -944,6 +944,41 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('最近更新、评分和书名都统一排列有正文、仅评分和待写图书', (tester) async {
+    final books = [
+      _book('pending', 'A', ''),
+      _book('rated', 'B', ''),
+      _book('written', 'C', ''),
+    ];
+    final store = _MemoryReviewStore()
+      ..items.addAll({
+        'rated': _review('rated', '', rating: 5, updatedAt: DateTime(2026, 3)),
+        'written': _review(
+          'written',
+          '正文',
+          rating: 3,
+          updatedAt: DateTime(2026, 2),
+        ),
+      });
+    await _pumpReviews(tester, books: books, store: store);
+    double top(String key) => tester.getTopLeft(find.byKey(ValueKey(key))).dy;
+    for (final mode in ['updated', 'rating', 'title']) {
+      if (mode != 'updated') {
+        await tester.tap(find.byKey(const ValueKey('reviews-sort')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(ValueKey('reviews-sort-$mode')));
+        await tester.pumpAndSettle();
+      }
+      expect(top('review-pending-rated'), lessThan(top('review-card-written')));
+      expect(
+        top('review-pending-pending'),
+        mode == 'title'
+            ? lessThan(top('review-pending-rated'))
+            : greaterThan(top('review-card-written')),
+      );
+    }
+  });
+
   testWidgets('书评无匹配时可清除搜索', (tester) async {
     final books = <BookEntry>[
       _book('reviewed', '已写书', '作者甲'),

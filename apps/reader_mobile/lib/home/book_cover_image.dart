@@ -9,6 +9,7 @@ export '../book_source/book_cover_url.dart';
 
 /// 共用封面的圆角，书目卡片外框沿用同一尺寸。
 const bookCoverRadius = BorderRadius.all(Radius.circular(4));
+const bookCardCoverInset = 6.0;
 
 /// 拖动窗口时按 64 像素档位稳定解码尺寸，避免逐像素重建图像源。
 int _coverDecodeBucket(int value) =>

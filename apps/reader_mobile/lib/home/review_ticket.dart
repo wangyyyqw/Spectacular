@@ -9,7 +9,6 @@ import '../storage/book_review_store.dart';
 import 'book_cover_image.dart';
 
 /// 票纸外圆角与封面内缩、圆角。
-const _coverInset = 6.0;
 const _coverRadius = 6.0;
 
 /// 封面固定尺寸（3:4）；上下票纸时同样使用这一尺寸。
@@ -105,7 +104,7 @@ class ReviewTicket extends StatelessWidget {
       width -
           (stacked ? 0 : stubWidth + 12) -
           _coverWidth -
-          _coverInset * 2 -
+          bookCardCoverInset * 2 -
           22,
     );
     final face = Row(
@@ -114,7 +113,7 @@ class ReviewTicket extends StatelessWidget {
           ? CrossAxisAlignment.start
           : CrossAxisAlignment.center,
       children: [
-        Padding(padding: const EdgeInsets.all(_coverInset), child: _cover()),
+        Padding(padding: const EdgeInsets.all(bookCardCoverInset), child: _cover()),
         Expanded(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(12, 6, 10, 6),

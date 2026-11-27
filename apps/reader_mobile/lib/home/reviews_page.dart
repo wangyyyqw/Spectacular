@@ -1091,67 +1091,32 @@ class _ReviewList extends StatelessWidget {
               review.content.toLowerCase().contains(normalizedQuery));
     }
 
-    final allReviewed = <BookEntry>[
+    final eligible = <BookEntry>[
       for (final book in books)
-        if (reviews[book.id]?.content.trim().isNotEmpty ?? false) book,
+        if (finishedBooks.contains(book.id) || reviews.containsKey(book.id)) book,
     ];
-    final reviewed = <BookEntry>[
-      for (final book in allReviewed)
-        if (matches(book)) book,
-    ];
+    final order = {for (final (index, book) in eligible.indexed) book.id: index};
+    DateTime updated(BookEntry book) => reviews[book.id]?.updatedAt ?? book.lastReadAt ?? book.addedAt;
     int compareBooks(BookEntry left, BookEntry right) {
-      switch (sort) {
-        case _ReviewSort.updated:
-          return reviews[right.id]!.updatedAt.compareTo(
-            reviews[left.id]!.updatedAt,
-          );
-        case _ReviewSort.rating:
-          final byRating = (reviews[right.id]!.rating ?? 0).compareTo(
-            reviews[left.id]!.rating ?? 0,
-          );
-          if (byRating != 0) {
-            return byRating;
-          }
-          return reviews[right.id]!.updatedAt.compareTo(
-            reviews[left.id]!.updatedAt,
-          );
-        case _ReviewSort.title:
-          return left.title.toLowerCase().compareTo(right.title.toLowerCase());
-      }
+      final result = switch (sort) {
+        _ReviewSort.updated => updated(right).compareTo(updated(left)),
+        _ReviewSort.rating => (reviews[right.id]?.rating ?? 0).compareTo(reviews[left.id]?.rating ?? 0),
+        _ReviewSort.title => left.title.toLowerCase().compareTo(right.title.toLowerCase()),
+      };
+      return result != 0 ? result : order[left.id]!.compareTo(order[right.id]!);
     }
-
-    reviewed.sort(compareBooks);
-    final pending = <BookEntry>[
-      for (final book in books)
-        if ((finishedBooks.contains(book.id) || reviews[book.id] != null) &&
-            !(reviews[book.id]?.content.trim().isNotEmpty ?? false) &&
-            matches(book))
-          book,
-    ];
-    final pendingCount = books
-        .where(
-          (book) =>
-              (finishedBooks.contains(book.id) || reviews[book.id] != null) &&
-              !(reviews[book.id]?.content.trim().isNotEmpty ?? false),
-        )
-        .length;
-    if (sort == _ReviewSort.title) {
-      pending.sort(
-        (left, right) =>
-            left.title.toLowerCase().compareTo(right.title.toLowerCase()),
-      );
-    }
+    final visible = eligible.where(matches).toList()..sort(compareBooks);
     return ListView(
       physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 28),
       children: [
         _ReviewSummary(
-          reviewed: allReviewed.length,
-          total: allReviewed.length + pendingCount,
+          reviewed: eligible.where((book) => reviews[book.id]?.content.trim().isNotEmpty ?? false).length,
+          total: eligible.length,
           reviews: reviews,
         ),
         const SizedBox(height: 10),
-        if (reviewed.isEmpty && pending.isEmpty)
+        if (visible.isEmpty)
           _NoReviewMatches(query: query.trim(), onReset: onResetSearch)
         else if (usesDesktopLayout(context))
           LayoutBuilder(
@@ -1162,7 +1127,7 @@ class _ReviewList extends StatelessWidget {
                 key: const ValueKey('reviews-desktop-grid'),
                 spacing: 20,
                 children: [
-                  for (final book in [...reviewed, ...pending])
+                  for (final book in visible)
                     SizedBox(
                       key: ValueKey(book.id),
                       width: width,
@@ -1173,7 +1138,7 @@ class _ReviewList extends StatelessWidget {
             },
           )
         else
-          for (final book in [...reviewed, ...pending]) _ticket(book),
+          for (final book in visible) _ticket(book),
       ],
     );
   }
