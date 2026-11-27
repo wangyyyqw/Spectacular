@@ -214,6 +214,77 @@ void main() {
     expect(changes.last.fontSize, 23);
   });
 
+  testWidgets('外部排版更新丢弃旧滑杆提交，图片淡化更新不影响排版提交', (tester) async {
+    final changes = <ReaderOverrides>[];
+    Widget panel({double fontSize = 17, double opacity = 1}) => MaterialApp(
+      home: Scaffold(
+        body: SettingsPanel(
+          section: SettingsSection.type,
+          overrides: ReaderSettingsDefaults.overrides.copyWith(
+            fontSize: fontSize,
+          ),
+          themeId: 'white',
+          backgroundImageOpacity: opacity,
+          onOverridesChanged: changes.add,
+          onThemeChanged: (_) {},
+        ),
+      ),
+    );
+    final fontSize = find.byKey(const ValueKey('settings-font-size'));
+    await tester.pumpWidget(panel());
+
+    tester.widget<Slider>(fontSize).onChanged!(22);
+    await tester.pump(const Duration(milliseconds: 40));
+    await tester.pumpWidget(panel(opacity: 0.25));
+    await tester.pump(const Duration(milliseconds: 40));
+    expect(changes.single.fontSize, 22, reason: '图片淡化不取消待提交的排版');
+
+    tester.widget<Slider>(fontSize).onChanged!(24);
+    await tester.pump(const Duration(milliseconds: 40));
+    await tester.pumpWidget(panel(fontSize: 18, opacity: 0.25));
+    expect(tester.widget<Slider>(fontSize).value, 18);
+    await tester.pump(const Duration(milliseconds: 80));
+    expect(changes, hasLength(1), reason: '旧滑杆值不能覆盖外部恢复的字号');
+
+    tester.widget<Slider>(fontSize).onChanged!(19);
+    await tester.pump(const Duration(milliseconds: 80));
+    expect(changes, hasLength(2));
+    expect(changes.last.fontSize, 19, reason: '恢复后仍可继续调整');
+  });
+
+  testWidgets('宿主回传已提交的排版时保留同帧内更新的滑杆值', (tester) async {
+    final changes = <ReaderOverrides>[];
+    var overrides = ReaderSettingsDefaults.overrides;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: StatefulBuilder(
+            builder: (context, setState) => SettingsPanel(
+              section: SettingsSection.type,
+              overrides: overrides,
+              themeId: 'white',
+              onOverridesChanged: (next) {
+                changes.add(next);
+                setState(() => overrides = next);
+              },
+              onThemeChanged: (_) {},
+            ),
+          ),
+        ),
+      ),
+    );
+    final fontSize = find.byKey(const ValueKey('settings-font-size'));
+    final slider = tester.widget<Slider>(fontSize);
+    slider.onChanged!(22);
+    slider.onChangeEnd!(22);
+    slider.onChanged!(23);
+    await tester.pump();
+    expect(tester.widget<Slider>(fontSize).value, 23, reason: '回传不使显示倒退');
+    await tester.pump(const Duration(milliseconds: 80));
+    expect(changes.map((next) => next.fontSize), [22, 23]);
+    expect(overrides.fontSize, 23);
+  });
+
   testWidgets('背景选择：点纸纹回调背景 id（P4-22）', (tester) async {
     final backgrounds = <String>[];
     await tester.pumpWidget(
@@ -286,6 +357,83 @@ void main() {
       expect(fade, findsNothing, reason: '纯色和内置纹理不受图片淡化影响');
     }
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('外部图片淡化更新丢弃旧滑杆提交，排版更新不影响图片淡化提交', (tester) async {
+    final changes = <double>[];
+    Widget panel({double fontSize = 17, double opacity = 1}) => MaterialApp(
+      home: Scaffold(
+        body: SettingsPanel(
+          section: SettingsSection.theme,
+          overrides: ReaderSettingsDefaults.overrides.copyWith(
+            fontSize: fontSize,
+          ),
+          themeId: 'white',
+          backgroundId: 'image:test',
+          backgroundImageOpacity: opacity,
+          onOverridesChanged: (_) {},
+          onThemeChanged: (_) {},
+          onBackgroundChanged: (_) {},
+          onBackgroundImageOpacityChanged: changes.add,
+        ),
+      ),
+    );
+    final fade = find.byKey(const ValueKey('settings-background-image-fade'));
+    await tester.pumpWidget(panel());
+
+    tester.widget<Slider>(fade).onChanged!(50);
+    await tester.pump(const Duration(milliseconds: 40));
+    await tester.pumpWidget(panel(fontSize: 18));
+    await tester.pump(const Duration(milliseconds: 40));
+    expect(changes, [0.5], reason: '排版更新不取消待提交的图片淡化');
+
+    tester.widget<Slider>(fade).onChanged!(60);
+    await tester.pump(const Duration(milliseconds: 40));
+    await tester.pumpWidget(panel(fontSize: 18, opacity: 0.25));
+    expect(tester.widget<Slider>(fade).value, 75);
+    await tester.pump(const Duration(milliseconds: 80));
+    expect(changes, [0.5], reason: '旧滑杆值不能覆盖外部恢复的图片淡化');
+
+    tester.widget<Slider>(fade).onChanged!(80);
+    await tester.pump(const Duration(milliseconds: 80));
+    expect(changes, [0.5, 0.2], reason: '恢复后仍可继续调整');
+  });
+
+  testWidgets('宿主回传已提交的图片淡化时保留同帧内更新的滑杆值', (tester) async {
+    final changes = <double>[];
+    var opacity = 1.0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: StatefulBuilder(
+            builder: (context, setState) => SettingsPanel(
+              section: SettingsSection.theme,
+              overrides: ReaderSettingsDefaults.overrides,
+              themeId: 'white',
+              backgroundId: 'image:test',
+              backgroundImageOpacity: opacity,
+              onOverridesChanged: (_) {},
+              onThemeChanged: (_) {},
+              onBackgroundChanged: (_) {},
+              onBackgroundImageOpacityChanged: (next) {
+                changes.add(next);
+                setState(() => opacity = next);
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+    final fade = find.byKey(const ValueKey('settings-background-image-fade'));
+    final slider = tester.widget<Slider>(fade);
+    slider.onChanged!(50);
+    slider.onChangeEnd!(50);
+    slider.onChanged!(60);
+    await tester.pump();
+    expect(tester.widget<Slider>(fade).value, 60, reason: '回传不使显示倒退');
+    await tester.pump(const Duration(milliseconds: 80));
+    expect(changes, [0.5, 0.4]);
+    expect(opacity, 0.4);
   });
 
   testWidgets('墨水屏模式禁用主题与背景选择', (tester) async {

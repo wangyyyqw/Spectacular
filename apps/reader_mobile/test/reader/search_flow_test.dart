@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/search/scan_search_service.dart';
 import 'package:reader_mobile/storage/db.dart';
+import 'package:reader_ui/annotations/annotation_layer.dart';
 import 'package:reader_ui/panels/search_panel.dart';
 import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
@@ -42,9 +43,12 @@ void main() {
       book = await library.importBytes(bytes);
     });
     final source = await openTestChapterSource(bytes);
+    addTearDown(source.close);
     final service = ScanSearchService(source: source);
+    addTearDown(service.dispose);
 
     late ReaderSession session;
+    var resolved = false;
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
@@ -70,6 +74,19 @@ void main() {
                         cfi: result.cfi,
                       ),
                   ];
+                },
+                onResolveSearchCfi: (result) async {
+                  final cfi = await service.resolveCfi(
+                    SearchResult(
+                      spineIndex: result.spineIndex,
+                      charOffset: result.charOffset,
+                      chapterTitle: result.chapterTitle,
+                      context: result.context,
+                      matchLength: result.matchLength,
+                    ),
+                  );
+                  resolved = cfi != null;
+                  return cfi;
                 },
               ),
             ),
@@ -104,16 +121,28 @@ void main() {
       findsOneWidget,
     );
 
-    // 命中项是 ListTile（章标题是普通 Text，不参与点击）。
-    final hits = find.byType(ListTile);
+    // 章节标题也可点击折叠；按命中键选择正文结果。
+    final hits = find.byWidgetPredicate(
+      (widget) =>
+          widget is ListTile &&
+          widget.key is ValueKey<String> &&
+          (widget.key! as ValueKey<String>).value.startsWith('search-hit-'),
+    );
     expect(hits, findsWidgets);
+    final highlight = find.byWidgetPredicate(
+      (widget) =>
+          widget is AnnotationLayer &&
+          widget.annotations.any((annotation) => annotation.id == 'search-hit'),
+    );
     await tester.tap(hits.first);
     await pumpReaderUntilComplete(
       tester,
       () =>
+          resolved &&
           !session.loading &&
           session.jumpLoadingTitle == null &&
           session.progress?.spineIndex == 0 &&
+          highlight.evaluate().isNotEmpty &&
           find.byType(SearchPanel).evaluate().isEmpty,
       description: '搜索命中跳转与面板关闭',
     );
@@ -121,9 +150,11 @@ void main() {
     // 跳转：仍在第 0 章（命中在第一段），临时高亮已挂上。
     expect(session.progress!.spineIndex, 0);
     expect(find.byType(SearchPanel), findsNothing, reason: '选中后关闭面板');
+    expect(highlight, findsWidgets);
 
     // 3 秒后临时高亮消失。
     await tester.pump(const Duration(seconds: 4));
     await tester.pumpAndSettle();
+    expect(highlight, findsNothing);
   });
 }

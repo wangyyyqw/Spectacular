@@ -56,9 +56,18 @@ class ChapterText {
 
   /// 包含该字符偏移的块；越界返回 null。
   ChapterBlock? blockAt(int charOffset) {
-    for (final item in blocks) {
+    // 块起点已按正文顺序递增；重复命中定位无需逐次扫描整章。
+    var low = 0;
+    var high = blocks.length - 1;
+    while (low <= high) {
+      final middle = (low + high) ~/ 2;
+      final item = blocks[middle];
       final end = item.start + item.text.length;
-      if (charOffset >= item.start && charOffset < end) {
+      if (charOffset < item.start) {
+        high = middle - 1;
+      } else if (charOffset >= end) {
+        low = middle + 1;
+      } else {
         return item;
       }
     }

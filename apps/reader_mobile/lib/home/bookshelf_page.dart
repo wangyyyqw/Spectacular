@@ -410,6 +410,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
         setState(() {
           _activeGroupId = group.id;
           _query = '';
+          _searchController.clear();
           _selectionMode = false;
           _selectedIds.clear();
         });
@@ -467,6 +468,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
         setState(() {
           _activeGroupId = groupId;
           _query = '';
+          _searchController.clear();
         });
       }
     } on LibraryImportException catch (error, stackTrace) {
@@ -733,10 +735,11 @@ class _BookshelfPageState extends State<BookshelfPage> {
       });
     }
     final byId = {for (final item in sorted) item.entry.id: item};
+    final pinnedIds = _pinnedIds.toSet();
     return [
       for (final id in _pinnedIds) ?byId[id],
       for (final item in sorted)
-        if (!_pinnedIds.contains(item.entry.id)) item,
+        if (!pinnedIds.contains(item.entry.id)) item,
     ];
   }
 
