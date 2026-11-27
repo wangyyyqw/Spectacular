@@ -124,7 +124,7 @@ extension _ReaderDecorationActions on _ReaderPageState {
     } catch (_) {
       if (mounted) _showToast('装饰保存失败，请重试');
     } finally {
-      if (mounted) _changeReaderState(() => _hideSelectionMenu = false);
+      if (mounted) _clearSelection();
     }
   }
 

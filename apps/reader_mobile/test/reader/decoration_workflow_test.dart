@@ -9,6 +9,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/paint/hit_test.dart';
 import 'package:reader_core/position/cfi.dart';
+import 'package:reader_mobile/dictionary/dictionary_sheet.dart';
+import 'package:reader_mobile/dictionary/dictionary_store.dart';
 import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/library/revision_anchor_store.dart';
 import 'package:reader_core/epub/epub_chapter_source.dart';
@@ -199,7 +201,7 @@ void main() {
     };
   });
   tearDown(() => ReaderUiDiagnostics.onEvent = null);
-  testWidgets('词典交付真实选区原文，关闭后恢复菜单且不写入批注', (tester) async {
+  testWidgets('词典交付真实选区原文，关闭后退出选区且不写入批注', (tester) async {
     final fixture = await _fixture(tester, body: '<p>测试词典原文</p>');
     addTearDown(() => tester.runAsync(fixture.close));
     String? selected;
@@ -225,8 +227,9 @@ void main() {
     await tester.pumpAndSettle();
     expect(
       find.byKey(const ValueKey('selection-action-dictionary')),
-      findsOneWidget,
+      findsNothing,
     );
+    expect(find.byType(SelectionLayer), findsNothing);
     expect(
       await fixture.database.select(fixture.database.annotations).get(),
       isEmpty,
@@ -234,6 +237,65 @@ void main() {
     expect(fixture.session.pageTurns, 0);
     await tester.pumpWidget(const SizedBox());
   });
+  for (final action in [
+    (id: 'thought', label: '想法', sheet: 'note-composer-sheet'),
+    (id: 'decoration', label: '装饰', sheet: 'decoration-editor-sheet'),
+    (id: 'dictionary', label: '词典', sheet: null),
+  ]) {
+    for (final dismissal in ['返回', '点空白', '下拉']) {
+      testWidgets('${action.label}弹窗$dismissal关闭后退出选区且不保存', (tester) async {
+        final fixture = await _fixture(tester);
+        addTearDown(() => tester.runAsync(fixture.close));
+        await _show(
+          tester,
+          fixture,
+          onDictionary: (text) => showDictionary(
+            tester.element(find.byType(ReaderPage)),
+            DictionaryStore(fixture.library),
+            text,
+          ),
+        );
+        await _selectText(tester, fixture);
+        await tester.tap(find.byKey(ValueKey('selection-action-${action.id}')));
+        await tester.pumpAndSettle();
+        final sheet = action.sheet == null
+            ? find.byType(DictionarySheet)
+            : find.byKey(ValueKey(action.sheet!));
+        await pumpReaderUntil(tester, sheet);
+        await tester.pumpAndSettle();
+        expect(find.byType(SelectionLayer), findsOneWidget);
+        expect(find.byKey(const ValueKey('selection-menu')), findsNothing);
+
+        switch (dismissal) {
+          case '返回':
+            await tester.binding.handlePopRoute();
+          case '点空白':
+            await tester.tapAt(const Offset(8, 8));
+          case '下拉':
+            await tester.drag(
+              find.byKey(const ValueKey('reader-drawer-drag-handle')),
+              const Offset(0, 500),
+            );
+        }
+        await tester.pumpAndSettle();
+
+        expect(sheet, findsNothing);
+        expect(find.byType(SelectionLayer), findsNothing);
+        expect(find.byKey(const ValueKey('selection-menu')), findsNothing);
+        expect(
+          await fixture.library.annotationStore(fixture.book.id)!.list(),
+          isEmpty,
+        );
+        expect(
+          await fixture.library.decorationStore(fixture.book.id)!.list(),
+          isEmpty,
+        );
+        expect(fixture.session.pageTurns, 0);
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox());
+      });
+    }
+  }
   testWidgets('首次开书内置规则关闭，保留原字号且不加载高亮图片', (tester) async {
     final fixture = await _fixture(
       tester,
