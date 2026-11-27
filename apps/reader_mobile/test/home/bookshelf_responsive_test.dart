@@ -152,10 +152,9 @@ void main() {
           widget is InkWell && widget.key.toString().contains('book-row-'),
     );
     expect(tester.getSize(rows.first).width, lessThanOrEqualTo(920));
-    expect(
-      tester.getSize(find.byKey(const ValueKey('book-row-cover')).first),
-      const Size(66, 88),
-    );
+    final cover = tester.getSize(find.byKey(const ValueKey('book-row-cover')).first);
+    expect(cover.height, greaterThan(88));
+    expect(cover.width / cover.height, closeTo(.75, .001));
     expect(tester.takeException(), isNull);
   }, variant: _platforms);
 

@@ -765,6 +765,9 @@ void main() {
 
     expect(coverRect(0).size, const Size(66, 88));
     expect(coverRect(1).top - coverRect(0).bottom, closeTo(17, 0.01));
+    final toolbar = tester.getRect(find.byKey(const ValueKey('discover-category-toolbar')));
+    final gap = toolbar.top - tester.getBottomLeft(find.byKey(const ValueKey('discover-search-surface'))).dy;
+    expect(coverRect(0).top - toolbar.bottom, closeTo(gap, .01));
 
     await tester.tap(find.byTooltip('网格视图'));
     await pumpReaderUntilComplete(
@@ -776,6 +779,7 @@ void main() {
       containsAll(<String>['2', '3']),
     );
     final firstCover = coverRect(0);
+    expect(firstCover.top - toolbar.bottom, closeTo(gap, .01));
     expect(firstCover.width / firstCover.height, closeTo(3 / 4, 0.001));
     expect(coverRect(1).left - firstCover.right, closeTo(16, 0.01));
     expect(coverRect(3).top - firstCover.bottom, closeTo(6 + 20 + 20, 0.01));
@@ -873,6 +877,9 @@ void main() {
       find.descendant(of: details, matching: find.byType(Text)),
       findsNWidgets(4),
     );
+    final cover = tester.getRect(find.byType(ClipRRect).last);
+    expect(tester.getTopLeft(details).dy - cover.top, greaterThanOrEqualTo(3.99));
+    expect(cover.bottom - tester.getBottomLeft(details).dy, greaterThanOrEqualTo(3.99));
     await tester.tap(find.byTooltip('网格视图'));
     await pumpReaderUntilComplete(
       tester,

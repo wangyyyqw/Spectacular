@@ -806,15 +806,11 @@ void main() {
             matching: find.byKey(const ValueKey('book-row-cover')),
           ),
         );
-        expect(
-          lines.last.bottom - lines.first.top,
-          greaterThanOrEqualTo(cover.height - .01),
-        );
+        expect(lines.first.top - cover.top, greaterThanOrEqualTo(3.99));
+        expect(cover.bottom - lines.last.bottom, greaterThanOrEqualTo(3.99));
+        expect(cover.width / cover.height, closeTo(.75, .001));
         if (scale == 2) {
-          expect(
-            lines.last.bottom - lines.first.top,
-            greaterThan(cover.height),
-          );
+          expect(cover.height, greaterThan(88));
         }
         expect(tester.getRect(row).contains(lines.last.bottomLeft), isTrue);
         expect(tester.takeException(), isNull);

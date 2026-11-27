@@ -1082,10 +1082,8 @@ class _BookshelfPageState extends State<BookshelfPage> {
             width,
             showTitles: _gridShowTitles,
           ).cardWidth
-        : BookCollectionLayout.rowCover.width;
-    final cardHeight = _grid
-        ? cardWidth / BookCollectionLayout.coverAspectRatio
-        : BookCollectionLayout.rowCover.height;
+        : BookCollectionLayout.listCover(context).width;
+    final cardHeight = cardWidth / BookCollectionLayout.coverAspectRatio;
     final decodeWidth = coverDecodeWidth(cardWidth, media.devicePixelRatio);
     final decodeHeight = coverDecodeHeight(cardHeight, media.devicePixelRatio);
     await Future.wait([
@@ -1940,7 +1938,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
           key: const ValueKey<String>('bookshelf-grid'),
           padding: EdgeInsets.fromLTRB(
             BookCollectionLayout.inset,
-            4,
+            BookCollectionLayout.toolbarGap(context),
             BookCollectionLayout.inset,
             _selectionMode ? 160 : 96,
           ),
@@ -1977,6 +1975,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
   }
 
   Widget _buildBookList(List<_ShelfItem> books) {
+    final coverSize = BookCollectionLayout.listCover(context);
     return LayoutBuilder(
       builder: (_, bounds) {
         final inset = BookCollectionLayout.listInset(context, bounds.maxWidth);
@@ -1984,7 +1983,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
           key: const ValueKey<String>('bookshelf-list'),
           padding: EdgeInsets.fromLTRB(
             inset,
-            8,
+            BookCollectionLayout.toolbarGap(context) - BookCollectionLayout.rowPadding.top,
             inset,
             _selectionMode ? 160 : 96,
           ),
@@ -1998,6 +1997,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
             return _desktopBook(
               _BookRow(
                 item: item,
+                coverSize: coverSize,
                 pinned: _pinnedIds.contains(item.entry.id),
                 showTitle: true,
                 isOnline: item.isOnline,
@@ -2536,6 +2536,7 @@ class _ImportBanner extends StatelessWidget {
 class _BookRow extends StatelessWidget {
   const _BookRow({
     required this.item,
+    required this.coverSize,
     required this.pinned,
     required this.showTitle,
     required this.selectionMode,
@@ -2550,6 +2551,7 @@ class _BookRow extends StatelessWidget {
   });
 
   final _ShelfItem item;
+  final Size coverSize;
   final bool pinned;
   final bool showTitle;
   final bool selectionMode;
@@ -2576,8 +2578,8 @@ class _BookRow extends StatelessWidget {
       child: BookCoverImage(
         key: const ValueKey<String>('book-row-cover'),
         book: entry,
-        width: BookCollectionLayout.rowCover.width,
-        height: BookCollectionLayout.rowCover.height,
+        width: coverSize.width,
+        height: coverSize.height,
         showShadow: true,
         shadowOpacity: pinned ? _pinnedCoverShadowOpacity : .12,
       ),
@@ -2635,13 +2637,9 @@ class _BookRow extends StatelessWidget {
               cover,
               const SizedBox(width: BookCollectionLayout.rowTextGap),
               Expanded(
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(
-                    minHeight: BookCollectionLayout.rowCover.height,
-                  ),
-                  child: Column(
+                child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    mainAxisSize: MainAxisSize.min,
                     spacing: MediaQuery.textScalerOf(context).scale(4),
                     children: <Widget>[
                       if (showTitle)
@@ -2676,6 +2674,8 @@ class _BookRow extends StatelessWidget {
                       ] else ...[
                         Text(
                           '已读 ${formatReadingDuration(item.duration)}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                           style: metadataStyle,
                         ),
                         Text(
@@ -2683,11 +2683,12 @@ class _BookRow extends StatelessWidget {
                             isOnline ? item.onlineSpineIndex : item.spineIndex,
                             isOnline ? item.onlineSpineCount : entry.spineCount,
                           ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                           style: metadataStyle,
                         ),
                       ],
                     ],
-                  ),
                 ),
               ),
               if (trailing.isNotEmpty) ...<Widget>[

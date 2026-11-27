@@ -732,6 +732,8 @@ class _DiscoverPageState extends State<DiscoverPage> {
       );
     }
     final inset = BookCollectionLayout.listInset(context, width);
+    final toolbarGap = BookCollectionLayout.toolbarGap(context);
+    final listCover = BookCollectionLayout.listCover(context);
     if (_searchMode) {
       return RefreshIndicator(
         onRefresh: _search,
@@ -743,8 +745,8 @@ class _DiscoverPageState extends State<DiscoverPage> {
             for (final group in _searchGroups)
               SliverPadding(
                 key: ValueKey('discover-source-card-${group.source.id}'),
-                padding: EdgeInsets.fromLTRB(inset, 8, inset, 0),
-                sliver: _searchCard(group),
+                padding: EdgeInsets.fromLTRB(inset, toolbarGap, inset, 0),
+                sliver: _searchCard(group, listCover),
               ),
             const SliverToBoxAdapter(child: SizedBox(height: 28)),
           ],
@@ -758,9 +760,9 @@ class _DiscoverPageState extends State<DiscoverPage> {
           ? GridView.builder(
               key: const ValueKey('discover-grid'),
               controller: _scroll,
-              padding: const EdgeInsets.fromLTRB(
+              padding: EdgeInsets.fromLTRB(
                 BookCollectionLayout.inset,
-                4,
+                toolbarGap,
                 BookCollectionLayout.inset,
                 28,
               ),
@@ -777,18 +779,20 @@ class _DiscoverPageState extends State<DiscoverPage> {
           : ListView.separated(
               key: const ValueKey('discover-list'),
               controller: _scroll,
-              padding: EdgeInsets.fromLTRB(inset, 8, inset, 28),
+              padding: EdgeInsets.fromLTRB(
+                inset, toolbarGap - BookCollectionLayout.rowPadding.top, inset, 28,
+              ),
               separatorBuilder: (_, _) =>
                   const SizedBox(height: BookCollectionLayout.rowSeparator),
               itemCount: _books.length + (footer ? 1 : 0),
               itemBuilder: (_, index) => index == _books.length
                   ? _footer()
-                  : _bookTile(_books[index].source, _books[index].book),
+                  : _bookTile(_books[index].source, _books[index].book, listCover: listCover),
             ),
     );
   }
 
-  Widget _searchCard(_SearchGroup group) {
+  Widget _searchCard(_SearchGroup group, Size listCover) {
     final theme = Theme.of(context);
     final source = group.source;
     final books = group.books;
@@ -806,14 +810,14 @@ class _DiscoverPageState extends State<DiscoverPage> {
             height: 1,
             indent: index == 0
                 ? 0
-                : BookCollectionLayout.rowCover.width +
+                : listCover.width +
                       BookCollectionLayout.rowTextGap,
           ),
           itemBuilder: (_, index) => Material(
             type: MaterialType.transparency,
             child: index == 0
                 ? _searchHeader(group, expanded)
-                : _bookTile(source, books[index - 1]),
+                : _bookTile(source, books[index - 1], listCover: listCover),
           ),
         ),
       ),
@@ -893,18 +897,19 @@ class _DiscoverPageState extends State<DiscoverPage> {
     ),
   );
 
-  Widget _bookTile(BookSource source, OnlineBook book, {bool grid = false}) {
+  Widget _bookTile(BookSource source, OnlineBook book, {Size? listCover, bool grid = false}) {
     final theme = Theme.of(context);
     final summary = onlineBookCardSummary(book);
     final cover = _DiscoverCover(
       controller: widget.controller,
       source: source,
       book: book,
-      grid: grid,
+      listSize: listCover,
     );
     final details = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
+      spacing: grid ? 0 : MediaQuery.textScalerOf(context).scale(4),
       children: [
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -914,17 +919,14 @@ class _DiscoverPageState extends State<DiscoverPage> {
                 book.name,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style:
-                    (grid
-                            ? theme.textTheme.bodyMedium
-                            : theme.textTheme.titleMedium)
-                        ?.copyWith(fontWeight: FontWeight.w600),
+                style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
               ),
             ),
             if (widget.controller.shelfEntryFor(source, book) != null) ...[
               const SizedBox(width: 6),
               Text(
                 '已在书架',
+                maxLines: 1,
                 style: theme.textTheme.labelSmall?.copyWith(
                   color: theme.colorScheme.primary,
                 ),
@@ -933,7 +935,6 @@ class _DiscoverPageState extends State<DiscoverPage> {
           ],
         ),
         if (!grid) ...[
-          const SizedBox(height: 3),
           Text(
             summary.author,
             maxLines: 1,
@@ -944,7 +945,6 @@ class _DiscoverPageState extends State<DiscoverPage> {
           ),
         ],
         if (!grid && summary.latest.isNotEmpty) ...[
-          const SizedBox(height: 3),
           Text(
             summary.latest,
             maxLines: 1,
@@ -953,7 +953,6 @@ class _DiscoverPageState extends State<DiscoverPage> {
           ),
         ],
         if (!grid && summary.description.isNotEmpty) ...[
-          const SizedBox(height: 3),
           Text(
             summary.description,
             maxLines: 1,
@@ -981,9 +980,6 @@ class _DiscoverPageState extends State<DiscoverPage> {
                 ],
               )
             : Row(
-                crossAxisAlignment: _searchMode
-                    ? CrossAxisAlignment.center
-                    : CrossAxisAlignment.start,
                 children: [
                   cover,
                   const SizedBox(width: BookCollectionLayout.rowTextGap),
@@ -1000,12 +996,12 @@ class _DiscoverCover extends StatefulWidget {
     required this.controller,
     required this.source,
     required this.book,
-    required this.grid,
+    this.listSize,
   });
   final OnlineBookController controller;
   final BookSource source;
   final OnlineBook book;
-  final bool grid;
+  final Size? listSize;
   @override
   State<_DiscoverCover> createState() => _DiscoverCoverState();
 }
@@ -1053,17 +1049,11 @@ class _DiscoverCoverState extends State<_DiscoverCover> {
       ),
     );
     return SizedBox(
-      width: widget.grid
-          ? double.infinity
-          : BookCollectionLayout.rowCover.width,
-      height: widget.grid
-          ? double.infinity
-          : BookCollectionLayout.rowCover.height,
+      width: widget.listSize?.width ?? double.infinity,
+      height: widget.listSize?.height ?? double.infinity,
       child: LayoutBuilder(
         builder: (context, constraints) {
-          final logicalWidth = widget.grid
-              ? (constraints.maxWidth.isFinite ? constraints.maxWidth : 150.0)
-              : BookCollectionLayout.rowCover.width;
+          final logicalWidth = constraints.maxWidth;
           final decodeWidth =
               (logicalWidth * MediaQuery.devicePixelRatioOf(context))
                   .ceil()

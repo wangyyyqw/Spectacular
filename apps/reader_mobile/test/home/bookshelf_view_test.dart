@@ -235,7 +235,10 @@ void main() {
       final cover = tester.getRect(
         find.byKey(const ValueKey('book-card-cover')),
       );
-      expect(cover.top - toolbar.bottom, 4, reason: '保持分组工具栏与封面的紧凑间距');
+      final gap = toolbar.top - tester.getBottomLeft(
+        find.byKey(const ValueKey('bookshelf-search-surface')),
+      ).dy;
+      expect(cover.top - toolbar.bottom, closeTo(gap, .01));
       final restingBounds = tester.getRect(grid);
       await tester.tap(find.byTooltip('列表视图'));
       await tester.pump();
