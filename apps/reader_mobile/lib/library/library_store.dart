@@ -15,6 +15,7 @@ import 'package:reader_core/epub/chapter/book_progress.dart'
 import 'package:reader_core/epub/epub_exception.dart';
 import 'package:reader_core/position/locator.dart';
 import 'package:reader_core/epub/epub_document.dart';
+import 'package:reader_core/epub/opf.dart';
 import 'package:reader_core/position/location_anchor.dart';
 import 'package:reader_core/perf/trace.dart';
 import 'package:reader_core/txt.dart';
@@ -44,6 +45,7 @@ import '../sync/sync_state.dart';
 
 part 'library_revision.dart';
 part 'library_editing.dart';
+part 'library_metadata.dart';
 part 'library_edit_drafts.dart';
 part 'library_sweep_paths.dart';
 part 'library_txt.dart';
@@ -711,43 +713,37 @@ class LibraryStore {
   }
 
   /// 给书籍添加标签；重复添加保持幂等。
-  Future<void> addBookTag(String bookId, String tagId) async {
-    if (!(await listTags()).any((tag) => tag.id == tagId)) {
+  Future<void> addBookTag(String bookId, String tagId) =>
+      _enqueueOperation(() => _changeBookTag(bookId, tagId, selected: true));
+
+  /// 移除书籍标签，并从 EPUB 的主题元数据移除；不存在时保持幂等。
+  Future<void> removeBookTag(String bookId, String tagId) =>
+      _enqueueOperation(() => _changeBookTag(bookId, tagId, selected: false));
+
+  Future<void> _changeBookTag(
+    String bookId,
+    String tagId, {
+    required bool selected,
+  }) async {
+    final tags = await bookTags(bookId);
+    if (tags.any((tag) => tag.id == tagId) == selected) return;
+    final available = await listTags();
+    if (!available.any((tag) => tag.id == tagId)) {
       throw const LibraryImportException('标签不存在');
     }
     if (!await _bookExists(bookId)) {
       throw const LibraryImportException('书籍不存在');
     }
     if (_isMemory) {
-      _memoryBookTags.putIfAbsent(bookId, () => <String>{}).add(tagId);
+      final ids = _memoryBookTags.putIfAbsent(bookId, () => <String>{});
+      selected ? ids.add(tagId) : ids.remove(tagId);
+      _notify();
     } else {
-      final db = _db!;
-      await db
-          .into(db.bookTagLinks)
-          .insertOnConflictUpdate(
-            BookTagLinksCompanion.insert(
-              bookUuid: bookId,
-              tagId: tagId,
-              createdAt: DateTime.now().millisecondsSinceEpoch,
-            ),
-          );
+      final next = selected
+          ? [...tags, available.firstWhere((tag) => tag.id == tagId)]
+          : tags.where((tag) => tag.id != tagId).toList();
+      await _writeBookMetadata(await _editableBook(bookId), tags: next);
     }
-    _notify();
-  }
-
-  /// 移除书籍标签；不存在时保持幂等。
-  Future<void> removeBookTag(String bookId, String tagId) async {
-    if (_isMemory) {
-      _memoryBookTags[bookId]?.remove(tagId);
-    } else {
-      final db = _db!;
-      await (db.delete(db.bookTagLinks)..where(
-            (table) =>
-                table.bookUuid.equals(bookId) & table.tagId.equals(tagId),
-          ))
-          .go();
-    }
-    _notify();
   }
 
   /// 某本书的书签存储（P4-13）；内存模式下没有书签能力时返回 null。
@@ -964,13 +960,13 @@ class LibraryStore {
     return row == null || row.deletedAt != null ? null : _entryFromRow(row);
   }
 
-  /// 保存用户编辑的书名、作者和简介。
+  /// 书名、作者和简介先写入 EPUB，再与书库资料一起提交。
   Future<BookEntry> updateBookMetadata(
     String id, {
     required String title,
     required String author,
     required String description,
-  }) async {
+  }) => _enqueueOperation(() async {
     final normalizedTitle = title.trim();
     if (normalizedTitle.isEmpty) {
       throw const LibraryImportException('书名不能为空');
@@ -991,85 +987,38 @@ class LibraryStore {
       _notify();
       return updated;
     }
-    final row = await _bookRowOfUuid(id);
-    if (row == null || row.deletedAt != null) {
-      throw const LibraryImportException('书籍不存在');
-    }
-    final db = _db!;
-    await (db.update(
-      db.books,
-    )..where((table) => table.id.equals(row.id))).write(
-      BooksCompanion(
-        title: Value<String>(normalizedTitle),
-        author: Value<String?>(
-          normalizedAuthor.isEmpty ? null : normalizedAuthor,
-        ),
-        description: Value<String?>(
-          normalizedDescription.isEmpty ? null : normalizedDescription,
-        ),
+    return _writeBookMetadata(
+      await _editableBook(id),
+      metadata: (
+        title: normalizedTitle,
+        author: normalizedAuthor,
+        description: normalizedDescription,
       ),
     );
-    _notify();
-    return _entryFromRow((await _bookRowOfUuid(id))!);
-  }
+  });
 
-  /// 替换封面：写入书目录并删除旧封面文件。
+  /// 替换 EPUB 封面资源与书架缓存，正文原有图片保持不变。
   Future<BookEntry> replaceCover(
     String id,
     Uint8List bytes, {
     required String extension,
-  }) async {
+  }) => _enqueueOperation(() async {
     if (bytes.isEmpty) {
       throw const LibraryImportException('封面图片为空');
     }
     if (_isMemory) {
       throw const LibraryImportException('当前模式无法保存封面');
     }
-    final row = await _bookRowOfUuid(id);
-    if (row == null || row.deletedAt != null) {
-      throw const LibraryImportException('书籍不存在');
-    }
     final normalized = extension.toLowerCase().replaceFirst('.', '');
     if (!const <String>{'jpg', 'jpeg', 'png', 'webp'}.contains(normalized)) {
       throw const LibraryImportException('仅支持 JPG、PNG 或 WebP 图片');
     }
     final suffix = normalized == 'jpeg' ? 'jpg' : normalized;
-    final directory = await _bookDirectory(id);
-    final coverFile = File(
-      '${directory.path}/cover-${DateTime.now().microsecondsSinceEpoch}.$suffix',
+    return _writeBookMetadata(
+      await _editableBook(id),
+      cover: (bytes: bytes, extension: suffix),
     );
-    await coverFile.writeAsBytes(bytes, flush: true);
-    final db = _db!;
-    try {
-      await (db.update(db.books)..where((table) => table.id.equals(row.id)))
-          .write(BooksCompanion(coverPath: Value<String>(coverFile.path)));
-    } catch (_) {
-      try {
-        await coverFile.delete();
-      } catch (_) {
-        // 数据库写入失败时尽量回滚新文件，失败则留给启动扫描清理。
-      }
-      rethrow;
-    }
-    final oldPath = row.coverPath;
-    if (oldPath != null && oldPath != coverFile.path) {
-      final normalizedOld = p.normalize(oldPath);
-      final retainedCovers = p.normalize(p.join((await _root()).path, 'covers'));
-      if (p.isWithin(directory.path, normalizedOld) ||
-          p.isWithin(retainedCovers, normalizedOld)) {
-        final oldFile = File(oldPath);
-        if (await oldFile.exists()) {
-          try {
-            await oldFile.delete();
-          } catch (_) {
-            // 旧封面占用或权限失败时保留，不影响新封面生效。
-          }
-        }
-      }
-    }
-    _notify();
-    return _entryFromRow((await _bookRowOfUuid(id))!);
-  }
+  });
 
   /// 导入 EPUB 字节：解析校验 → 落盘原书 → 提取并缓存封面 → 入库。
   ///

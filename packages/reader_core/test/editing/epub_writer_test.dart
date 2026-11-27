@@ -5,6 +5,7 @@ import 'package:archive/archive.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/editing.dart';
 import 'package:reader_core/epub/epub_document.dart';
+import 'package:xml/xml.dart';
 
 import 'edit_fixture.dart';
 
@@ -50,6 +51,129 @@ void main() {
       session.close();
     }
   });
+
+  for (final version in ['2.0', '3.0']) {
+    test('EPUB $version 多作者、标签与封面导出重开，未改元数据和资源保留', () async {
+      final input = await createEditingFixture(
+        directory,
+        packageText: _metadataPackage(version),
+      );
+      final originalBytes = await input.readAsBytes();
+      final session = await EpubEditSession.open(input);
+      final original = {
+        for (final path in [
+          'OPS/chapter.xhtml',
+          'OPS/style.css',
+          'OPS/image.png',
+          'META-INF/container.xml',
+        ])
+          path: session.readBytes(path),
+      };
+      final editor = PackageEditor(session);
+      const title = '新书名 & <特别版> 😀';
+      const description = '简介第一行 & <正文>\n第二行';
+      const creators = ['甲 & 乙', '作者 <丙> 😀'];
+      const subjects = ['标签 & 一', '标签 <二>'];
+      try {
+        editor.setMetadata({'title': title, 'description': description});
+        editor.setMetadataValues('creator', creators);
+        editor.setMetadataValues('subject', subjects);
+        final cover = Uint8List.fromList([
+          ...session.readBytes('OPS/image.png')!,
+          0,
+        ]);
+        editor.addResource('OPS/new-cover.png', cover, 'image/png');
+        editor.setCover('OPS/new-cover.png');
+        final output = File('${directory.path}/metadata-$version.epub');
+        await EpubWriter.write(session, output);
+        final reopened = await openEpubFile(output, verifyCrc: true);
+        expect(reopened.ok, isTrue);
+        final document = reopened.document!;
+        try {
+          expect(document.package.meta.title, title);
+          expect(document.package.meta.author, creators.join('、'));
+          expect(document.package.meta.identifier, 'edit-fixture');
+          expect(document.package.meta.language, 'zh');
+          expect(document.coverResourcePath, 'OPS/new-cover.png');
+          expect(document.readCoverBytes(), cover);
+          final opf = XmlDocument.parse(
+            document.archive.readString(document.opfPath)!,
+          );
+          expect(_dcValues(opf, 'creator'), creators);
+          expect(_dcValues(opf, 'subject'), subjects);
+          expect(_dcValues(opf, 'description'), [description]);
+          expect(_dcValues(opf, 'publisher'), ['保留出版社']);
+          expect(_dcValues(opf, 'contributor'), ['保留译者']);
+          final metadata = opf.descendants.whereType<XmlElement>().firstWhere(
+            (node) => node.name.local == 'metadata',
+          );
+          expect(
+            metadata.childElements
+                .where((node) => node.getAttribute('refines') != null)
+                .map((node) => node.getAttribute('refines')),
+            unorderedEquals(['#title', '#translator']),
+          );
+          expect(
+            metadata.childElements
+                .singleWhere((node) => node.namespaceUri == 'urn:publisher')
+                .innerText,
+            '保留自定义标签',
+          );
+          final covers = metadata.childElements.where(
+            (node) =>
+                node.getAttribute('name')?.trim().toLowerCase() == 'cover',
+          );
+          expect(covers, hasLength(1));
+          final coverItem = document.package.manifest.singleWhere(
+            (item) => item.href == 'new-cover.png',
+          );
+          expect(covers.single.getAttribute('content'), coverItem.id);
+          expect(
+            coverItem.properties.contains('cover-image'),
+            version == '3.0',
+          );
+          expect(
+            document.package.manifest
+                .singleWhere((item) => item.id == 'img')
+                .properties,
+            version == '3.0' ? ['scripted'] : isEmpty,
+          );
+          for (final entry in original.entries) {
+            expect(document.archive.readBytes(entry.key), entry.value);
+          }
+        } finally {
+          document.archive.close();
+        }
+        expect(await input.readAsBytes(), originalBytes);
+
+        final clearing = await EpubEditSession.open(output);
+        try {
+          final clearedEditor = PackageEditor(clearing);
+          clearedEditor.setMetadataValues('creator', const []);
+          clearedEditor.setMetadataValues('subject', const []);
+          final clearedFile = File('${directory.path}/cleared-$version.epub');
+          await EpubWriter.write(clearing, clearedFile);
+          final cleared = (await openEpubFile(clearedFile)).document!;
+          try {
+            final opf = XmlDocument.parse(
+              cleared.archive.readString(cleared.opfPath)!,
+            );
+            expect(cleared.package.meta.author, isEmpty);
+            expect(_dcValues(opf, 'creator'), isEmpty);
+            expect(_dcValues(opf, 'subject'), isEmpty);
+            expect(_dcValues(opf, 'contributor'), ['保留译者']);
+            expect(cleared.readCoverBytes(), cover);
+          } finally {
+            cleared.archive.close();
+          }
+        } finally {
+          clearing.close();
+        }
+      } finally {
+        session.close();
+      }
+    });
+  }
 
   test('UTF-16 原章节写回保留字节序与 BOM', () async {
     final text = editingXhtml.replaceFirst('UTF-8', 'UTF-16');
@@ -194,6 +318,44 @@ void main() {
     }
   });
 }
+
+String _metadataPackage(String version) =>
+    '<opf:package xmlns:opf="http://www.idpf.org/2007/opf" '
+    'version="$version" unique-identifier="id">'
+    '<opf:metadata xmlns:dc="http://purl.org/dc/elements/1.1/" '
+    'xmlns:publisher="urn:publisher">'
+    '<dc:identifier id="id">edit-fixture</dc:identifier>'
+    '<dc:title id="title">原书名</dc:title><dc:language>zh</dc:language>'
+    '<dc:description>原简介</dc:description><dc:publisher>保留出版社</dc:publisher>'
+    '<dc:creator id="author-a" opf:role="aut" opf:file-as="旧排序">旧作者甲</dc:creator>'
+    '<dc:creator id="author-b">旧作者乙</dc:creator>'
+    '<opf:meta refines="#author-role" property="alternate-script">旧附属项</opf:meta>'
+    '<opf:meta id="author-role" refines="#author-a" property="role">aut</opf:meta>'
+    '<dc:subject id="subject-a">旧标签甲</dc:subject>'
+    '<dc:subject id="subject-b">旧标签乙</dc:subject>'
+    '<opf:meta refines="#subject-a" property="authority">旧标签细化</opf:meta>'
+    '<dc:contributor id="translator">保留译者</dc:contributor>'
+    '<opf:meta refines="#translator" property="role">trl</opf:meta>'
+    '<opf:meta refines="#title" property="title-type">main</opf:meta>'
+    '<publisher:subject>保留自定义标签</publisher:subject>'
+    '<opf:meta name=" Cover " content="img"/>'
+    '</opf:metadata><opf:manifest>'
+    '<opf:item id="c" href="chapter.xhtml" media-type="application/xhtml+xml"/>'
+    '<opf:item id="css" href="style.css" media-type="text/css"/>'
+    '<opf:item id="img" href="image.png" media-type="image/png"'
+    '${version == '3.0' ? ' properties="cover-image scripted"' : ''}/>'
+    '</opf:manifest><opf:spine><opf:itemref idref="c"/></opf:spine></opf:package>';
+
+List<String> _dcValues(XmlDocument document, String field) => document
+    .descendants
+    .whereType<XmlElement>()
+    .where(
+      (node) =>
+          node.name.local == field &&
+          node.namespaceUri == 'http://purl.org/dc/elements/1.1/',
+    )
+    .map((node) => node.innerText)
+    .toList();
 
 void _oversizeUnusedEntry(Uint8List bytes) {
   final data = ByteData.sublistView(bytes);

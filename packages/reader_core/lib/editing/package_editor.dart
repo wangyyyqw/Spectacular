@@ -91,6 +91,61 @@ class PackageEditor {
     _writePackage('修改书籍信息', doc);
   }
 
+  /// 完整替换作者或标签；空列表清空该字段，其他元数据保持原样。
+  void setMetadataValues(String field, List<String> values) {
+    if (field != 'creator' && field != 'subject') {
+      throw ArgumentError('不支持修改多值元数据：$field');
+    }
+    const namespace = 'http://purl.org/dc/elements/1.1/';
+    final doc = _package;
+    final metadata = _section(doc, 'metadata');
+    final removed = metadata.childElements
+        .where(
+          (node) =>
+              node.name.local == field &&
+              (node.namespaceUri == namespace ||
+                  node.namespaceUri == null ||
+                  node.namespaceUri!.isEmpty),
+        )
+        .toList();
+    _removeMetadataElements(metadata, removed);
+    metadata.children.addAll([
+      for (final value in values)
+        XmlElement(
+          XmlName.parts(field, prefix: 'dc'),
+          [XmlAttribute(XmlName.parts('dc', prefix: 'xmlns'), namespace)],
+          [XmlText(value)],
+        ),
+    ]);
+    _writePackage('修改书籍信息', doc);
+  }
+
+  void _removeMetadataElements(XmlElement metadata, List<XmlElement> removed) {
+    final ids = removed.expand(_elementIds).toSet();
+    var changed = true;
+    while (changed) {
+      changed = false;
+      for (final node in metadata.childElements) {
+        if (removed.contains(node)) continue;
+        final refines = Uri.tryParse(
+          node.getAttribute('refines')?.trim() ?? '',
+        );
+        if (refines == null ||
+            refines.hasScheme ||
+            refines.hasAuthority ||
+            refines.hasQuery ||
+            refines.path.isNotEmpty ||
+            !ids.contains(Uri.decodeComponent(refines.fragment))) {
+          continue;
+        }
+        removed.add(node);
+        ids.addAll(_elementIds(node));
+        changed = true;
+      }
+    }
+    metadata.children.removeWhere(removed.contains);
+  }
+
   List<EditChapter> get chapters {
     final doc = _package;
     final items = {
@@ -294,7 +349,7 @@ class PackageEditor {
       (e) =>
           e is XmlElement &&
           e.name.local == 'meta' &&
-          e.getAttribute('name') == 'cover',
+          e.getAttribute('name')?.trim().toLowerCase() == 'cover',
     );
     metadata.children.add(
       _elementLike(metadata, 'meta', [

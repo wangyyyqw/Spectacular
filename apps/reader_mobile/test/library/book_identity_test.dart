@@ -52,7 +52,7 @@ void main() {
     root.deleteSync(recursive: true);
   });
 
-  test('三元组生成32位ID，修改展示资料后重导入仍识别原书', () async {
+  test('三元组生成32位ID，资料写入 EPUB 后重导入原文件仍更新同一本书', () async {
     final bytes = buildTestEpub(title: '原书名', identifier: _identifier);
     final book = await library.importBytes(bytes, fallbackTitle: '文件名甲');
     final expected = generateBookId(
@@ -73,7 +73,9 @@ void main() {
       description: '简介',
     );
     final again = await library.importBytes(bytes);
-    expect(again.importOutcome, BookImportOutcome.unchanged);
+    expect(again.importOutcome, BookImportOutcome.updated);
+    expect(again.id, expected);
+    expect(await library.list(), hasLength(1));
     expect(again.title, '编辑名');
     expect(
       (await db.select(db.books).get()).single.epubIdentifier,

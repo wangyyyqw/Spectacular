@@ -1111,14 +1111,16 @@ class _BookshelfPageState extends State<BookshelfPage> {
   Future<void> _exportBook(BookEntry entry) async {
     if (_exportingBook) return;
     _exportingBook = true;
-    final title = entry.title
-        .replaceAll(RegExp(r'[/\\:*?"<>|\x00-\x1f]'), '_')
-        .trim();
-    final name = String.fromCharCodes(title.runes.take(64));
-    final fileName = '${name.isEmpty ? '未命名书籍' : name}.epub';
     try {
+      final current = await widget.library.bookById(entry.id);
+      if (current == null) throw const LibraryImportException('书籍不存在');
+      final title = current.title
+          .replaceAll(RegExp(r'[/\\:*?"<>|\x00-\x1f]'), '_')
+          .trim();
+      final name = String.fromCharCodes(title.runes.take(64));
+      final fileName = '${name.isEmpty ? '未命名书籍' : name}.epub';
       final saved = await EpubExport.saveToDownloads(
-        File(entry.filePath),
+        File(current.filePath),
         fileName: fileName,
       );
       if (mounted) {

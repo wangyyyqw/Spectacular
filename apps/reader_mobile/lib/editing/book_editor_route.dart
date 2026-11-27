@@ -9,6 +9,7 @@ import 'book_editor_controller.dart';
 import 'book_editor_page.dart';
 import 'book_editor_tools.dart';
 import 'epub_export.dart';
+import '../library/library_store.dart';
 import '../reader/reader_settings.dart';
 import '../diagnostics/reader_log.dart';
 
@@ -48,6 +49,7 @@ class _BookEditorRouteState extends State<BookEditorRoute> {
   @override
   void initState() {
     super.initState();
+    widget.repository.library.beginSyncRead();
     _open();
   }
 
@@ -201,6 +203,7 @@ class _BookEditorRouteState extends State<BookEditorRoute> {
   @override
   void dispose() {
     _controller?.dispose();
+    widget.repository.library.endSyncRead();
     super.dispose();
   }
 

@@ -69,7 +69,10 @@ void main() {
 
       BookEditorController controller() =>
           tester.widget<BookEditorPage>(find.byType(BookEditorPage)).controller;
+      // 阅读器内打开编辑器时，退出编辑不能提前解除阅读器的接收保护。
+      library.beginSyncRead();
       await open();
+      expect(library.syncRepository().busy, isTrue);
       final editor = controller();
       final document = editor.activeDocument!;
       for (final text in ['第一次保存', '第二次保存']) {
@@ -107,7 +110,11 @@ void main() {
       expect(draft.sourceFile.path, current.filePath);
       await tester.pumpWidget(const SizedBox());
       await tester.pump(const Duration(milliseconds: 400));
+      expect(library.syncRepository().busy, isTrue);
+      library.endSyncRead();
+      expect(library.syncRepository().busy, isFalse);
       await open();
+      expect(library.syncRepository().busy, isTrue);
       final recovered = controller();
       expect(recovered.activeDocument!.code.text, contains('保存后的草稿'));
       await tester.tap(find.byTooltip('保存书籍'));
@@ -141,6 +148,7 @@ void main() {
       expect(recovered.activeDocument!.code.text, contains('冲突时保留输入'));
       await tester.pumpWidget(const SizedBox());
       await tester.pump(const Duration(milliseconds: 400));
+      expect(library.syncRepository().busy, isFalse);
       expect(tester.takeException(), isNull);
     },
     variant: TargetPlatformVariant({

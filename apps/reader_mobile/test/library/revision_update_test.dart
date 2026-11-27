@@ -131,7 +131,16 @@ Future<void> _seedHistory(
   final group = await library.createGroup('版本更新分组');
   await library.setBooksGroup([entry.id], groupId: group.id);
   final tag = await library.createTag('需要保留的标签');
-  await library.addBookTag(entry.id, tag.id);
+  // 这里只准备历史关联，保持修订夹具字节不变；标签写包另有专门回归。
+  await db
+      .into(db.bookTagLinks)
+      .insert(
+        BookTagLinksCompanion.insert(
+          bookUuid: entry.id,
+          tagId: tag.id,
+          createdAt: DateTime.now().millisecondsSinceEpoch,
+        ),
+      );
 }
 
 Future<void> _seedData(
@@ -324,17 +333,19 @@ void main() {
     test('原书文件丢失后从${fromFile ? '文件' : '字节'}补回同版本，不改写位置与用户资料', () async {
       final entry = await library.importBytes(original);
       await _seedData(db, library, entry, original);
-      await library.updateBookMetadata(
-        entry.id,
-        title: '自定义书名',
-        author: '自定义作者',
-        description: '保留简介',
-      );
-      final cover = await library.replaceCover(
-        entry.id,
-        Uint8List.fromList([1, 2, 3]),
-        extension: 'png',
-      );
+      // 模拟旧版仅在书库保存的自定义资料，补回原 EPUB 时仍应保留。
+      final cover = File(p.join(directory.path, 'custom-cover.png'));
+      await cover.writeAsBytes([1, 2, 3]);
+      await db
+          .update(db.books)
+          .write(
+            BooksCompanion(
+              title: const Value('自定义书名'),
+              author: const Value('自定义作者'),
+              description: const Value('保留简介'),
+              coverPath: Value(cover.path),
+            ),
+          );
       final before = await _snapshot(db);
       await File(entry.filePath).delete();
       final input = File(p.join(directory.path, 'input.epub'));
@@ -352,7 +363,7 @@ void main() {
       expect(result.title, '自定义书名');
       expect(result.author, '自定义作者');
       expect(result.description, '保留简介');
-      expect(result.coverPath, cover.coverPath);
+      expect(result.coverPath, cover.path);
       _expectRetainedUserData(before, await _snapshot(db));
     });
   }

@@ -353,8 +353,10 @@ void main() {
       expect(route.bookId, book.id);
       expect(route.sourcePath, book.filePath);
       expect(route.contentRevision, book.contentRevision);
+      expect(library.syncRepository().busy, isTrue);
       await tester.tap(find.byTooltip('退出编辑'));
       await tester.pumpAndSettle();
+      expect(library.syncRepository().busy, isFalse);
     }
     expect((await pumpReaderTask(tester, library.list())).single.id, book.id);
     await tester.pumpWidget(const SizedBox());

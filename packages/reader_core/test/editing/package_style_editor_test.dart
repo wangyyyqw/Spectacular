@@ -257,6 +257,59 @@ void main() {
     expect(session.readText('OPS/a.xhtml'), contains('class="notebook"'));
   });
 
+  test('多值元数据兼容无命名空间旧节点，保留同名扩展字段且支持撤销', () {
+    final original = session
+        .readText('OPS/book.opf')
+        .replaceFirst(' xmlns="http://www.idpf.org/2007/opf"', '')
+        .replaceFirst(
+          '</metadata>',
+          '<creator id="legacy">旧作者</creator>'
+              '<dc:creator id="author">另一作者</dc:creator>'
+              '<subject>旧标签</subject><dc:subject>另一标签</dc:subject>'
+              '<x:creator xmlns:x="urn:custom">保留同名扩展</x:creator>'
+              '<dc:contributor id="translator">译者</dc:contributor>'
+              '<meta id="detail" refines="#role" property="alternate-script">附属</meta>'
+              '<meta id="role" refines="#legacy" property="role">aut</meta>'
+              '<meta refines="#translator" property="role">trl</meta>'
+              '<meta refines="https://example.test/#legacy" property="source">外部引用</meta>'
+              '</metadata>',
+        );
+    session.transaction('准备旧格式元数据', (tx) {
+      tx.writeText('OPS/book.opf', original);
+    });
+    final editor = PackageEditor(session);
+    editor.setMetadataValues('creator', ['新作者']);
+    var package = XmlDocument.parse(session.readText('OPS/book.opf'));
+    final creators = package.descendants.whereType<XmlElement>().where(
+      (node) => node.name.local == 'creator',
+    );
+    expect(creators.map((node) => node.innerText), ['保留同名扩展', '新作者']);
+    expect(creators.last.namespaceUri, 'http://purl.org/dc/elements/1.1/');
+    expect(
+      package.descendants
+          .whereType<XmlElement>()
+          .where((node) => node.getAttribute('refines') != null)
+          .map((node) => node.getAttribute('refines')),
+      ['#translator', 'https://example.test/#legacy'],
+    );
+    session.undo();
+    expect(session.readText('OPS/book.opf'), original);
+    editor.setMetadataValues('subject', const []);
+    package = XmlDocument.parse(session.readText('OPS/book.opf'));
+    expect(
+      package.descendants.whereType<XmlElement>().where(
+        (node) => node.name.local == 'subject',
+      ),
+      isEmpty,
+    );
+    final beforeInvalid = session.readText('OPS/book.opf');
+    expect(
+      () => editor.setMetadataValues('title', ['书名']),
+      throwsArgumentError,
+    );
+    expect(session.readText('OPS/book.opf'), beforeInvalid);
+  });
+
   test('非法草稿可保留，严格预览阻止错误源码发布', () async {
     ClassStyleEditor(session).writeSources({'OPS/a.xhtml': '<html><body>'});
     expect(session.toDraft()['entries'], isNotEmpty);

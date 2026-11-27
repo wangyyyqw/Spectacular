@@ -4,15 +4,18 @@ import 'dart:typed_data';
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:reader_core/epub/epub_document.dart';
 import 'package:reader_mobile/home/book_detail_page.dart';
 import 'package:reader_mobile/home/reviews_page.dart';
 import 'package:reader_mobile/library/library_store.dart';
+import 'package:reader_mobile/library/revision_anchor_index.dart';
 import 'package:reader_mobile/storage/book_review_store.dart';
 import 'package:reader_mobile/storage/db.dart';
 import 'package:reader_mobile/storage/drift_progress_store.dart';
 import 'package:reader_ui/reader_session.dart';
 
 import '../support/test_epub.dart';
+import '../support/reader_pump.dart';
 
 class _FakeCoverLibrary extends LibraryStore {
   _FakeCoverLibrary() : super.memory();
@@ -198,15 +201,36 @@ void main() {
 
   testWidgets('详情页可编辑资料、新建标签并切换标签', (tester) async {
     late BookEntry entry;
+    final progress = DriftProgressStore(db);
+    late String cfi;
     await tester.runAsync(() async {
       entry = await store.importBytes(
         buildTestEpub(title: '旧书名', identifier: 'detail-edit'),
+      );
+      final index = await buildRevisionAnchorBookFile(
+        File(entry.filePath),
+        revision: entry.contentRevision!,
+      );
+      cfi = index.chapter(0)!.cfiAt(2)!;
+      await progress.save(
+        entry.id,
+        ReaderProgress(
+          spineIndex: 0,
+          pageIndex: 2,
+          cfi: cfi,
+          contentRevision: entry.contentRevision,
+          readingPercent: .4,
+        ),
       );
     });
 
     await tester.pumpWidget(
       MaterialApp(
-        home: BookDetailPage(entry: entry, library: store),
+        home: BookDetailPage(
+          entry: entry,
+          library: store,
+          progressStore: progress,
+        ),
       ),
     );
     await tester.pumpAndSettle();
@@ -243,7 +267,27 @@ void main() {
       '新的简介',
     );
     await tester.pump();
+    store.beginSyncRead();
     await tester.tap(find.byKey(const ValueKey<String>('book-detail-save')));
+    await pumpReaderUntil(tester, find.text('请先退出阅读或编辑，再修改图书资料'));
+    await tester.pumpAndSettle();
+    expect(find.text('请先退出阅读或编辑，再修改图书资料'), findsOneWidget);
+    expect(
+      tester
+          .widget<TextField>(
+            find.byKey(const ValueKey('book-detail-title-field')),
+          )
+          .controller!
+          .text,
+      '新书名',
+    );
+    store.endSyncRead();
+    await tester.tap(find.byKey(const ValueKey<String>('book-detail-save')));
+    await pumpReaderUntilComplete(
+      tester,
+      () => find.byType(CircularProgressIndicator).evaluate().isEmpty,
+      maxFrames: 200,
+    );
     await tester.pumpAndSettle();
 
     late BookEntry updated;
@@ -253,6 +297,16 @@ void main() {
     expect(updated.title, '新书名');
     expect(updated.author, '新作者');
     expect(updated.description, '新的简介');
+    expect(find.text('请先退出阅读或编辑，再修改图书资料'), findsNothing);
+    await tester.runAsync(() async {
+      final exported = await openEpubFile(File(updated.filePath));
+      try {
+        expect(exported.document!.meta.title, '新书名');
+        expect(exported.document!.meta.author, '新作者');
+      } finally {
+        exported.document?.archive.close();
+      }
+    });
 
     final tagField = find.byKey(
       const ValueKey<String>('book-detail-new-tag-field'),
@@ -268,6 +322,13 @@ void main() {
       find.byKey(const ValueKey<String>('book-detail-add-tag')),
     );
     await tester.tap(find.byKey(const ValueKey<String>('book-detail-add-tag')));
+    await pumpReaderUntilComplete(
+      tester,
+      () => tester
+          .widgetList<FilterChip>(find.byType(FilterChip))
+          .any((chip) => chip.selected && chip.onSelected != null),
+      maxFrames: 200,
+    );
     await tester.pumpAndSettle();
 
     late List<BookTag> tags;
@@ -282,11 +343,25 @@ void main() {
     await tester.ensureVisible(chip);
     await tester.pumpAndSettle();
     await tester.tap(chip);
+    await pumpReaderUntilComplete(
+      tester,
+      () => !tester.widget<FilterChip>(chip).selected,
+      maxFrames: 200,
+    );
     await tester.pumpAndSettle();
     await tester.runAsync(() async {
       tags = await store.bookTags(entry.id);
     });
     expect(tags, isEmpty, reason: '再次点击标签应取消关联');
+    await _saveDetailReview(tester, rating: 4, content: '改资料后仍可标记读完');
+    final saved = await progress.load(entry.id);
+    expect(saved!.finished, isTrue);
+    expect(saved.cfi, cfi);
+    expect(saved.readingPercent, .4);
+    expect(
+      saved.contentRevision,
+      (await store.bookById(entry.id))!.contentRevision,
+    );
   });
 
   testWidgets('详情页点击封面调用存储并完成更新', (tester) async {
@@ -750,6 +825,14 @@ Future<void> _saveDetailReview(
     content,
   );
   await tester.tap(find.byKey(const ValueKey('book-detail-finish-save')));
+  await pumpReaderUntilComplete(
+    tester,
+    () => find
+        .byKey(const ValueKey('book-detail-finish-sheet'))
+        .evaluate()
+        .isEmpty,
+    maxFrames: 200,
+  );
   await tester.pumpAndSettle();
 }
 

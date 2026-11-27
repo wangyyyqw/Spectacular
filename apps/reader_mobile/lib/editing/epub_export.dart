@@ -18,7 +18,7 @@ class EpubExport {
     return temporary.createTemp('epub-edit-');
   }
 
-  /// 书架原文件默认导出到下载目录，不经过编辑器重写。
+  /// 将书库当前版本导出到下载目录，包含已保存的图书资料与封面。
   static Future<bool> saveToDownloads(
     File source, {
     required String fileName,

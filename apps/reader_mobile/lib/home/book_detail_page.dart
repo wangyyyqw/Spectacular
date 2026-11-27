@@ -107,8 +107,10 @@ class _BookDetailPageState extends State<BookDetailPage> {
   bool _loading = true;
   bool _saving = false;
   bool _changingCover = false;
+  bool _savingTags = false;
   bool _canRechapter = false;
   String? _loadError;
+  String? _writeError;
 
   BookReviewStore? get _reviewStore =>
       widget.reviewStore ?? widget.library.reviewStore();
@@ -203,15 +205,20 @@ class _BookDetailPageState extends State<BookDetailPage> {
       _authorController.text.trim() != _entry.author ||
       _descriptionController.text.trim() != _entry.description;
 
+  bool get _writingBook => _saving || _changingCover || _savingTags;
+
   Future<void> _saveMetadata() async {
-    if (_saving) {
+    if (_writingBook) {
       return;
     }
     if (_titleController.text.trim().isEmpty) {
       _showMessage('书名不能为空');
       return;
     }
-    setState(() => _saving = true);
+    setState(() {
+      _saving = true;
+      _writeError = null;
+    });
     try {
       final entry = await widget.library.updateBookMetadata(
         _entry.id,
@@ -219,18 +226,23 @@ class _BookDetailPageState extends State<BookDetailPage> {
         author: _authorController.text,
         description: _descriptionController.text,
       );
+      await _refreshBookEntry(entry);
       if (!mounted) {
         return;
       }
       _titleController.text = entry.title;
       _authorController.text = entry.author;
       _descriptionController.text = entry.description;
-      setState(() {
-        _entry = entry;
-      });
       _showMessage('图书资料已保存');
     } on LibraryImportException catch (error) {
-      _showMessage(error.message);
+      _showMessage(error.message, isWriteError: true);
+    } catch (error, stackTrace) {
+      recordAppError(
+        'book_metadata_save_failed',
+        error,
+        stackTrace: stackTrace,
+      );
+      _showMessage('图书资料保存失败，输入已保留，请重试', isWriteError: true);
     } finally {
       if (mounted) {
         setState(() => _saving = false);
@@ -239,35 +251,38 @@ class _BookDetailPageState extends State<BookDetailPage> {
   }
 
   Future<void> _changeCover() async {
-    if (_changingCover) {
+    if (_writingBook) {
       return;
     }
     CoverSelection? selection;
     try {
       selection = await widget.pickCover();
     } catch (_) {
-      _showMessage('选择封面失败，请重试');
+      _showMessage('选择封面失败，请重试', isWriteError: true);
       return;
     }
     if (selection == null || !mounted) {
       return;
     }
-    setState(() => _changingCover = true);
+    setState(() {
+      _changingCover = true;
+      _writeError = null;
+    });
     try {
       final entry = await widget.library.replaceCover(
         _entry.id,
         selection.bytes,
         extension: selection.extension,
       );
+      await _refreshBookEntry(entry);
       if (!mounted) {
         return;
       }
-      setState(() => _entry = entry);
       _showMessage('封面已更新');
     } on LibraryImportException catch (error) {
-      _showMessage(error.message);
+      _showMessage(error.message, isWriteError: true);
     } catch (_) {
-      _showMessage('封面更新失败，请重试');
+      _showMessage('封面更新失败，请重试', isWriteError: true);
     } finally {
       if (mounted) {
         setState(() => _changingCover = false);
@@ -276,6 +291,11 @@ class _BookDetailPageState extends State<BookDetailPage> {
   }
 
   Future<void> _toggleTag(BookTag tag) async {
+    if (_writingBook) return;
+    setState(() {
+      _savingTags = true;
+      _writeError = null;
+    });
     try {
       if (_selectedTagIds.contains(tag.id)) {
         await widget.library.removeBookTag(_entry.id, tag.id);
@@ -284,28 +304,45 @@ class _BookDetailPageState extends State<BookDetailPage> {
       }
       await _reloadTags();
     } on LibraryImportException catch (error) {
-      _showMessage(error.message);
+      _showMessage(error.message, isWriteError: true);
+    } catch (error, stackTrace) {
+      recordAppError('book_tags_save_failed', error, stackTrace: stackTrace);
+      _showMessage('标签保存失败，请重试', isWriteError: true);
+    } finally {
+      if (mounted) setState(() => _savingTags = false);
     }
   }
 
   Future<void> _createTag() async {
     final name = _tagController.text.trim();
-    if (name.isEmpty) {
+    if (name.isEmpty || _writingBook) {
       return;
     }
+    setState(() {
+      _savingTags = true;
+      _writeError = null;
+    });
     try {
       final tag = await widget.library.createTag(name);
       await widget.library.addBookTag(_entry.id, tag.id);
+      if (!mounted) return;
       _tagController.clear();
       await _reloadTags();
     } on LibraryImportException catch (error) {
-      _showMessage(error.message);
+      _showMessage(error.message, isWriteError: true);
+    } catch (error, stackTrace) {
+      recordAppError('book_tag_create_failed', error, stackTrace: stackTrace);
+      _showMessage('标签保存失败，输入已保留，请重试', isWriteError: true);
+    } finally {
+      if (mounted) setState(() => _savingTags = false);
     }
   }
 
   Future<void> _reloadTags() async {
     final tags = await widget.library.listTags();
     final selected = await widget.library.bookTags(_entry.id);
+    final entry = await widget.library.bookById(_entry.id);
+    if (entry != null) await _refreshBookEntry(entry);
     if (!mounted) {
       return;
     }
@@ -313,6 +350,16 @@ class _BookDetailPageState extends State<BookDetailPage> {
       _tags = tags;
       _selectedTagIds = <String>{for (final tag in selected) tag.id};
     });
+  }
+
+  Future<void> _refreshBookEntry(BookEntry entry) async {
+    final progress = await widget.progressStore?.load(entry.id);
+    if (mounted) {
+      setState(() {
+        _entry = entry;
+        _progress = progress;
+      });
+    }
   }
 
   Future<void> _editFinished() async {
@@ -424,10 +471,11 @@ class _BookDetailPageState extends State<BookDetailPage> {
     }
   }
 
-  void _showMessage(String message) {
+  void _showMessage(String message, {bool isWriteError = false}) {
     if (!mounted) {
       return;
     }
+    if (isWriteError) setState(() => _writeError = message);
     recordAppEvent('book_detail_message', fields: {'message': message});
   }
 
@@ -454,9 +502,25 @@ class _BookDetailPageState extends State<BookDetailPage> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final canSave =
-        !_saving && !_loading && _hasMetadataChanges && _loadError == null;
+        !_writingBook && !_loading && _hasMetadataChanges && _loadError == null;
     return Scaffold(
       backgroundColor: widget.inDrawer ? Colors.transparent : null,
+      bottomNavigationBar: _writeError == null
+          ? null
+          : SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Semantics(
+                  liveRegion: true,
+                  child: Text(
+                    _writeError!,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: theme.colorScheme.error,
+                    ),
+                  ),
+                ),
+              ),
+            ),
       appBar: AppBar(
         backgroundColor: widget.inDrawer ? theme.colorScheme.surface : null,
         automaticallyImplyLeading: !widget.inDrawer,
@@ -492,7 +556,7 @@ class _BookDetailPageState extends State<BookDetailPage> {
               children: <Widget>[
                 _CoverEditor(
                   entry: _entry,
-                  busy: _changingCover,
+                  busy: _writingBook,
                   onChange: _changeCover,
                   titleController: _titleController,
                   authorController: _authorController,
@@ -501,6 +565,7 @@ class _BookDetailPageState extends State<BookDetailPage> {
                 const SizedBox(height: 12),
                 TextField(
                   key: const ValueKey<String>('book-detail-description-field'),
+                  enabled: !_writingBook,
                   controller: _descriptionController,
                   minLines: 3,
                   maxLines: 6,
@@ -538,13 +603,16 @@ class _BookDetailPageState extends State<BookDetailPage> {
                           label: Text(tag.name),
                           selected: _selectedTagIds.contains(tag.id),
                           showCheckmark: false,
-                          onSelected: (_) => _toggleTag(tag),
+                          onSelected: _writingBook
+                              ? null
+                              : (_) => _toggleTag(tag),
                         ),
                     ],
                   ),
                 const SizedBox(height: 12),
                 TextField(
                   key: const ValueKey<String>('book-detail-new-tag-field'),
+                  enabled: !_writingBook,
                   controller: _tagController,
                   textInputAction: TextInputAction.done,
                   decoration: InputDecoration(
@@ -553,7 +621,8 @@ class _BookDetailPageState extends State<BookDetailPage> {
                     suffixIcon: IconButton(
                       key: const ValueKey<String>('book-detail-add-tag'),
                       tooltip: '创建并添加标签',
-                      onPressed: _tagController.text.trim().isEmpty
+                      onPressed:
+                          _writingBook || _tagController.text.trim().isEmpty
                           ? null
                           : _createTag,
                       icon: const AppIcon(AppGlyph.add),
@@ -568,7 +637,7 @@ class _BookDetailPageState extends State<BookDetailPage> {
                     title: const Text('章节正则'),
                     subtitle: const Text('预览并重新划分当前正文的章节'),
                     trailing: const AppIcon(AppGlyph.chevronRight),
-                    onTap: _openChapterRules,
+                    onTap: _writingBook ? null : _openChapterRules,
                   ),
                 const Divider(height: 40),
                 Text('阅读记录', style: theme.textTheme.titleMedium),
@@ -580,7 +649,7 @@ class _BookDetailPageState extends State<BookDetailPage> {
                 _ReadingStatusSection(
                   progress: _progress,
                   review: _review,
-                  canEdit: widget.progressStore != null,
+                  canEdit: !_writingBook && widget.progressStore != null,
                   onEdit: _editFinished,
                   onUnmark: _unmarkFinished,
                 ),
@@ -726,6 +795,7 @@ class _CoverEditor extends StatelessWidget {
               const SizedBox(height: 6),
               TextField(
                 key: const ValueKey<String>('book-detail-title-field'),
+                enabled: !busy,
                 controller: titleController,
                 textInputAction: TextInputAction.next,
                 minLines: 1,
@@ -738,6 +808,7 @@ class _CoverEditor extends StatelessWidget {
               const SizedBox(height: 10),
               TextField(
                 key: const ValueKey<String>('book-detail-author-field'),
+                enabled: !busy,
                 controller: authorController,
                 textInputAction: TextInputAction.done,
                 decoration: const InputDecoration(
