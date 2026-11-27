@@ -1174,38 +1174,39 @@ class _MorphPainter extends CustomPainter {
     final progress = animation.value;
     canvas.save();
     canvas.clipRect(Offset.zero & size);
+    // 旧柱体按各自错峰节奏先后瓦解，阁楼各自提前收起，避免齐刷刷下降。
+    final fromReveals = <double>[
+      for (final bar in fromScene.bars) _fromBarReveal(bar, progress),
+    ];
+    final fromRoofReveals = <double>[
+      for (final bar in fromScene.bars) _fromRoofReveal(bar, progress),
+    ];
     _paintScene(
       canvas,
       fromScene,
-      reveals: List.filled(
-        fromScene.bars.length,
-        1 - _smooth01((progress - .08) / .2),
-      ),
+      reveals: fromReveals,
       lights: 0,
       rooftops: rooftops,
-      roofReveal: 1 - _smooth01(progress / .1),
+      roofReveals: fromRoofReveals,
       selectedBookId: selectedBookId,
       shadowColor: shadowColor,
       baseColor: baseColor,
     );
-    // 目标柱体从底部逐层重组，不与一张已点灯的完整图叠加淡入。
-    final assembledHeight =
-        targetScene.maximumHeight *
-        ((progress - _morphAssemblyStart) /
-                (_morphAssemblyEnd - _morphAssemblyStart))
-            .clamp(0.0, 1.0);
+    // 目标柱体带微错峰与柔和缓动从底部生长，打破水平扫描线般的整齐感。
+    final targetReveals = <double>[
+      for (final bar in targetScene.bars)
+        _targetBarReveal(bar, targetScene.maximumHeight, progress),
+    ];
+    final targetRoofReveals = <double>[
+      for (final bar in targetScene.bars) _targetRoofReveal(bar, progress),
+    ];
     _paintScene(
       canvas,
       targetScene,
-      reveals: [
-        for (final bar in targetScene.bars)
-          bar.height <= 0 ? 0 : (assembledHeight / bar.height).clamp(0.0, 1.0),
-      ],
+      reveals: targetReveals,
       lights: lights.value,
       rooftops: rooftops,
-      roofReveal: _smooth01(
-        (progress - _morphAssemblyEnd) / (1 - _morphAssemblyEnd),
-      ),
+      roofReveals: targetRoofReveals,
       selectedBookId: selectedBookId,
       shadowColor: shadowColor,
       baseColor: baseColor,
@@ -1214,26 +1215,76 @@ class _MorphPainter extends CustomPainter {
     canvas.restore();
   }
 
+  double _fromBarReveal(_VoxelSceneBar bar, double progress) {
+    final seed = _seedForKey(bar.key) + bar.index * 31;
+    final start = .03 + _random(seed + 1) * .07;
+    final span = .15 + _random(seed + 2) * .06;
+    final t = ((progress - start) / span).clamp(0.0, 1.0).toDouble();
+    return 1 - Curves.easeInCubic.transform(t);
+  }
+
+  double _fromRoofReveal(_VoxelSceneBar bar, double progress) {
+    final seed = _seedForKey(bar.key) + bar.index * 37;
+    final start = _random(seed + 3) * .04;
+    final span = .07 + _random(seed + 4) * .04;
+    return 1 - _smooth01((progress - start) / span);
+  }
+
+  double _targetBarReveal(
+    _VoxelSceneBar bar,
+    double maxHeight,
+    double progress,
+  ) {
+    if (bar.height <= 0 || maxHeight <= 0) return 0;
+    final seed = _seedForKey(bar.key) + bar.index * 43;
+    // 每根柱子略微错开起步与增速，同时保证在重组结束前全部稳妥落位。
+    final jitterStart = (_random(seed + 5) - .5) * .06;
+    final start = (_morphAssemblyStart + jitterStart).clamp(.38, .47);
+    final end = (_morphAssemblyEnd - .04 + _random(seed + 6) * .04).clamp(
+      start + .32,
+      _morphAssemblyEnd,
+    );
+    final raw = ((progress - start) / (end - start)).clamp(0.0, 1.0).toDouble();
+    final eased = Curves.easeOutCubic.transform(raw);
+    final assembledHeight = maxHeight * eased;
+    return (assembledHeight / bar.height).clamp(0.0, 1.0);
+  }
+
+  double _targetRoofReveal(_VoxelSceneBar bar, double progress) {
+    final seed = _seedForKey(bar.key) + bar.index * 53;
+    final start = _morphAssemblyEnd - .04 + _random(seed + 7) * .05;
+    final span = (1.0 - start).clamp(.05, .14);
+    final t = ((progress - start) / span).clamp(0.0, 1.0).toDouble();
+    if (t <= 0) return 0;
+    if (t >= 1) return 1;
+    // 轻微弹跳弹出，各柱阁楼错落现身。
+    return Curves.easeOutBack.transform(t).clamp(0.0, 1.12);
+  }
+
   void _paintParticles(Canvas canvas, double progress) {
     for (final particle in particles) {
-      final start = .03 + particle.delay * .18;
-      final local = ((progress - start) / (particle.arrival - start))
-          .clamp(0.0, 1.0)
-          .toDouble();
+      final start = .02 + particle.delay * .22;
+      final span = math.max(.18, particle.arrival - start);
+      final local = ((progress - start) / span).clamp(0.0, 1.0).toDouble();
       if (local <= 0 || local >= 1) continue;
       final eased = Curves.easeInOutCubic.transform(local);
-      final arc = math.sin(math.pi * local);
+      // 非对称弧线 + 轻微横向 S 型飘移，让体素碎片像自由散落再汇聚。
+      final arc = math.sin(math.pi * math.pow(local, particle.arcBias));
+      final drift = math.sin(math.pi * 2 * local + particle.phase) * .28;
       var center = Offset.lerp(particle.start, particle.end, eased)!;
-      center += Offset(particle.sway * arc, -particle.spread * arc);
+      center += Offset(
+        particle.sway * (arc + drift * math.sin(math.pi * local)),
+        -particle.spread * arc,
+      );
       final dimmed = selectedBookId != null && particle.key != selectedBookId;
       final opacity =
-          _smooth01(local / .12) *
-          (1 - _smooth01((local - .92) / .08)) *
+          _smooth01(local / .10) *
+          (1 - _smooth01((local - .90) / .10)) *
           (dimmed ? .3 : 1.0);
       final size =
           (particle.startSize +
               (particle.endSize - particle.startSize) * eased) *
-          (1 - .3 * arc);
+          (1 - .26 * arc + particle.sizeJitter * arc);
       _drawParticle(canvas, center, particle.color, size, opacity);
     }
   }
@@ -1283,6 +1334,9 @@ class _MorphParticle {
     required this.arrival,
     required this.spread,
     required this.sway,
+    required this.arcBias,
+    required this.phase,
+    required this.sizeJitter,
     required this.startSize,
     required this.endSize,
   });
@@ -1295,6 +1349,9 @@ class _MorphParticle {
   final double arrival;
   final double spread;
   final double sway;
+  final double arcBias;
+  final double phase;
+  final double sizeJitter;
   final double startSize;
   final double endSize;
 }
@@ -1314,23 +1371,39 @@ List<_MorphParticle> _buildMorphParticles(
     // 每个真实立面格子参与拆解；格子较少的一侧细分，重组时合回原格子。
     final count = math.max(entry.value.length, targets.length);
     final keySeed = _seedForKey(entry.key);
+    final targetOrder = _shuffledTargetOrder(count, keySeed);
     for (var index = 0; index < count; index++) {
-      final seed = keySeed + index * 11;
+      final seed = keySeed + index * 17;
       final from = _splitMorphTile(entry.value, index, count);
-      final to = _splitMorphTile(targets, index, count);
+      final to = _splitMorphTile(targets, targetOrder[index], count);
+      // 保留“由上而下剥落、由下而上落位”的物理秩序，但加入个体随机错峰，打破齐整排布。
+      final delay = ((1 - from.level) * .62 + _random(seed + 1) * .38).clamp(
+        0.0,
+        1.0,
+      );
+      final arrivalSpan = _morphAssemblyEnd - _morphAssemblyStart - .04;
+      final arrival =
+          (_morphAssemblyStart +
+                  .03 +
+                  to.level * arrivalSpan * .82 +
+                  _random(seed + 2) * arrivalSpan * .22)
+              .clamp(_morphAssemblyStart + .04, _morphAssemblyEnd + .02);
+      final dx = to.center.dx - from.center.dx;
+      final distanceFactor = (dx.abs() / 180).clamp(.45, 1.35);
+      final swayDir = _random(seed + 3) >= .5 ? 1.0 : -1.0;
       particles.add(
         _MorphParticle(
           key: entry.key,
           color: from.color,
           start: from.center,
           end: to.center,
-          delay: 1 - from.level,
-          arrival:
-              _morphAssemblyStart +
-              .04 +
-              to.level * (_morphAssemblyEnd - _morphAssemblyStart - .04),
-          spread: 8 + _random(seed + 6) * 12,
-          sway: (_random(seed + 7) - .5) * 8,
+          delay: delay,
+          arrival: arrival,
+          spread: (14 + _random(seed + 6) * 32) * distanceFactor,
+          sway: swayDir * (6 + _random(seed + 7) * 20),
+          arcBias: .72 + _random(seed + 8) * .56,
+          phase: _random(seed + 9) * math.pi * 2,
+          sizeJitter: (_random(seed + 10) - .5) * .22,
           startSize: from.size,
           endSize: to.size,
         ),
@@ -1338,6 +1411,23 @@ List<_MorphParticle> _buildMorphParticles(
     }
   }
   return particles;
+}
+
+/// 确定性地打乱同书颗粒的起止配对，让体素碎片交错飞行而非平行排队列队移动。
+List<int> _shuffledTargetOrder(int count, int seed) {
+  final order = List<int>.generate(count, (i) => i);
+  if (count <= 2) return order;
+  // 按局部窗口做确定性 Fisher-Yates 洗牌，既打散平行队列，又保持整体顺滑流畅。
+  final window = math.min(count, math.max(6, (count * .45).round()));
+  for (var i = count - 1; i > 0; i--) {
+    final minJ = math.max(0, i - window + 1);
+    final span = i - minJ + 1;
+    final j = minJ + (_random(seed + i * 29) * span).floor().clamp(0, span - 1);
+    final tmp = order[i];
+    order[i] = order[j];
+    order[j] = tmp;
+  }
+  return order;
 }
 
 Map<String, List<_MorphTile>> _tilesByKey(_VoxelScene scene) {
@@ -1400,6 +1490,7 @@ void _paintScene(
   required Color shadowColor,
   required Color baseColor,
   double roofReveal = 1,
+  List<double>? roofReveals,
 }) {
   final lightLevels = scene.bars.fold(
     0.0,
@@ -1408,6 +1499,10 @@ void _paintScene(
   for (var index = 0; index < scene.bars.length; index++) {
     final bar = scene.bars[index];
     final reveal = index < reveals.length ? reveals[index] : 1.0;
+    final barRoofReveal =
+        roofReveals != null && index < roofReveals.length
+        ? roofReveals[index]
+        : roofReveal;
     final visibleHeight = _revealedHeight(bar, reveal);
     if (visibleHeight <= 0) continue;
     _paintBar(
@@ -1418,7 +1513,7 @@ void _paintScene(
       lightLevels: lightLevels,
       rooftops: rooftops,
       roofScale: scene.isTime ? (bar.height / 32).clamp(.45, .78) : 1,
-      roofReveal: roofReveal,
+      roofReveal: barRoofReveal,
       selectedBookId: selectedBookId,
       shadowColor: shadowColor,
       baseColor: baseColor,
@@ -2468,8 +2563,14 @@ void _drawParticle(
 }
 
 double _revealValue(int index, int count, double controllerValue) {
-  final start = count <= 1 ? 0.0 : index / count * .18;
-  final end = math.min(1.0, start + .82);
+  if (count <= 1) {
+    return Curves.easeOutCubic.transform(controllerValue.clamp(0.0, 1.0));
+  }
+  // 在从左到右波次上叠加确定性错峰，使多柱入场不再像机械阶梯。
+  final wave = index / (count - 1) * .14;
+  final jitter = _random(index * 41 + count * 13) * .14;
+  final start = (wave + jitter).clamp(0.0, .26);
+  final end = math.min(1.0, start + .74);
   final local = ((controllerValue - start) / (end - start))
       .clamp(0.0, 1.0)
       .toDouble();

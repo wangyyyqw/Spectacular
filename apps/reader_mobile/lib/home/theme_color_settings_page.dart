@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:reader_ui/icons/app_icon.dart';
+import 'package:reader_ui/theme/reader_frosted_popup.dart';
 import 'package:reader_ui/theme/reader_switch.dart';
 import 'package:reader_ui/theme/reader_ui_components.dart';
 
 import '../theme/theme_color_settings.dart';
+import '../theme/app_theme.dart';
 
 /// 全局壁纸与阅读背景独立取色。
 class ThemeColorSettingsPage extends StatefulWidget {
@@ -36,9 +39,58 @@ class _ThemeColorSettingsPageState extends State<ThemeColorSettingsPage> {
     listenable: widget.settings,
     builder: (context, _) {
       final settings = widget.settings;
+      final scope = AppThemeScope.maybeOf(context);
+      final selectPreset = scope?.onPresetChanged;
       return ReaderSettingsScaffold(
         title: const Text('主题取色'),
         children: [
+          if (scope != null && selectPreset != null) ...[
+            ReaderSectionGroup(
+              title: '软件配色',
+              footer: '开启全局壁纸取色后，优先使用壁纸颜色；关闭后恢复所选方案。书籍正文配色不受影响。',
+              children: [
+                ListTile(
+                  key: const ValueKey('theme-preset-setting'),
+                  leading: const AppIcon(AppGlyph.palette),
+                  title: const Text('配色方案'),
+                  subtitle: Text(scope.preset.name),
+                  trailing: const AppIcon(AppGlyph.chevronRight),
+                  onTap: _saving
+                      ? null
+                      : () async {
+                          final brightness = Theme.of(context).brightness;
+                          final preset =
+                              await showReaderActionSheet<AppThemePreset>(
+                                context: context,
+                                title: '配色方案',
+                                actions: [
+                                  for (final preset in AppThemePreset.presets)
+                                    ReaderSheetAction(
+                                      key: ValueKey(
+                                        'theme-preset-${preset.id}',
+                                      ),
+                                      value: preset,
+                                      title: preset.name,
+                                      subtitle: preset.subtitle,
+                                      selected: preset == scope.preset,
+                                      icon: AppIcon(
+                                        AppGlyph.palette,
+                                        color: preset
+                                            .previewFor(brightness)
+                                            .accent,
+                                      ),
+                                    ),
+                                ],
+                              );
+                          if (mounted && preset != null) {
+                            await _save(() => selectPreset(preset));
+                          }
+                        },
+                ),
+              ],
+            ),
+            const SizedBox(height: ReaderUiTokens.spacingXl),
+          ],
           ReaderSectionGroup(
             title: '动态配色',
             footer: '壁纸取色应用于全局界面；阅读背景取色只调整阅读内菜单与弹层，保留正文配色。',
@@ -59,9 +111,8 @@ class _ThemeColorSettingsPageState extends State<ThemeColorSettingsPage> {
                         !settings.initialized ||
                         !settings.wallpaperSupported
                     ? null
-                    : (value) => _save(
-                        () => settings.setWallpaperEnabled(value),
-                      ),
+                    : (value) =>
+                          _save(() => settings.setWallpaperEnabled(value)),
               ),
               ReaderSwitchListTile(
                 key: const ValueKey('reader-background-color-switch'),

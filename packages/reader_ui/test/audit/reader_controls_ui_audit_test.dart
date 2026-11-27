@@ -10,11 +10,13 @@ import 'package:reader_ui/footnote_dialog.dart';
 import 'package:reader_ui/menu/reader_menu_overlay.dart';
 import 'package:reader_ui/panels/settings_panel.dart';
 import 'package:reader_ui/panels/margin_editor.dart';
+import 'package:reader_ui/panels/reader_settings_sheet.dart';
 import 'package:reader_ui/panels/tap_zone_editor.dart';
 import 'package:reader_ui/selection/selection_menu.dart';
 import 'package:reader_ui/tap_zones.dart';
 import 'package:reader_ui/theme/reader_theme.dart';
 import 'package:reader_ui/theme/reader_margins.dart';
+import 'package:reader_ui/theme/reader_ui_style.dart';
 
 Finder _key(String value) => find.byKey(ValueKey<String>(value));
 
@@ -109,7 +111,7 @@ void main() {
     );
     final buttonColor = Theme.of(context).textButtonTheme.style?.foregroundColor
         ?.resolve({});
-    expect(buttonColor, ReaderTheme.black.text);
+    expect(buttonColor, Theme.of(context).colorScheme.primary);
     final contrast = ReaderTheme(
       id: 'controls',
       name: '控件',
@@ -213,7 +215,22 @@ void main() {
       const ReaderNoteComposerSheet(quote: '这是一段原文'),
       (value) => result = value,
     );
-    _expectSheet(tester, 'note-composer-sheet');
+    expect(find.byType(ReaderSettingsSheet), findsOneWidget);
+    final material = tester.widget<Material>(
+      find
+          .descendant(
+            of: _key('note-composer-sheet'),
+            matching: find.byType(Material),
+          )
+          .first,
+    );
+    expect(
+      material.borderRadius,
+      ReaderUiStyle.sheetRadiusOf(
+        Theme.of(tester.element(_key('note-composer-sheet'))),
+      ),
+    );
+    expect(tester.takeException(), isNull);
     await tester.enterText(_key('note-composer-input'), '  我的读书笔记  ');
     await tester.pump();
     await tester.tap(_key('note-composer-save'));
@@ -267,7 +284,7 @@ void main() {
       ),
       (_) {},
     );
-    _expectSheet(tester, 'reader-footnote-dialog', radius: 8);
+    _expectSheet(tester, 'reader-footnote-dialog');
     expect(find.text('第一段脚注'), findsOneWidget);
     expect(find.text('第二段脚注'), findsOneWidget);
     Navigator.of(tester.element(_key('reader-footnote-dialog'))).pop();

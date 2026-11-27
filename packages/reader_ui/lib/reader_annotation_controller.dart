@@ -465,8 +465,10 @@ extension _ReaderAnnotationController on _ReaderPageState {
   Future<AnnotationEditAction?> _composeThought(
     ReaderSupportedSelection range,
     ReaderAnnotation? existing,
-  ) => showReaderBottomSheet<AnnotationEditAction>(
+  ) => showReaderDrawer<AnnotationEditAction>(
     context: context,
+    guardDragDismissal: true,
+    dragHandleHeight: ReaderUiStyle.sheetDragHandleHeight,
     useSafeArea: true,
     isScrollControlled: true,
     readerTheme: _effectiveTheme ?? ReaderTheme.white,

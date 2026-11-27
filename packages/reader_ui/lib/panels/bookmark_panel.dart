@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../icons/app_icon.dart';
 import '../reader_session.dart';
+import '../theme/reader_ui_components.dart';
 import '../theme/reader_frosted_surface.dart';
 import '../theme/reader_ink.dart';
 
@@ -40,13 +41,9 @@ class BookmarkPanel extends StatelessWidget {
           children: [
             Expanded(
               child: bookmarks.isEmpty
-                  ? Center(
-                      child: Text(
-                        emptyHint,
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: theme.colorScheme.outline,
-                        ),
-                      ),
+                  ? ReaderEmptyState(
+                      icon: const AppIcon(AppGlyph.bookmark),
+                      title: emptyHint,
                     )
                   : ListView.separated(
                       padding: const EdgeInsets.only(bottom: 8),
@@ -90,11 +87,7 @@ class BookmarkPanel extends StatelessWidget {
                                         title,
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
-                                        style: theme.textTheme.titleMedium
-                                            ?.copyWith(
-                                              fontSize: 16,
-                                              fontWeight: FontWeight.w700,
-                                            ),
+                                        style: theme.textTheme.titleSmall,
                                       ),
                                       if (subtitle.isNotEmpty) ...[
                                         const SizedBox(height: 2),

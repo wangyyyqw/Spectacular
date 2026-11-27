@@ -1,9 +1,12 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:reader_ui/theme/app_semantic_colors.dart';
+import 'package:reader_ui/theme/reader_ui_components.dart';
 import 'package:reader_ui/theme/reader_ui_style.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
+import 'package:reader_ui/theme/reader_sheet_form.dart';
 
 import 'book_duration_summary.dart';
 import 'reading_calendar_month.dart';
@@ -55,11 +58,8 @@ class _ReadingCalendarState extends State<ReadingCalendar>
       _showMonth(DateTime(_visibleMonth.year, _visibleMonth.month + offset));
 
   Future<void> _pickMonth() async {
-    final selected = await showReaderBottomSheet<DateTime>(
+    final selected = await showReaderDrawer<DateTime>(
       context: context,
-      useSafeArea: true,
-      isScrollControlled: true,
-      showDragHandle: true,
       builder: (_) => ReadingCalendarMonthPicker(selected: _visibleMonth),
     );
     if (mounted && selected != null) _showMonth(selected);
@@ -80,11 +80,8 @@ class _ReadingCalendarState extends State<ReadingCalendar>
           final ended = a.endedAt.compareTo(b.endedAt);
           return ended != 0 ? ended : a.bookId.compareTo(b.bookId);
         });
-    showReaderBottomSheet<void>(
+    showReaderDrawer<void>(
       context: context,
-      useSafeArea: true,
-      isScrollControlled: true,
-      showDragHandle: true,
       builder: (context) => _CalendarDaySheet(
         date: date,
         portions: portions,
@@ -254,7 +251,6 @@ Widget _weekdays(BuildContext context) => Container(
 
 const _barHeight = 18.0;
 const _laneGap = 3.0;
-const _doneColor = Color(0xFF4E8E47);
 
 class _CalendarWeek extends StatelessWidget {
   const _CalendarWeek({
@@ -458,12 +454,20 @@ class _CalendarDaySheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     final total = portions.fold(
       Duration.zero,
       (sum, portion) => sum + portion.duration,
     );
-    final bookCount = {for (final portion in portions) portion.bookId}.length;
+    final bookDurations = <String, Duration>{};
+    for (final portion in portions) {
+      bookDurations[portion.bookId] =
+          (bookDurations[portion.bookId] ?? Duration.zero) + portion.duration;
+    }
+    final rankedBooks = bookDurations.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    final bookCount = bookDurations.length;
     final span = portions.isEmpty
         ? null
         : '${_formatTimelineClock(portions.first.startedAt)}'
@@ -473,58 +477,69 @@ class _CalendarDaySheet extends StatelessWidget {
         portions[index].bookId: index,
     };
     return SizedBox(
-      height: math.min(MediaQuery.sizeOf(context).height * 0.72, 680),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+      height: math.min(MediaQuery.sizeOf(context).height * 0.76, 700),
+      child: ReaderSheetForm(
+        title: Wrap(
+          crossAxisAlignment: WrapCrossAlignment.center,
+          spacing: 8,
+          runSpacing: 4,
           children: [
-            Wrap(
-              alignment: WrapAlignment.spaceBetween,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              spacing: 12,
-              runSpacing: 2,
-              children: [
-                Text(
-                  _isoDate(date),
-                  key: const ValueKey('stats-calendar-detail-date'),
-                  style: Theme.of(context).textTheme.titleSmall,
-                ),
-                Text(
-                  '合计 ${formatReadingDuration(total)}',
-                  key: const ValueKey('stats-calendar-detail-total'),
-                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                    fontFeatures: const [FontFeature.tabularFigures()],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 4),
             Text(
-              [
-                '$bookCount 本书',
-                '${portions.length} 段阅读',
-                if (span != null) '时段 $span',
-              ].join(' · '),
-              key: const ValueKey('stats-calendar-detail-meta'),
-              style: TextStyle(
-                fontSize: 12,
-                height: 1.35,
-                color: scheme.onSurfaceVariant,
+              _isoDate(date),
+              key: const ValueKey('stats-calendar-detail-date'),
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
                 fontFeatures: const [FontFeature.tabularFigures()],
               ),
             ),
-            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+              decoration: BoxDecoration(
+                color: scheme.surfaceContainerLow,
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(color: scheme.outlineVariant),
+              ),
+              child: Text(
+                _weekdayLabel(date),
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+          ],
+        ),
+        contentPadding: const EdgeInsets.fromLTRB(20, 14, 20, 16),
+        scrollContent: false,
+        content: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _summaryCard(
+              context,
+              total: total,
+              bookCount: bookCount,
+              span: span,
+              rankedBooks: rankedBooks,
+            ),
+            const SizedBox(height: 14),
+            if (portions.isNotEmpty) ...[
+              Text(
+                '阅读时间轴',
+                style: theme.textTheme.labelMedium?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 10),
+            ],
             Expanded(
               child: portions.isEmpty
-                  ? Center(
-                      child: Text(
-                        '这一天没有阅读记录',
-                        style: TextStyle(color: scheme.onSurfaceVariant),
-                      ),
+                  ? const ReaderEmptyState(
+                      icon: AppIcon(AppGlyph.autoStories),
+                      title: '这一天没有阅读记录',
                     )
                   : ListView.builder(
-                      padding: const EdgeInsets.only(bottom: 4),
+                      padding: const EdgeInsets.only(bottom: 8),
                       itemCount: portions.length,
                       itemBuilder: (context, index) =>
                           _timelineRow(context, index, lastIndexByBook),
@@ -536,12 +551,119 @@ class _CalendarDaySheet extends StatelessWidget {
     );
   }
 
+  Widget _summaryCard(
+    BuildContext context, {
+    required Duration total,
+    required int bookCount,
+    required String? span,
+    required List<MapEntry<String, Duration>> rankedBooks,
+  }) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final totalMicros = total.inMicroseconds;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerLow,
+        borderRadius: ReaderUiStyle.cardRadiusOf(theme),
+        border: Border.all(color: scheme.outlineVariant.withValues(alpha: .85)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Wrap(
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: 8,
+            runSpacing: 4,
+            children: [
+              Text(
+                '合计 ${formatReadingDuration(total)}',
+                key: const ValueKey('stats-calendar-detail-total'),
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: scheme.primary,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                ),
+              ),
+              if (finishedBookIds.isNotEmpty)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppSemanticColors.of(context).successContainer,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    '完读 ${finishedBookIds.length} 本',
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: AppSemanticColors.of(context).onSuccessContainer,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 5),
+          Text(
+            [
+              '$bookCount 本书',
+              '${portions.length} 段阅读',
+              if (span != null) '时段 $span',
+            ].join(' · '),
+            key: const ValueKey('stats-calendar-detail-meta'),
+            style: TextStyle(
+              fontSize: 12,
+              height: 1.4,
+              color: scheme.onSurfaceVariant,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
+          ),
+          if (totalMicros > 0 && rankedBooks.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(999),
+              child: SizedBox(
+                height: 5,
+                child: Row(
+                  children: [
+                    for (var i = 0; i < rankedBooks.length; i++) ...[
+                      if (i > 0) const SizedBox(width: 1.5),
+                      Expanded(
+                        flex: math.max(
+                          1,
+                          (rankedBooks[i].value.inMicroseconds * 1000 ~/
+                              totalMicros),
+                        ),
+                        child: ColoredBox(
+                          color: readingBookColor(
+                            rankedBooks[i].key,
+                            brightness: scheme.brightness,
+                            bookColors: bookColors,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
   Widget _timelineRow(
     BuildContext context,
     int index,
     Map<String, int> lastIndexByBook,
   ) {
-    final scheme = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     final portion = portions[index];
     final bookId = portion.bookId;
     final isLast = index == portions.length - 1;
@@ -550,8 +672,13 @@ class _CalendarDaySheet extends StatelessWidget {
     final title = bookTitles[bookId]?.trim();
     final displayTitle = title == null || title.isEmpty ? '已移出书架的书籍' : title;
     final textScale = MediaQuery.textScalerOf(context).scale(11) / 11;
-    final timeWidth = (48 * textScale.clamp(1.0, 1.8)).toDouble();
-    final lineColor = scheme.outlineVariant.withValues(alpha: 0.8);
+    final timeWidth = (50 * textScale.clamp(1.0, 1.8)).toDouble();
+    final lineColor = scheme.outlineVariant.withValues(alpha: 0.75);
+    final bookColor = readingBookColor(
+      bookId,
+      brightness: scheme.brightness,
+      bookColors: bookColors,
+    );
     return IntrinsicHeight(
       key: ValueKey('stats-calendar-detail-$index'),
       child: Row(
@@ -560,7 +687,7 @@ class _CalendarDaySheet extends StatelessWidget {
           SizedBox(
             width: timeWidth,
             child: Padding(
-              padding: const EdgeInsets.only(top: 1),
+              padding: const EdgeInsets.only(top: 10),
               child: Align(
                 alignment: Alignment.topLeft,
                 child: FittedBox(
@@ -572,7 +699,7 @@ class _CalendarDaySheet extends StatelessWidget {
                     maxLines: 1,
                     style: TextStyle(
                       fontSize: 11,
-                      height: 1.4,
+                      height: 1.35,
                       color: scheme.onSurfaceVariant,
                       fontFeatures: const [FontFeature.tabularFigures()],
                     ),
@@ -581,39 +708,44 @@ class _CalendarDaySheet extends StatelessWidget {
               ),
             ),
           ),
-          const SizedBox(width: 10),
+          const SizedBox(width: 8),
           SizedBox(
-            width: 14,
+            width: 16,
             child: Stack(
               clipBehavior: Clip.none,
               alignment: Alignment.topCenter,
               children: [
                 if (!isLast)
                   Positioned(
-                    left: 6.5,
-                    top: index == 0 ? 8.5 : 0,
+                    left: 7.5,
+                    top: index == 0 ? 17 : 0,
                     bottom: 0,
                     child: Container(width: 1, color: lineColor),
                   ),
                 if (isLast && index > 0)
                   Positioned(
-                    left: 6.5,
+                    left: 7.5,
                     top: 0,
-                    height: 8.5,
+                    height: 17,
                     child: Container(width: 1, color: lineColor),
                   ),
                 Positioned(
-                  top: 4,
-                  child: Container(
-                    width: 9,
-                    height: 9,
+                  top: 10,
+                  child: DecoratedBox(
                     decoration: BoxDecoration(
-                      color: readingBookColor(
-                        bookId,
-                        brightness: scheme.brightness,
-                        bookColors: bookColors,
-                      ),
+                      color: bookColor.withValues(alpha: .18),
                       shape: BoxShape.circle,
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(3),
+                      child: Container(
+                        width: 8,
+                        height: 8,
+                        decoration: BoxDecoration(
+                          color: bookColor,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
                     ),
                   ),
                 ),
@@ -623,65 +755,103 @@ class _CalendarDaySheet extends StatelessWidget {
           const SizedBox(width: 10),
           Expanded(
             child: Padding(
-              padding: EdgeInsets.only(bottom: isLast ? 0 : 16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text.rich(
-                    TextSpan(
-                      children: [
-                        const TextSpan(
-                          text: '阅读',
-                          style: TextStyle(fontWeight: FontWeight.w700),
-                        ),
-                        TextSpan(text: '《$displayTitle》'),
-                      ],
-                    ),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      fontSize: 13,
-                      height: 1.45,
-                      color: scheme.onSurface,
-                    ),
+              padding: EdgeInsets.only(bottom: isLast ? 0 : 10),
+              child: Container(
+                padding: const EdgeInsets.fromLTRB(12, 9, 12, 9),
+                decoration: BoxDecoration(
+                  color: scheme.surfaceContainerLow.withValues(alpha: .78),
+                  borderRadius: ReaderUiStyle.controlRadiusOf(theme),
+                  border: Border.all(
+                    color: scheme.outlineVariant.withValues(alpha: .72),
                   ),
-                  const SizedBox(height: 2),
-                  Row(
-                    children: [
-                      Text(
-                        _formatTimelineDuration(portion.duration),
-                        key: ValueKey('stats-calendar-duration-$index'),
-                        style: TextStyle(
-                          fontSize: 11,
-                          height: 1.4,
-                          color: scheme.onSurfaceVariant,
-                          fontFeatures: const [FontFeature.tabularFigures()],
-                        ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text.rich(
+                      TextSpan(
+                        children: [
+                          TextSpan(
+                            text: '阅读',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w600,
+                              color: scheme.onSurfaceVariant,
+                            ),
+                          ),
+                          TextSpan(
+                            text: '《$displayTitle》',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w600,
+                              color: scheme.onSurface,
+                            ),
+                          ),
+                        ],
                       ),
-                      if (finished) ...[
-                        const SizedBox(width: 8),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        fontSize: 13,
+                        height: 1.4,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Wrap(
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      spacing: 6,
+                      runSpacing: 4,
+                      children: [
                         Container(
                           padding: const EdgeInsets.symmetric(
-                            horizontal: 5,
-                            vertical: 1,
+                            horizontal: 7,
+                            vertical: 2,
                           ),
                           decoration: BoxDecoration(
-                            color: _doneColor,
-                            borderRadius: BorderRadius.circular(3),
+                            color: scheme.surface,
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(
+                              color: scheme.outlineVariant.withValues(
+                                alpha: .75,
+                              ),
+                            ),
                           ),
-                          child: const Text(
-                            '已读',
+                          child: Text(
+                            _formatTimelineDuration(portion.duration),
+                            key: ValueKey('stats-calendar-duration-$index'),
                             style: TextStyle(
-                              fontSize: 10,
+                              fontSize: 11,
                               height: 1.3,
-                              color: Colors.white,
+                              color: scheme.onSurfaceVariant,
+                              fontWeight: FontWeight.w500,
+                              fontFeatures: const [
+                                FontFeature.tabularFigures(),
+                              ],
                             ),
                           ),
                         ),
+                        if (finished)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 7,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: AppSemanticColors.of(context).success,
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              '已读',
+                              style: TextStyle(
+                                fontSize: 10,
+                                height: 1.3,
+                                fontWeight: FontWeight.w600,
+                                color: AppSemanticColors.of(context).onSuccess,
+                              ),
+                            ),
+                          ),
                       ],
-                    ],
-                  ),
-                ],
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -690,6 +860,16 @@ class _CalendarDaySheet extends StatelessWidget {
     );
   }
 }
+
+String _weekdayLabel(DateTime date) => switch (date.weekday) {
+  DateTime.monday => '周一',
+  DateTime.tuesday => '周二',
+  DateTime.wednesday => '周三',
+  DateTime.thursday => '周四',
+  DateTime.friday => '周五',
+  DateTime.saturday => '周六',
+  _ => '周日',
+};
 
 String _dateKey(DateTime date) => '${date.year}-${date.month}-${date.day}';
 

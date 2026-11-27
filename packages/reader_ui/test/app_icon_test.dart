@@ -212,4 +212,23 @@ void main() {
     expect(selected, 'reading');
     semantics.dispose();
   });
+
+  testWidgets('全部 AppGlyph 字形在 24 尺寸下均可正常绘制无异常', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Wrap(
+            children: [
+              for (final glyph in AppGlyph.values) ...[
+                AppIcon(glyph, size: 24),
+                AppIcon(glyph, size: 24, filled: true),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+  });
 }

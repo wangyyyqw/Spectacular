@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:reader_ui/theme/reader_ui_style.dart';
+import 'package:reader_ui/theme/reader_ui_components.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
 import 'package:reader_ui/theme/reader_sheet_form.dart';
@@ -354,41 +355,17 @@ class _EmptyBookLists extends StatelessWidget {
   final VoidCallback onCreate;
 
   @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            AppIcon(
-              AppGlyph.bookmarkAdd,
-              size: 56,
-              color: theme.colorScheme.outline,
-            ),
-            const SizedBox(height: 12),
-            Text('还没有书单', style: theme.textTheme.titleMedium),
-            const SizedBox(height: 4),
-            Text(
-              '把想一起读的书收进书单，写下名称和简介',
-              textAlign: TextAlign.center,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-            const SizedBox(height: 12),
-            FilledButton.icon(
-              key: const ValueKey<String>('booklist-create-empty'),
-              onPressed: onCreate,
-              icon: const AppIcon(AppGlyph.add),
-              label: const Text('新建书单'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => ReaderEmptyState(
+    icon: const AppIcon(AppGlyph.bookmarkAdd),
+    title: '还没有书单',
+    description: '把想一起读的书收进书单，写下名称和简介',
+    action: FilledButton.icon(
+      key: const ValueKey<String>('booklist-create-empty'),
+      onPressed: onCreate,
+      icon: const AppIcon(AppGlyph.add),
+      label: const Text('新建书单'),
+    ),
+  );
 }
 
 class _LoadError extends StatelessWidget {
@@ -545,25 +522,15 @@ class _BookListDetailSheetState extends State<_BookListDetailSheet> {
   }
 
   Future<void> _delete() async {
-    final confirmed = await showReaderDialog<bool>(
+    final confirmed = await showReaderConfirmDialog(
       context: context,
-      builder: (context) => ReaderFrostedAlertDialog(
-        title: Text('删除书单「${_bookList.name}」？'),
-        content: const Text('只删除书单，书籍仍保留在书架。'),
-        actions: <Widget>[
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            key: const ValueKey<String>('booklist-delete-confirm'),
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('删除'),
-          ),
-        ],
-      ),
+      title: '删除书单「${_bookList.name}」？',
+      message: '只删除书单，书籍仍保留在书架。',
+      confirmKey: const ValueKey<String>('booklist-delete-confirm'),
+      confirmLabel: '删除',
+      destructive: true,
     );
-    if (confirmed != true || !mounted) return;
+    if (!confirmed || !mounted) return;
     try {
       await _store.delete(_bookList.id);
       if (mounted) Navigator.of(context).pop();

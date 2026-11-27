@@ -53,6 +53,7 @@ import 'page_furniture/page_furniture.dart';
 import 'page_furniture/corner_row.dart'
     show ReaderBatteryStatus, readerBatteryStatus;
 import 'theme/reader_margins.dart';
+import 'theme/reader_ui_style.dart';
 import 'tap_zones.dart';
 import 'annotations/relocator.dart';
 import 'panels/annotation_panel.dart';
@@ -1570,7 +1571,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
-      dragHandleHeight: 32,
+      dragHandleHeight: ReaderUiStyle.sheetDragHandleHeight,
       readerTheme: _effectiveTheme ?? ReaderTheme.white,
       builder: (_) => ReaderBookmarkStyleSheet(
         style: _bookmarkStyle,
@@ -4292,13 +4293,7 @@ class _DrawerTabButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final dark = theme.brightness == Brightness.dark;
-    final activeColor = dark
-        ? theme.colorScheme.onSurface
-        : const Color(0xFF333333);
-    final inactiveColor = dark
-        ? theme.colorScheme.outline
-        : const Color(0xFF999999);
+    final colors = theme.colorScheme;
     return Expanded(
       child: InkWell(
         key: buttonKey,
@@ -4313,7 +4308,7 @@ class _DrawerTabButton extends StatelessWidget {
               style: TextStyle(
                 fontSize: 14,
                 fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
-                color: selected ? activeColor : inactiveColor,
+                color: selected ? colors.primary : colors.onSurfaceVariant,
               ),
             ),
           ),

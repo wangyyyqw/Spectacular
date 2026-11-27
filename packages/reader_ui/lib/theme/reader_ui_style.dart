@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 /// 首页、阅读菜单与编辑表单共用的控件和表面规范。
 abstract final class ReaderUiStyle {
+  static const sheetDragHandleHeight = 28.0;
+  static const settingsSheetHeightFraction = .64;
   static const controlCorner = 12.0;
   static const cardCorner = 20.0;
   static const panelCorner = 24.0;

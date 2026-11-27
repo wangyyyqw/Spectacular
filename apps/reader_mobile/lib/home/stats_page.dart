@@ -586,6 +586,7 @@ class _StatsContent extends StatelessWidget {
         showDivider: false,
         child: BookDurationChart(
           insights: stats.insights,
+          books: {for (final row in stats.rows) row.book.id: row.book},
           bookTitles: titles,
           bookColors: bookColors,
           now: now,

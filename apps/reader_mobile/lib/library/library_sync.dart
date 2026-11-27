@@ -199,6 +199,7 @@ bool _portableSyncSetting(String key) =>
         }.contains(key)) ||
     const {
       'app.themeMode',
+      'app.themePreset',
       'app.fontFamily',
       'bookshelf.sort',
       'bookshelf.showTitles',

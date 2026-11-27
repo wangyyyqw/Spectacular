@@ -283,9 +283,42 @@ class _ReaderAnnotationEditorSheetState
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 6, 8, 8),
+                child: Row(
+                  children: [
+                    AppIcon(
+                      _isThought ? AppGlyph.note : AppGlyph.highlighter,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        _isThought ? '想法' : '划线',
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                            ),
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: _close,
+                      tooltip: '关闭',
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      constraints: const BoxConstraints(
+                        minWidth: 44,
+                        minHeight: 44,
+                      ),
+                      icon: const AppIcon(AppGlyph.close, size: 20),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
               Flexible(
                 child: SingleChildScrollView(
-                  padding: const EdgeInsets.fromLTRB(20, 10, 20, 12),
+                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
                   child: _content(context),
                 ),
               ),
@@ -301,22 +334,6 @@ class _ReaderAnnotationEditorSheetState
     crossAxisAlignment: CrossAxisAlignment.stretch,
     mainAxisSize: MainAxisSize.min,
     children: [
-      Row(
-        children: [
-          AppIcon(_isThought ? AppGlyph.note : AppGlyph.highlighter),
-          const SizedBox(width: 8),
-          Text(
-            _isThought ? '想法' : '划线',
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
-          const Spacer(),
-          IconButton(
-            onPressed: _close,
-            tooltip: '关闭',
-            icon: const AppIcon(AppGlyph.close),
-          ),
-        ],
-      ),
       AnnotationQuotePreview(
         quote: widget.annotation.quote,
         color: _color,

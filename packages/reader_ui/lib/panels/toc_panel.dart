@@ -5,6 +5,7 @@ import 'package:reader_core/position/cfi.dart';
 
 import '../icons/app_icon.dart';
 import '../theme/reader_drawer_style.dart';
+import '../theme/reader_ui_components.dart';
 
 /// 目录面板（P4-11）：层级缩进、多级折叠、当前章高亮、点击跳转。
 ///
@@ -487,11 +488,9 @@ class _TocPanelState extends State<TocPanel> {
             ),
           Expanded(
             child: rows.isEmpty
-                ? Center(
-                    child: Text(
-                      widget.emptyHint,
-                      style: TextStyle(fontSize: 14, color: muted),
-                    ),
+                ? ReaderEmptyState(
+                    icon: const AppIcon(AppGlyph.listBulleted),
+                    title: widget.emptyHint,
                   )
                 : RawScrollbar(
                     controller: _scrollController,

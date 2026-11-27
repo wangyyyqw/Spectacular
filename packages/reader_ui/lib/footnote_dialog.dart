@@ -10,6 +10,7 @@ import 'icons/app_icon.dart';
 import 'theme/reader_panel_theme.dart';
 import 'theme/reader_frosted_surface.dart';
 import 'theme/reader_theme.dart';
+import 'theme/reader_ui_style.dart';
 
 /// 阅读页注释的展示样式。
 enum ReaderFootnoteStyle {
@@ -80,7 +81,7 @@ class ReaderFootnoteDialog extends StatelessWidget {
     return Material(
       key: const ValueKey('reader-footnote-dialog'),
       color: ReaderFrostedSurface.panelColorOf(context),
-      borderRadius: const BorderRadius.vertical(top: Radius.circular(8)),
+      borderRadius: ReaderUiStyle.sheetRadiusOf(theme),
       clipBehavior: Clip.antiAlias,
       child: SafeArea(
         top: false,

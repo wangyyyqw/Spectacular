@@ -175,10 +175,15 @@ void main() {
     final library = LibraryStore.memory();
     await library.setSetting(ThemeColorSettings.wallpaperKey, 'true');
     await library.setSetting('app.themeMode', ThemeMode.dark.name);
+    await library.setSetting(
+      AppThemePreset.settingKey,
+      AppThemePreset.bambooGreen.id,
+    );
     final response = Completer<int?>();
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(channel, (call) async {
           if (call.method == 'getWallpaperSeed') return response.future;
+          if (call.method == 'getStartupTheme') return nativeCache;
           if (call.method == 'cacheStartupTheme') {
             nativeCache = Map<String, Object?>.from(call.arguments as Map);
             return null;
@@ -211,6 +216,18 @@ void main() {
     await settings.setWallpaperEnabled(false);
     await tester.pumpAndSettle();
     expect(nativeCache!['wallpaperEnabled'], isFalse);
+    expect(
+      Theme.of(tester.element(find.text('书架还是空的'))).colorScheme,
+      AppThemePreset.bambooGreen.dark,
+    );
+    expect(
+      nativeCache!['darkBackground'],
+      AppThemePreset.bambooGreen.dark.surfaceContainerLowest.toARGB32(),
+    );
+    expect(
+      (await StartupThemeCache.read())!.preset,
+      AppThemePreset.bambooGreen,
+    );
     response.complete(seed!.toARGB32());
     await settings.refreshWallpaper();
     await tester.pumpWidget(const SizedBox());

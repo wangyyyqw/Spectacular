@@ -59,9 +59,9 @@ class BookReadingRanking extends StatelessWidget {
                 ? SizedBox(
                     width: width,
                     height: height,
-                    child: const ColoredBox(
-                      color: Color(0xFFE0E0E0),
-                      child: AppIcon(AppGlyph.menuBook, size: 20),
+                    child: ColoredBox(
+                      color: Theme.of(context).colorScheme.surfaceContainerLow,
+                      child: const AppIcon(AppGlyph.menuBook, size: 20),
                     ),
                   )
                 : BookCoverImage(

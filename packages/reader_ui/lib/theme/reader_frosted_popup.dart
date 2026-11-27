@@ -78,6 +78,7 @@ Future<T?> showReaderBottomSheet<T>({
   bool useSafeArea = false,
   bool isDismissible = true,
   bool enableDrag = true,
+  bool guardDragDismissal = false,
   bool showDragHandle = true,
   double dragHandleHeight = 48,
   bool waitForDismissal = false,
@@ -103,7 +104,7 @@ Future<T?> showReaderBottomSheet<T>({
     isScrollControlled: isScrollControlled,
     useSafeArea: useSafeArea,
     isDismissible: isDismissible,
-    enableDrag: enableDrag,
+    enableDrag: enableDrag && !guardDragDismissal,
     showDragHandle: false,
     constraints: constraints,
     backgroundColor: Colors.transparent,
@@ -114,6 +115,7 @@ Future<T?> showReaderBottomSheet<T>({
       builder: builder,
       readerTheme: readerTheme,
       showDragHandle: showDragHandle && enableDrag,
+      guardDragDismissal: guardDragDismissal,
       isDismissible: isDismissible,
       dragHandleHeight: dragHandleHeight,
     ),
@@ -131,6 +133,7 @@ Future<T?> showReaderDrawer<T>({
   bool useSafeArea = true,
   bool isDismissible = true,
   bool enableDrag = true,
+  bool guardDragDismissal = false,
   bool showDragHandle = true,
   double dragHandleHeight = 48,
   bool waitForDismissal = false,
@@ -150,6 +153,7 @@ Future<T?> showReaderDrawer<T>({
       useSafeArea: useSafeArea,
       isDismissible: isDismissible,
       enableDrag: enableDrag,
+      guardDragDismissal: guardDragDismissal,
       showDragHandle: showDragHandle,
       dragHandleHeight: dragHandleHeight,
       waitForDismissal: waitForDismissal,
@@ -182,6 +186,7 @@ Widget _drawerPanel({
   required WidgetBuilder builder,
   ReaderTheme? readerTheme,
   bool showDragHandle = false,
+  bool guardDragDismissal = false,
   bool isDismissible = true,
   bool desktop = false,
   double dragHandleHeight = 48,
@@ -204,6 +209,7 @@ Widget _drawerPanel({
                   _DragHandle(
                     dismissible: isDismissible,
                     height: dragHandleHeight,
+                    guardDragDismissal: guardDragDismissal,
                   ),
                 Flexible(child: Builder(builder: builder)),
               ],
@@ -328,28 +334,57 @@ class _ReaderDrawerRoute<T> extends PopupRoute<T> {
         );
 }
 
-class _DragHandle extends StatelessWidget {
-  const _DragHandle({required this.dismissible, this.height = 48});
+class _DragHandle extends StatefulWidget {
+  const _DragHandle({
+    required this.dismissible,
+    required this.guardDragDismissal,
+    this.height = 48,
+  });
 
   final bool dismissible;
   final double height;
+  final bool guardDragDismissal;
+
+  @override
+  State<_DragHandle> createState() => _DragHandleState();
+}
+
+class _DragHandleState extends State<_DragHandle> {
+  double _distance = 0;
 
   @override
   Widget build(BuildContext context) => Semantics(
     label: MaterialLocalizations.of(context).modalBarrierDismissLabel,
     button: true,
-    onTap: dismissible ? () => Navigator.maybePop(context) : null,
-    child: SizedBox(
-      key: const ValueKey<String>('reader-drawer-drag-handle'),
-      height: height,
-      child: Center(
-        child: Container(
-          width: 32,
-          height: 4,
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.onSurfaceVariant
-                .withValues(alpha: 0.4),
-            borderRadius: BorderRadius.circular(2),
+    onTap: widget.dismissible ? () => Navigator.maybePop(context) : null,
+    child: GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onVerticalDragStart: widget.guardDragDismissal
+          ? (_) => _distance = 0
+          : null,
+      onVerticalDragUpdate: widget.guardDragDismissal
+          ? (details) => _distance += details.delta.dy
+          : null,
+      onVerticalDragEnd: widget.guardDragDismissal
+          ? (details) {
+              if (widget.dismissible &&
+                  (_distance >= 40 || (details.primaryVelocity ?? 0) > 500)) {
+                Navigator.maybePop(context);
+              }
+            }
+          : null,
+      child: SizedBox(
+        key: const ValueKey<String>('reader-drawer-drag-handle'),
+        height: widget.height,
+        child: Center(
+          child: Container(
+            width: 32,
+            height: 4,
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.onSurfaceVariant
+                  .withValues(alpha: 0.4),
+              borderRadius: BorderRadius.circular(2),
+            ),
           ),
         ),
       ),

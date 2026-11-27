@@ -9,6 +9,7 @@ class StartupThemeCache {
     required this.wallpaperEnabled,
     required this.mode,
     this.seed,
+    this.preset = AppThemePreset.clearBlue,
   });
 
   static const channel = OptionalMethodChannel(
@@ -18,6 +19,7 @@ class StartupThemeCache {
   final bool wallpaperEnabled;
   final ThemeMode mode;
   final Color? seed;
+  final AppThemePreset preset;
 
   static Future<StartupThemeCache?> read() async {
     try {
@@ -27,6 +29,7 @@ class StartupThemeCache {
       if (values == null) return null;
       final seed = values['seed'];
       return StartupThemeCache(
+        preset: AppThemePreset.byId(values['preset'] as String?),
         wallpaperEnabled: values['wallpaperEnabled'] == true,
         mode: ThemeMode.values.firstWhere(
           (mode) => mode.name == values['mode'],
@@ -41,6 +44,7 @@ class StartupThemeCache {
 
   Future<void> save() async {
     ThemeData theme(Brightness brightness) => buildAppTheme(
+      preset: preset,
       brightness: brightness,
       colorScheme: wallpaperEnabled && seed != null
           ? ColorScheme.fromSeed(seedColor: seed!, brightness: brightness)
@@ -50,6 +54,7 @@ class StartupThemeCache {
     final dark = theme(Brightness.dark);
     try {
       await channel.invokeMethod<void>('cacheStartupTheme', {
+        'preset': preset.id,
         'wallpaperEnabled': wallpaperEnabled,
         'mode': mode.name,
         'seed': seed?.toARGB32(),

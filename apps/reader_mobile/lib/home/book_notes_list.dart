@@ -4,6 +4,7 @@ import 'package:reader_ui/annotations/annotation.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
 import 'package:reader_ui/theme/reader_sheet_form.dart';
+import 'package:reader_ui/theme/reader_ui_components.dart';
 
 import '../library/library_store.dart';
 import 'book_cover_image.dart';
@@ -470,39 +471,12 @@ class _NotesMessage extends StatelessWidget {
   final VoidCallback? onRetry;
 
   @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            AppIcon(
-              onRetry == null ? AppGlyph.note : AppGlyph.error,
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-            const SizedBox(height: 10),
-            Text(
-              title,
-              textAlign: TextAlign.center,
-              style: theme.textTheme.titleMedium,
-            ),
-            if (hint != null) ...[
-              const SizedBox(height: 6),
-              Text(
-                hint!,
-                textAlign: TextAlign.center,
-                style: theme.textTheme.bodySmall,
-              ),
-            ],
-            if (onRetry != null) ...[
-              const SizedBox(height: 10),
-              OutlinedButton(onPressed: onRetry, child: const Text('重试')),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => ReaderEmptyState(
+    icon: AppIcon(onRetry == null ? AppGlyph.note : AppGlyph.error),
+    title: title,
+    description: hint,
+    action: onRetry == null
+        ? null
+        : OutlinedButton(onPressed: onRetry, child: const Text('重试')),
+  );
 }

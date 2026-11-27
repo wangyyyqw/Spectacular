@@ -2,11 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:reader_core/css/font_face.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/system_ui.dart';
+import 'package:reader_ui/theme/app_semantic_colors.dart';
 import 'package:reader_ui/theme/reader_ui_style.dart';
 
 import 'app_theme_preset.dart';
 
 export 'app_theme_preset.dart';
+
+export 'package:reader_ui/theme/app_semantic_colors.dart';
 
 /// 应用界面的字体约定，不作用于书籍正文。
 abstract final class AppFonts {
@@ -39,6 +42,8 @@ class AppThemeScope extends InheritedWidget {
     super.key,
     required this.mode,
     required this.onModeChanged,
+    this.preset = AppThemePreset.clearBlue,
+    this.onPresetChanged,
     this.uiStyle = AppUiStyle.classic,
     this.onUiStyleChanged,
     required super.child,
@@ -46,6 +51,8 @@ class AppThemeScope extends InheritedWidget {
 
   /// 全局主题选择。
   final ThemeMode mode;
+  final AppThemePreset preset;
+  final Future<void> Function(AppThemePreset)? onPresetChanged;
 
   /// 统一保存并应用主题。
   final Future<void> Function(ThemeMode) onModeChanged;
@@ -63,6 +70,8 @@ class AppThemeScope extends InheritedWidget {
   @override
   bool updateShouldNotify(AppThemeScope oldWidget) =>
       mode != oldWidget.mode ||
+      preset != oldWidget.preset ||
+      onPresetChanged != oldWidget.onPresetChanged ||
       uiStyle != oldWidget.uiStyle ||
       onUiStyleChanged != oldWidget.onUiStyleChanged;
 }
@@ -106,6 +115,12 @@ ThemeData buildAppTheme({
   final base = ThemeData(
     useMaterial3: uiStyle == AppUiStyle.material3,
     colorScheme: colors,
+    extensions: [
+      if (colorScheme == null)
+        preset.semanticsFor(brightness)
+      else
+        AppSemanticColors.forScheme(colors),
+    ],
     scaffoldBackgroundColor: background,
     canvasColor: colors.surface,
     dividerColor: colors.outlineVariant,

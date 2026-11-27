@@ -2,9 +2,13 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:reader_ui/icons/app_icon.dart';
+import 'package:reader_ui/theme/app_semantic_colors.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
+import 'package:reader_ui/theme/reader_section_slider.dart';
 import 'package:reader_ui/theme/reader_ui_style.dart';
 
+import '../library/library_store.dart';
+import 'book_cover_image.dart';
 import 'book_duration_summary.dart';
 import 'reading_book_color.dart';
 import 'reading_insights.dart';
@@ -35,6 +39,7 @@ class BookDurationChart extends StatefulWidget {
   const BookDurationChart({
     super.key,
     required this.insights,
+    this.books = const {},
     this.bookTitles = const {},
     this.bookColors = const {},
     this.now,
@@ -42,6 +47,7 @@ class BookDurationChart extends StatefulWidget {
   });
 
   final ReadingInsights insights;
+  final Map<String, BookEntry> books;
   final Map<String, String> bookTitles;
   final Map<String, Color> bookColors;
 
@@ -97,82 +103,16 @@ class _BookDurationChartState extends State<BookDurationChart>
   }
 
   Widget _periodSlider(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
     final selectedIndex = _selectablePeriods.indexOf(_period);
-    final index = selectedIndex < 0 ? 0 : selectedIndex;
-    return Container(
-      height: 40,
-      padding: const EdgeInsets.all(3),
-      decoration: BoxDecoration(
-        color: scheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final segment = constraints.maxWidth / _selectablePeriods.length;
-          return Stack(
-            children: [
-              AnimatedPositioned(
-                duration: const Duration(milliseconds: 180),
-                curve: Curves.easeOutCubic,
-                left: index * segment,
-                top: 0,
-                width: segment,
-                height: constraints.maxHeight,
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    color: scheme.surface,
-                    borderRadius: BorderRadius.circular(999),
-                    boxShadow: [
-                      BoxShadow(
-                        color: scheme.shadow.withValues(alpha: .08),
-                        blurRadius: 4,
-                        offset: const Offset(0, 1),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              Row(
-                children: [
-                  for (final period in _selectablePeriods)
-                    Expanded(
-                      child: Semantics(
-                        label: period.label,
-                        button: true,
-                        selected: _period == period,
-                        onTap: () => _changePeriod(period),
-                        excludeSemantics: true,
-                        child: InkWell(
-                          key: ValueKey(
-                            'stats-book-duration-period-${period.name}',
-                          ),
-                          borderRadius: BorderRadius.circular(999),
-                          onTap: () => _changePeriod(period),
-                          child: Center(
-                            child: Text(
-                              period.label,
-                              style: TextStyle(
-                                fontSize: 14,
-                                height: 1.2,
-                                fontWeight: _period == period
-                                    ? FontWeight.w600
-                                    : FontWeight.w400,
-                                color: _period == period
-                                    ? scheme.onSurface
-                                    : scheme.onSurfaceVariant,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            ],
-          );
-        },
-      ),
+    return ReaderSectionSlider(
+      sections: [
+        for (final period in _selectablePeriods)
+          (key: period.name, label: period.label),
+      ],
+      index: selectedIndex < 0 ? 0 : selectedIndex,
+      itemKeyBuilder: (item) =>
+          ValueKey<String>('stats-book-duration-period-${item.key}'),
+      onSelected: (index) => _changePeriod(_selectablePeriods[index]),
     );
   }
 
@@ -202,6 +142,7 @@ class _BookDurationChartState extends State<BookDurationChart>
           period: period,
           start: start,
           summary: summary,
+          books: widget.books,
           bookColors: widget.bookColors,
           inDrawer: true,
         ),
@@ -593,7 +534,7 @@ class _BookDurationChartState extends State<BookDurationChart>
       onTap: () => _selectSlice(slice),
       excludeSemantics: true,
       child: Material(
-        color: selected ? scheme.surfaceContainerHighest : Colors.transparent,
+        color: selected ? scheme.surfaceContainerLow : Colors.transparent,
         clipBehavior: Clip.antiAlias,
         shape: RoundedRectangleBorder(
           borderRadius: ReaderUiStyle.controlRadiusOf(Theme.of(context)),
@@ -603,6 +544,9 @@ class _BookDurationChartState extends State<BookDurationChart>
         ),
         child: InkWell(
           key: ValueKey('stats-book-duration-tag-${slice.key}'),
+          splashFactory: NoSplash.splashFactory,
+          splashColor: Colors.transparent,
+          highlightColor: Colors.transparent,
           onTap: () => _selectSlice(slice),
           borderRadius: ReaderUiStyle.controlRadiusOf(Theme.of(context)),
           child: _legendContent(slice, summary.total),
@@ -612,8 +556,8 @@ class _BookDurationChartState extends State<BookDurationChart>
   }
 
   Widget _legendContent(DurationBarData slice, Duration total) => Container(
-    constraints: const BoxConstraints(minHeight: 44),
-    padding: const EdgeInsets.fromLTRB(6, 8, 6, 8),
+    constraints: const BoxConstraints(minHeight: 56),
+    padding: const EdgeInsets.fromLTRB(6, 7, 6, 7),
     child: Align(
       alignment: Alignment.centerLeft,
       child: _legendText(slice, total),
@@ -626,19 +570,30 @@ class _BookDurationChartState extends State<BookDurationChart>
           constraints.maxWidth < 290 ||
           MediaQuery.textScalerOf(context).scale(14) > 18;
       if (stacked) {
-        return Column(
+        return Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(children: [Expanded(child: _legendTitle(slice))]),
-            const SizedBox(height: 4),
-            _legendValues(slice, total, stacked: true),
+            _bookThumbnail(context, slice.key, slice.color),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _legendTitleText(slice),
+                  const SizedBox(height: 4),
+                  _legendValues(slice, total, stacked: true),
+                ],
+              ),
+            ),
           ],
         );
       }
       return Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Expanded(child: _legendTitle(slice)),
+          _bookThumbnail(context, slice.key, slice.color),
+          const SizedBox(width: 10),
+          Expanded(child: _legendTitleText(slice)),
           const SizedBox(width: 12),
           _legendValues(slice, total, stacked: false),
         ],
@@ -679,29 +634,115 @@ class _BookDurationChartState extends State<BookDurationChart>
     );
   }
 
-  Widget _legendTitle(DurationBarData slice) => Row(
-    children: [
-      Padding(
-        padding: const EdgeInsets.only(top: 4),
-        child: _colorDot(slice.color),
-      ),
-      const SizedBox(width: 10),
-      Expanded(
-        child: Text(
+  Widget _legendTitleText(DurationBarData slice) {
+    final book = widget.books[slice.key];
+    final author = book?.author.trim() ?? '';
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
           slice.title,
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
           style: _tagTitleStyle,
         ),
-      ),
-    ],
-  );
+        if (author.isNotEmpty) ...[
+          const SizedBox(height: 2),
+          Text(
+            author,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 11,
+              height: 1.3,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _bookThumbnail(BuildContext context, String bookId, Color color) =>
+      _DurationBookThumb(book: widget.books[bookId], color: color);
 
   static Widget _colorDot(Color color) => Container(
     width: 10,
     height: 10,
     decoration: BoxDecoration(color: color, shape: BoxShape.circle),
   );
+}
+
+/// 图书时长条目共用的迷你封面（36×48），右下角叠加书籍色点以便与柱体配色一一对应。
+class _DurationBookThumb extends StatelessWidget {
+  const _DurationBookThumb({required this.book, required this.color});
+
+  final BookEntry? book;
+  final Color color;
+
+  static const double _width = 36;
+  static const double _height = 48;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final semantics = AppSemanticColors.of(context);
+    final Widget cover = book == null
+        ? Container(
+            width: _width,
+            height: _height,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: scheme.surfaceContainerLow,
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: semantics.bookCoverBorder),
+            ),
+            child: AppIcon(
+              AppGlyph.menuBook,
+              size: 16,
+              color: scheme.onSurfaceVariant,
+            ),
+          )
+        : DecoratedBox(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: semantics.bookCoverBorder),
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(5),
+              child: BookCoverImage(
+                book: book!,
+                width: _width,
+                height: _height,
+                showShadow: false,
+              ),
+            ),
+          );
+    return SizedBox(
+      width: _width + 3,
+      height: _height,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          cover,
+          Positioned(
+            right: 0,
+            bottom: -1,
+            child: Container(
+              width: 11,
+              height: 11,
+              decoration: BoxDecoration(
+                color: color,
+                shape: BoxShape.circle,
+                border: Border.all(color: scheme.surface, width: 1.5),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 /// 当前周期的全部图书时长，按投入时间从高到低排列。
@@ -711,6 +752,7 @@ class BookDurationListPage extends StatelessWidget {
     required this.period,
     required this.start,
     required this.summary,
+    this.books = const {},
     this.bookColors = const {},
     this.inDrawer = false,
   });
@@ -718,6 +760,7 @@ class BookDurationListPage extends StatelessWidget {
   final BookDurationPeriod period;
   final DateTime start;
   final BookDurationSummary summary;
+  final Map<String, BookEntry> books;
   final Map<String, Color> bookColors;
 
   /// 从图表进入内容抽屉时使用关闭入口。
@@ -765,6 +808,7 @@ class BookDurationListPage extends StatelessWidget {
                 return _DurationListRow(
                   rank: index,
                   entry: entry,
+                  book: books[entry.bookId],
                   total: summary.total,
                   bookColors: bookColors,
                 );
@@ -803,12 +847,14 @@ class _DurationListRow extends StatelessWidget {
   const _DurationListRow({
     required this.rank,
     required this.entry,
+    required this.book,
     required this.total,
     required this.bookColors,
   });
 
   final int rank;
   final BookDurationEntry entry;
+  final BookEntry? book;
   final Duration total;
   final Map<String, Color> bookColors;
 
@@ -827,43 +873,28 @@ class _DurationListRow extends StatelessWidget {
       excludeSemantics: true,
       child: Padding(
         key: ValueKey('stats-book-duration-list-row-$rank'),
-        padding: const EdgeInsets.symmetric(vertical: 14),
+        padding: const EdgeInsets.symmetric(vertical: 12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 SizedBox(
                   width: 24,
-                  child: Padding(
-                    padding: const EdgeInsets.only(top: 2),
-                    child: Text(
-                      '$rank',
-                      style: TextStyle(
-                        color: rank <= 3
-                            ? theme.colorScheme.onSurface
-                            : theme.colorScheme.onSurfaceVariant,
-                        fontSize: 12,
-                        fontWeight: rank <= 3
-                            ? FontWeight.w600
-                            : FontWeight.w400,
-                        fontFeatures: const [FontFeature.tabularFigures()],
-                      ),
+                  child: Text(
+                    '$rank',
+                    style: TextStyle(
+                      color: rank <= 3
+                          ? theme.colorScheme.primary
+                          : theme.colorScheme.onSurfaceVariant,
+                      fontSize: 12,
+                      fontWeight: rank <= 3 ? FontWeight.w700 : FontWeight.w400,
+                      fontFeatures: const [FontFeature.tabularFigures()],
                     ),
                   ),
                 ),
-                Padding(
-                  padding: const EdgeInsets.only(top: 6),
-                  child: Container(
-                    width: 8,
-                    height: 8,
-                    decoration: BoxDecoration(
-                      color: color,
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                ),
+                _DurationBookThumb(book: book, color: color),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Column(
@@ -871,9 +902,15 @@ class _DurationListRow extends StatelessWidget {
                     children: [
                       Text(
                         entry.title,
-                        style: const TextStyle(fontSize: 14, height: 1.4),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          height: 1.35,
+                        ),
                       ),
-                      const SizedBox(height: 5),
+                      const SizedBox(height: 4),
                       Text(
                         '${formatReadingDuration(entry.duration)} · $share',
                         style: TextStyle(

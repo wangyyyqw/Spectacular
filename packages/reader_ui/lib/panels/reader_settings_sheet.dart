@@ -18,10 +18,13 @@ class ReaderSettingsSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => SizedBox(
-    height: MediaQuery.sizeOf(context).height * .64,
+    height:
+        MediaQuery.sizeOf(context).height *
+        ReaderUiStyle.settingsSheetHeightFraction,
     child: Material(
       color: ReaderFrostedSurface.panelColorOf(context),
       borderRadius: ReaderUiStyle.sheetRadiusOf(Theme.of(context)),
+      clipBehavior: Clip.antiAlias,
       child: SafeArea(
         top: false,
         child: Column(

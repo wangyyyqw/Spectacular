@@ -12,11 +12,13 @@ class ReaderSectionSlider extends StatelessWidget {
     required this.sections,
     required this.index,
     required this.onSelected,
+    this.itemKeyBuilder,
   });
 
   final List<ReaderSectionSliderItem> sections;
   final int index;
   final ValueChanged<int> onSelected;
+  final Key Function(ReaderSectionSliderItem item)? itemKeyBuilder;
 
   @override
   Widget build(BuildContext context) {
@@ -71,7 +73,9 @@ class ReaderSectionSlider extends StatelessWidget {
                   for (var i = 0; i < sections.length; i++)
                     Expanded(
                       child: Semantics(
-                        key: ValueKey('${sections[i].key}-tab'),
+                        key:
+                            itemKeyBuilder?.call(sections[i]) ??
+                            ValueKey('${sections[i].key}-tab'),
                         label: sections[i].label,
                         button: true,
                         selected: index == i,

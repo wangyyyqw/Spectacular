@@ -13,6 +13,7 @@ internal class StartupThemeHandler(private val activity: Activity) {
         if (!cache.contains("mode")) return null
         return mapOf(
             "mode" to cache.getString("mode", "system"),
+            "preset" to cache.getString("preset", null),
             "wallpaperEnabled" to cache.getBoolean("wallpaperEnabled", false),
             "seed" to if (cache.contains("seed")) cache.getLong("seed", 0L) else null,
         )
@@ -21,6 +22,7 @@ internal class StartupThemeHandler(private val activity: Activity) {
     fun save(values: Map<*, *>) {
         val editor = cache.edit()
         editor.putString("mode", values["mode"] as? String ?: "system")
+        editor.putString("preset", values["preset"] as? String)
         editor.putBoolean("wallpaperEnabled", values["wallpaperEnabled"] == true)
         val seed = values["seed"] as? Number
         if (seed == null) editor.remove("seed") else editor.putLong("seed", seed.toLong())
@@ -40,7 +42,7 @@ internal class StartupThemeHandler(private val activity: Activity) {
         }
         val prefix = if (dark) "dark" else "light"
         val background = cache.getInt(
-            "${prefix}Background", if (dark) 0xFF1B1D1F.toInt() else 0xFFF6F6F4.toInt(),
+            "${prefix}Background", activity.getColor(R.color.startup_background),
         )
         activity.window.setBackgroundDrawable(ColorDrawable(background))
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {

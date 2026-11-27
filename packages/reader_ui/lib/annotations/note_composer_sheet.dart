@@ -2,16 +2,14 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
-import '../theme/reader_ui_style.dart';
-
-import '../icons/app_icon.dart';
+import '../panels/reader_settings_sheet.dart';
+import '../theme/reader_section_slider.dart';
 import 'annotation.dart';
 import 'annotation_appearance_editor.dart';
 import 'annotation_editor_sheet.dart';
 import 'annotation_quote_preview.dart';
 import 'mark_settings.dart';
 import '../theme/reader_frosted_popup.dart';
-import '../theme/reader_frosted_surface.dart';
 
 /// 新建纯文本想法，外观与正文一起保存。
 class ReaderNoteComposerSheet extends StatefulWidget {
@@ -49,6 +47,17 @@ class _ReaderNoteComposerSheetState extends State<ReaderNoteComposerSheet> {
   bool _allowPop = false;
   bool _dialogVisible = false;
   bool _closing = false;
+  int _sectionIndex = 0;
+
+  List<ReaderAnnotationAppearanceSection> get _sections => widget.inkMode
+      ? const [ReaderAnnotationAppearanceSection.line]
+      : const [
+          ReaderAnnotationAppearanceSection.color,
+          ReaderAnnotationAppearanceSection.background,
+          ReaderAnnotationAppearanceSection.line,
+          ReaderAnnotationAppearanceSection.width,
+        ];
+
   String get _note => _controller.text.trim();
   bool get _dirty =>
       _note.isNotEmpty ||
@@ -81,27 +90,18 @@ class _ReaderNoteComposerSheetState extends State<ReaderNoteComposerSheet> {
       return;
     }
     _dialogVisible = true;
-    final discard = await showReaderDialog<bool>(
+    final discard = await showReaderConfirmDialog(
       context: context,
-      builder: (context) => ReaderFrostedAlertDialog(
-        title: const Text('放弃未保存的想法？'),
-        content: const Text('想法内容或划线外观还没有保存，离开后本次输入会丢失。'),
-        actions: [
-          TextButton(
-            key: const ValueKey<String>('note-discard-cancel'),
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('继续编辑'),
-          ),
-          FilledButton(
-            key: const ValueKey<String>('note-discard-confirm'),
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('放弃想法'),
-          ),
-        ],
-      ),
+      title: '放弃未保存的想法？',
+      message: '想法内容或划线外观还没有保存，离开后本次输入会丢失。',
+      cancelLabel: '继续编辑',
+      cancelKey: const ValueKey<String>('note-discard-cancel'),
+      confirmLabel: '放弃想法',
+      confirmKey: const ValueKey<String>('note-discard-confirm'),
+      destructive: true,
     );
     _dialogVisible = false;
-    if (discard == true && mounted) _pop();
+    if (discard && mounted) _pop();
   }
 
   void _save() => _pop(
@@ -123,68 +123,23 @@ class _ReaderNoteComposerSheetState extends State<ReaderNoteComposerSheet> {
     child: AnimatedPadding(
       duration: const Duration(milliseconds: 180),
       padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
-      child: Material(
+      child: ReaderSettingsSheet(
         key: const ValueKey<String>('note-composer-sheet'),
-        color: ReaderFrostedSurface.panelColorOf(context),
-        borderRadius: ReaderUiStyle.sheetRadiusOf(Theme.of(context)),
-        clipBehavior: Clip.antiAlias,
-        child: SafeArea(
-          top: false,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Flexible(
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.fromLTRB(20, 10, 20, 12),
-                  child: _content(context),
-                ),
-              ),
-              DecoratedBox(
-                decoration: BoxDecoration(
-                  border: Border(
-                    top: BorderSide(
-                      color: Theme.of(context).colorScheme.outlineVariant,
-                    ),
-                  ),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 18),
-                  child: FilledButton.icon(
-                    key: const ValueKey<String>('note-composer-save'),
-                    style: FilledButton.styleFrom(
-                      minimumSize: const Size.fromHeight(44),
-                    ),
-                    onPressed: _note.isEmpty ? null : _save,
-                    icon: const AppIcon(AppGlyph.check),
-                    label: const Text('保存想法'),
-                  ),
-                ),
-              ),
-            ],
-          ),
+        header: _header(context),
+        footer: FilledButton(
+          key: const ValueKey<String>('note-composer-save'),
+          onPressed: _note.isEmpty ? null : _save,
+          child: const Text('保存想法'),
         ),
+        child: _content(context),
       ),
     ),
   );
 
-  Widget _content(BuildContext context) => Column(
+  Widget _header(BuildContext context) => Column(
     mainAxisSize: MainAxisSize.min,
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
-      Row(
-        children: [
-          const AppIcon(AppGlyph.note),
-          const SizedBox(width: 8),
-          Text('添加想法', style: Theme.of(context).textTheme.titleMedium),
-          const Spacer(),
-          IconButton(
-            key: const ValueKey<String>('note-composer-close'),
-            onPressed: _close,
-            tooltip: '关闭',
-            icon: const AppIcon(AppGlyph.close),
-          ),
-        ],
-      ),
       AnnotationQuotePreview(
         key: ValueKey<String>(
           widget.inkMode
@@ -199,7 +154,13 @@ class _ReaderNoteComposerSheetState extends State<ReaderNoteComposerSheet> {
         inkMode: widget.inkMode,
         thought: true,
       ),
-      const SizedBox(height: 16),
+    ],
+  );
+
+  Widget _content(BuildContext context) => Column(
+    mainAxisSize: MainAxisSize.min,
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
       Text('想法内容', style: Theme.of(context).textTheme.labelLarge),
       const SizedBox(height: 8),
       TextField(
@@ -213,12 +174,32 @@ class _ReaderNoteComposerSheetState extends State<ReaderNoteComposerSheet> {
         decoration: const InputDecoration(hintText: '写下此刻的想法…'),
       ),
       const SizedBox(height: 16),
+      ReaderSectionSlider(
+        key: const ValueKey<String>('note-composer-section-tabs'),
+        sections: [
+          for (final section in _sections)
+            (
+              key: section.name,
+              label: switch (section) {
+                ReaderAnnotationAppearanceSection.all => '全部设置',
+                ReaderAnnotationAppearanceSection.color => '颜色',
+                ReaderAnnotationAppearanceSection.background => '背景',
+                ReaderAnnotationAppearanceSection.line => '线条',
+                ReaderAnnotationAppearanceSection.width => '线宽',
+              },
+            ),
+        ],
+        index: _sectionIndex,
+        onSelected: (index) => setState(() => _sectionIndex = index),
+      ),
+      const SizedBox(height: 12),
       ReaderAnnotationAppearanceEditor(
         color: _color,
         style: _style,
         opacity: _opacity,
         settings: _settings,
         inkMode: widget.inkMode,
+        section: _sections[_sectionIndex],
         onColor: (value) => setState(() => _color = value),
         onStyle: (value) => setState(() {
           _style = value;

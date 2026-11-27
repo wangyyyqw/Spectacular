@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../icons/app_icon.dart';
+import '../theme/app_semantic_colors.dart';
 
 /// 五星显示；星级以 0.5 为步长，接口的十分制由调用方转换。
 class ReaderRatingStars extends StatelessWidget {
@@ -23,28 +24,33 @@ class ReaderRatingStars extends StatelessWidget {
         _Star(
           fraction: ((rating ?? 0) - star + 1).clamp(0, 1).toDouble(),
           size: size,
-          color: color ?? Theme.of(context).colorScheme.onSurface,
+          color: color,
         ),
     ],
   );
 }
 
 class _Star extends StatelessWidget {
-  const _Star({
-    required this.fraction,
-    required this.size,
-    required this.color,
-  });
+  const _Star({required this.fraction, required this.size, this.color});
   final double fraction;
   final double size;
-  final Color color;
+  final Color? color;
 
   @override
   Widget build(BuildContext context) => SizedBox.square(
     dimension: size,
     child: Stack(
       children: [
-        AppIcon(AppGlyph.star, size: size, color: color, filled: fraction == 1),
+        AppIcon(
+          AppGlyph.star,
+          size: size,
+          color:
+              color ??
+              (fraction == 1
+                  ? AppSemanticColors.of(context).starFilled
+                  : AppSemanticColors.of(context).starEmpty),
+          filled: fraction == 1,
+        ),
         if (fraction > 0 && fraction < 1)
           ClipRect(
             child: Align(
@@ -53,7 +59,7 @@ class _Star extends StatelessWidget {
               child: AppIcon(
                 AppGlyph.star,
                 size: size,
-                color: color,
+                color: color ?? AppSemanticColors.of(context).starFilled,
                 filled: true,
               ),
             ),
@@ -91,7 +97,6 @@ class ReaderRatingPicker extends StatelessWidget {
                 child: _Star(
                   fraction: ((rating ?? 0) - star + 1).clamp(0, 1).toDouble(),
                   size: 34,
-                  color: Theme.of(context).colorScheme.onSurface,
                 ),
               ),
               Row(

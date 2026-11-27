@@ -10,6 +10,7 @@ import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/storage/db.dart';
 import 'package:reader_mobile/theme/app_theme.dart';
 import 'package:reader_ui/annotations/annotation.dart';
+import 'package:reader_ui/theme/reader_ui_style.dart';
 
 import '../support/test_epub.dart';
 
@@ -75,19 +76,18 @@ void main() {
     await tester.pump();
     await tester.tap(find.byKey(const ValueKey('booklist-picker-confirm')));
     await _settle(tester);
-    expect(
-      (await library.bookListStore().list()).single.bookIds,
-      <String>[first.id, second.id],
-    );
+    expect((await library.bookListStore().list()).single.bookIds, <String>[
+      first.id,
+      second.id,
+    ]);
     expect(find.text('2 本书'), findsOneWidget);
 
     // 移出一本。
     await tester.tap(find.byKey(ValueKey('booklist-book-remove-${second.id}')));
     await _settle(tester);
-    expect(
-      (await library.bookListStore().list()).single.bookIds,
-      <String>[first.id],
-    );
+    expect((await library.bookListStore().list()).single.bookIds, <String>[
+      first.id,
+    ]);
 
     // 编辑名称与简介。
     await tester.tap(find.byKey(const ValueKey('booklist-detail-edit')));
@@ -103,7 +103,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('booklist-editor-save')));
     await _settle(tester);
 
-    await tester.tap(find.byTooltip('关闭'));
+    await tester.binding.handlePopRoute();
     await _settle(tester);
     expect(find.text('长期主义书单'), findsOneWidget);
     expect(find.text('把时间变成自己的'), findsOneWidget);
@@ -137,7 +137,10 @@ void main() {
     expect(material.color, scheme.surface);
     expect(shape.side.color, scheme.outlineVariant);
     expect(shape.side.width, 1);
-    expect(shape.borderRadius, BorderRadius.circular(20));
+    expect(
+      shape.borderRadius,
+      ReaderUiStyle.cardRadiusOf(Theme.of(tester.element(card))),
+    );
     expect(tester.takeException(), isNull);
   });
 
@@ -164,9 +167,8 @@ void main() {
       MaterialApp(
         theme: buildAppTheme(),
         builder: (context, child) => MediaQuery(
-          data: MediaQuery.of(
-            context,
-          ).copyWith(textScaler: const TextScaler.linear(1.3)),
+          data: MediaQuery.of(context)
+              .copyWith(textScaler: const TextScaler.linear(1.3)),
           child: child!,
         ),
         home: ReviewsPage(library: library),
@@ -178,9 +180,7 @@ void main() {
 
     final card = find.byKey(ValueKey('booklist-card-${bookList.id}'));
     final cardRect = tester.getRect(card);
-    final count = find.byKey(
-      ValueKey('booklist-card-count-${bookList.id}'),
-    );
+    final count = find.byKey(ValueKey('booklist-card-count-${bookList.id}'));
     expect(cardRect.contains(tester.getRect(count).center), isTrue);
     expect(
       tester.getRect(find.byKey(const ValueKey('booklists-tab'))).bottom,
@@ -211,23 +211,18 @@ void main() {
       ),
     );
     await _settle(tester);
-    await tester.longPress(
-      find.byKey(ValueKey('book-card-${entry.id}')),
-    );
+    await tester.longPress(find.byKey(ValueKey('book-card-${entry.id}')));
     await _settle(tester);
-    await tester.tap(
-      find.byKey(const ValueKey('book-detail-booklists')),
-    );
+    await tester.tap(find.byKey(const ValueKey('book-detail-booklists')));
     await _settle(tester);
     expect(find.byKey(const ValueKey('booklist-membership')), findsOneWidget);
     await tester.tap(
       find.byKey(ValueKey('booklist-membership-${bookList.id}')),
     );
     await _settle(tester);
-    expect(
-      (await library.bookListStore().list()).single.bookIds,
-      <String>[entry.id],
-    );
+    expect((await library.bookListStore().list()).single.bookIds, <String>[
+      entry.id,
+    ]);
     expect(tester.takeException(), isNull);
   });
 
@@ -276,13 +271,15 @@ void main() {
     late BookList bookList;
     await tester.runAsync(() async {
       entry = await library.importBytes(buildTestEpub(title: '移出的书'));
-      await library.annotationStore(entry.id)!.add(
-        type: ReaderAnnotationType.thought,
-        startCfi: 'epubcfi(/6/2!/4/2/1:1)',
-        endCfi: 'epubcfi(/6/2!/4/2/1:3)',
-        quote: '保留下来的划线',
-        note: '移出书架后仍要显示的想法',
-      );
+      await library
+          .annotationStore(entry.id)!
+          .add(
+            type: ReaderAnnotationType.thought,
+            startCfi: 'epubcfi(/6/2!/4/2/1:1)',
+            endCfi: 'epubcfi(/6/2!/4/2/1:3)',
+            quote: '保留下来的划线',
+            note: '移出书架后仍要显示的想法',
+          );
       final store = library.bookListStore();
       bookList = await store.create(name: '保留书单');
       await store.addBooks(bookList.id, <String>[entry.id]);
@@ -304,10 +301,7 @@ void main() {
     expect(find.text('1 本书'), findsOneWidget);
     await tester.tap(find.byKey(ValueKey('booklist-card-${bookList.id}')));
     await _settle(tester);
-    expect(
-      find.byKey(ValueKey('booklist-book-${entry.id}')),
-      findsOneWidget,
-    );
+    expect(find.byKey(ValueKey('booklist-book-${entry.id}')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

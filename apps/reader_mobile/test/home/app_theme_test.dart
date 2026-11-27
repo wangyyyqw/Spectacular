@@ -1,11 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:reader_mobile/library/library_store.dart';
+import 'package:reader_mobile/main.dart';
 import 'package:reader_mobile/theme/app_theme.dart';
 import 'package:reader_ui/menu/reader_menu_overlay.dart';
 import 'package:reader_ui/panels/settings_panel.dart';
+import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/selection/selection_menu.dart';
 import 'package:reader_ui/theme/reader_panel_theme.dart';
 import 'package:reader_ui/theme/reader_theme.dart';
+
+import '../support/reader_pump.dart';
 
 double _contrast(Color foreground, Color background) {
   final first = foreground.computeLuminance();
@@ -16,39 +21,78 @@ double _contrast(Color foreground, Color background) {
 }
 
 void main() {
-  for (final brightness in Brightness.values) {
-    final theme = buildAppTheme(brightness: brightness);
-    final colors = theme.colorScheme;
+  for (final preset in AppThemePreset.presets) {
+    for (final brightness in Brightness.values) {
+      final theme = buildAppTheme(brightness: brightness, preset: preset);
+      final colors = theme.colorScheme;
+      final semantics = theme.extension<AppSemanticColors>()!;
 
-    test('清蓝 $brightness 的正文、操作和选中状态满足对比度', () {
-      for (final background in [
-        colors.surface,
-        theme.scaffoldBackgroundColor,
-        colors.surfaceContainerLow,
-      ]) {
-        for (final foreground in [
-          colors.onSurface,
-          colors.onSurfaceVariant,
-          colors.primary,
+      test('${preset.name} $brightness 的正文、操作、选中与语义色满足对比度', () {
+        for (final background in [
+          colors.surface,
+          theme.scaffoldBackgroundColor,
+          colors.surfaceContainerLow,
+        ]) {
+          for (final foreground in [
+            colors.onSurface,
+            colors.onSurfaceVariant,
+            colors.primary,
+          ]) {
+            expect(
+              _contrast(foreground, background),
+              greaterThanOrEqualTo(4.5),
+            );
+          }
+          expect(
+            _contrast(colors.outline, background),
+            greaterThanOrEqualTo(3),
+          );
+        }
+        for (final (foreground, background) in [
+          (colors.onPrimary, colors.primary),
+          (colors.onPrimaryContainer, colors.primaryContainer),
+          (colors.onSecondaryContainer, colors.secondaryContainer),
+          (colors.onError, colors.error),
+          (colors.onErrorContainer, colors.errorContainer),
+          (colors.onInverseSurface, colors.inverseSurface),
+          (semantics.onSuccess, semantics.success),
+          (semantics.onSuccessContainer, semantics.successContainer),
+          (semantics.onWarning, semantics.warning),
+          (semantics.onWarningContainer, semantics.warningContainer),
         ]) {
           expect(_contrast(foreground, background), greaterThanOrEqualTo(4.5));
         }
-        expect(_contrast(colors.outline, background), greaterThanOrEqualTo(3));
-      }
-      for (final (foreground, background) in [
-        (colors.onPrimary, colors.primary),
-        (colors.onPrimaryContainer, colors.primaryContainer),
-        (colors.onSecondaryContainer, colors.secondaryContainer),
-        (colors.onError, colors.error),
-        (colors.onErrorContainer, colors.errorContainer),
-        (colors.onInverseSurface, colors.inverseSurface),
-      ]) {
-        expect(_contrast(foreground, background), greaterThanOrEqualTo(4.5));
-      }
-      expect(colors.primary, isNot(colors.onSurface));
-      expect(colors.surface, isNot(theme.scaffoldBackgroundColor));
-      expect(colors.surfaceContainerLow, isNot(theme.scaffoldBackgroundColor));
-    });
+        expect(colors.primary, isNot(colors.onSurface));
+        expect(colors.surface, isNot(theme.scaffoldBackgroundColor));
+        expect(
+          colors.surfaceContainerLow,
+          isNot(theme.scaffoldBackgroundColor),
+        );
+      });
+    }
+  }
+
+  test('配色预设注册表按标识查找，未知标识安全回退至清蓝', () {
+    expect(AppThemePreset.presets.map((p) => p.id), [
+      'clear_blue',
+      'ink_paper',
+      'bamboo_green',
+      'warm_amber',
+    ]);
+    for (final preset in AppThemePreset.presets) {
+      expect(AppThemePreset.byId(preset.id), same(preset));
+    }
+    expect(AppThemePreset.byId(null), same(AppThemePreset.clearBlue));
+    expect(AppThemePreset.byId(''), same(AppThemePreset.clearBlue));
+    expect(
+      AppThemePreset.byId('unknown_future_id'),
+      same(AppThemePreset.clearBlue),
+    );
+  });
+
+  for (final brightness in Brightness.values) {
+    final theme = buildAppTheme(brightness: brightness);
+    final colors = theme.colorScheme;
 
     testWidgets('阅读菜单与选区在 $brightness 下使用软件颜色', (tester) async {
       await tester.pumpWidget(
@@ -153,5 +197,52 @@ void main() {
         theme.colorScheme.primary,
       );
     }
+  });
+
+  testWidgets('ReaderApp 持久化并恢复已选配色方案，切换后立即刷新全局主题', (tester) async {
+    final library = LibraryStore.memory();
+    await library.setSetting(
+      AppThemePreset.settingKey,
+      AppThemePreset.warmAmber.id,
+    );
+    await tester.pumpWidget(
+      ReaderApp(library: library, progressStore: MemoryReaderProgressStore()),
+    );
+    for (var i = 0; i < 4; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    await pumpStartupFinished(tester);
+    final initialApp = tester.widget<MaterialApp>(find.byType(MaterialApp));
+    expect(initialApp.theme!.colorScheme, AppThemePreset.warmAmber.light);
+    expect(initialApp.darkTheme!.colorScheme, AppThemePreset.warmAmber.dark);
+
+    await tester.tap(
+      find.descendant(
+        of: find.byType(BottomNavigationBar),
+        matching: find.text('我的'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final settings = find.byKey(const ValueKey('profile-settings-entry'));
+    await tester.ensureVisible(settings);
+    await tester.tap(settings);
+    await tester.pumpAndSettle();
+    final colors = find.byKey(const ValueKey('theme-color-settings-entry'));
+    await tester.ensureVisible(colors);
+    await tester.tap(colors);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('theme-preset-setting')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('theme-preset-ink_paper')));
+    await tester.pumpAndSettle();
+
+    expect(
+      await library.getSetting(AppThemePreset.settingKey),
+      AppThemePreset.inkPaper.id,
+    );
+    final updatedApp = tester.widget<MaterialApp>(find.byType(MaterialApp));
+    expect(updatedApp.theme!.colorScheme, AppThemePreset.inkPaper.light);
+    expect(updatedApp.darkTheme!.colorScheme, AppThemePreset.inkPaper.dark);
+    expect(tester.takeException(), isNull);
   });
 }

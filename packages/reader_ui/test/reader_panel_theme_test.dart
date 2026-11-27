@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_ui/panels/settings_panel.dart';
 import 'package:reader_ui/paging/page_turn_mode.dart';
+import 'package:reader_ui/theme/app_semantic_colors.dart';
 import 'package:reader_ui/theme/reader_panel_theme.dart';
 import 'package:reader_ui/theme/reader_frosted_surface.dart';
 import 'package:reader_ui/theme/reader_theme.dart';
@@ -214,6 +215,8 @@ void main() {
     expect(captured.colorScheme.primary, Colors.black);
     expect(captured.colorScheme.onPrimary, Colors.white);
     expect(captured.colorScheme.error, Colors.black);
+    expect(captured.extension<AppSemanticColors>()?.success, Colors.black);
+    expect(captured.extension<AppSemanticColors>()?.onSuccess, Colors.white);
   });
 
   testWidgets('设置面板在深色主题下使用区分阅读页的面板底色', (tester) async {

@@ -220,6 +220,7 @@ class _ThemedReaderAppState extends State<_ThemedReaderApp>
   late Future<_AppPreferences> _savedPreferences = _loadPreferences();
   ThemeMode? _selectedMode;
   ThemeMode? _loadedMode;
+  AppThemePreset? _preset;
   AppUiStyle? _selectedUiStyle;
   String? _selectedFontFamily;
   bool _startupReadyReported = false;
@@ -236,6 +237,7 @@ class _ThemedReaderAppState extends State<_ThemedReaderApp>
     if (!mounted) return;
     setState(() {
       _selectedMode = null;
+      _preset = null;
       _selectedFontFamily = null;
       _selectedUiStyle = null;
       _savedPreferences = _loadPreferences();
@@ -306,6 +308,7 @@ class _ThemedReaderAppState extends State<_ThemedReaderApp>
 
   Future<_AppPreferences> _loadPreferences() async {
     final mode = _loadMode();
+    final preset = _loadPreset();
     final fontFamily = _loadFontFamily();
     final uiStyle = _loadUiStyle();
     await _themeColors.initialize();
@@ -314,8 +317,32 @@ class _ThemedReaderAppState extends State<_ThemedReaderApp>
       fontFamily: await fontFamily,
       uiStyle: await uiStyle,
     );
+    _preset = await preset;
     unawaited(_cacheStartupTheme());
     return preferences;
+  }
+
+  Future<AppThemePreset> _loadPreset() async {
+    try {
+      return AppThemePreset.byId(
+        await widget.library.getSetting(AppThemePreset.settingKey),
+      );
+    } catch (error) {
+      unawaited(
+        ReaderLog.instance.log(
+          'app_theme_preset_load_failed',
+          fields: {'error': error},
+        ),
+      );
+      return AppThemePreset.clearBlue;
+    }
+  }
+
+  Future<void> _setPreset(AppThemePreset preset) async {
+    await widget.library.setSetting(AppThemePreset.settingKey, preset.id);
+    if (!mounted) return;
+    setState(() => _preset = preset);
+    await _cacheStartupTheme();
   }
 
   Future<AppUiStyle> _loadUiStyle() async {
@@ -410,11 +437,13 @@ class _ThemedReaderAppState extends State<_ThemedReaderApp>
 
   Future<void> _cacheStartupTheme() async {
     final mode = _selectedMode ?? _loadedMode;
-    if (!_themeColors.initialized || mode == null) return;
+    final preset = _preset;
+    if (!_themeColors.initialized || mode == null || preset == null) return;
     await StartupThemeCache(
       wallpaperEnabled: _themeColors.wallpaperEnabled,
       mode: mode,
       seed: _themeColors.wallpaperSeed,
+      preset: preset,
     ).save();
   }
 
@@ -457,6 +486,7 @@ class _ThemedReaderAppState extends State<_ThemedReaderApp>
   );
 
   Widget _buildApp(_AppPreferences preferences) {
+    final preset = _preset ?? AppThemePreset.clearBlue;
     final mode = _selectedMode ?? preferences.mode;
     final fontFamily = _selectedFontFamily ?? preferences.fontFamily;
     final uiStyle = _selectedUiStyle ?? preferences.uiStyle;
@@ -464,11 +494,13 @@ class _ThemedReaderAppState extends State<_ThemedReaderApp>
       title: '阅微Extend',
       debugShowCheckedModeBanner: false,
       theme: buildAppTheme(
+        preset: preset,
         fontFamily: fontFamily,
         colorScheme: _themeColors.wallpaperScheme(Brightness.light),
         uiStyle: uiStyle,
       ),
       darkTheme: buildAppTheme(
+        preset: preset,
         brightness: Brightness.dark,
         fontFamily: fontFamily,
         colorScheme: _themeColors.wallpaperScheme(Brightness.dark),
@@ -481,6 +513,8 @@ class _ThemedReaderAppState extends State<_ThemedReaderApp>
             ? _windowTopInset
             : 0.0;
         return AppThemeScope(
+          preset: preset,
+          onPresetChanged: _setPreset,
           mode: mode,
           onModeChanged: _setMode,
           uiStyle: uiStyle,

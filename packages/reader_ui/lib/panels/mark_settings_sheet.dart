@@ -59,8 +59,11 @@ class _ReaderMarkSettingsSheetState extends State<ReaderMarkSettingsSheet> {
   Widget _header() => Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
-      const Text('快捷划线使用这里的默认样式和默认颜色；自定义颜色长按可删除。'),
-      const SizedBox(height: 16),
+      Text(
+        '快捷划线使用这里的默认样式和默认颜色；自定义颜色长按可删除。',
+        style: Theme.of(context).textTheme.bodySmall,
+      ),
+      const SizedBox(height: 12),
       AnnotationQuotePreview(
         key: const ValueKey<String>('mark-settings-preview'),
         quote: '划线标记阅读重点，想法记录此刻思考。',
