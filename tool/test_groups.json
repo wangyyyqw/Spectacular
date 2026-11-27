@@ -142,7 +142,8 @@
         "apps/reader_mobile/test/reader/reader_tts_flow_test.dart",
         "apps/reader_mobile/test/reader/reader_tts_player_test.dart",
         "apps/reader_mobile/test/reader/reader_tts_text_test.dart",
-        "apps/reader_mobile/test/reader/multi_book_smoke_test.dart"
+        "apps/reader_mobile/test/reader/multi_book_smoke_test.dart",
+        "apps/reader_mobile/test/reader/chinese_conversion_test.dart"
       ]
     },
     {

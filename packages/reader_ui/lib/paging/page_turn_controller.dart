@@ -20,10 +20,10 @@ enum PageTurnPhase { idle, preparing, dragging, settling }
 class PageTurnController extends ChangeNotifier {
   PageTurnController({
     required this.session,
-    required TickerProvider vsync,
+    required this._vsync,
     required this.acquireImage,
     this.onBookEnd,
-  }) : _vsync = vsync {
+  }) {
     session.addListener(_sessionChanged);
   }
 

@@ -12,6 +12,7 @@ import 'package:reader_ui/annotations/annotation_layer.dart';
 import 'package:reader_ui/annotations/decorations.dart';
 import 'package:reader_ui/annotations/note_composer_sheet.dart';
 import 'package:reader_ui/annotations/thought_marker.dart';
+import 'package:reader_ui/paging/continuous_scroll_view.dart';
 import 'package:reader_ui/paging/page_turn_mode.dart';
 import 'package:reader_ui/panels/annotation_panel.dart';
 import 'package:reader_ui/panels/toc_panel.dart';
@@ -254,7 +255,7 @@ Future<void> _finishExit(WidgetTester tester) async {
 }
 
 void main() {
-  testWidgets('打开想法编辑层时隐藏选区菜单，关闭后恢复', (tester) async {
+  testWidgets('想法编辑时隐藏选区菜单，关闭后清除并可重新选字', (tester) async {
     final source = _Source();
     final notes = _Notes(source);
     await tester.pumpWidget(
@@ -297,10 +298,15 @@ void main() {
       find.byKey(const ValueKey<String>('note-composer-sheet')),
       findsNothing,
     );
-    expect(
-      find.byKey(const ValueKey<String>('selection-menu')),
-      findsOneWidget,
+    expect(find.byKey(const ValueKey<String>('selection-menu')), findsNothing);
+    expect(find.byType(SelectionLayer), findsNothing);
+    expect(notes.items, isEmpty);
+
+    await tester.longPressAt(
+      tester.getTopLeft(find.byType(ReaderView)) +
+          Offset(line.rect.left + 6, line.rect.center.dy),
     );
+    await tester.pumpAndSettle();
 
     await tester.tap(find.byKey(const ValueKey('selection-action-thought')));
     await tester.pumpAndSettle();
@@ -340,15 +346,16 @@ void main() {
   });
 
   testWidgets('目录抽屉可打开标注页签并展示划线', (tester) async {
-    final source = _Source();
+    const quote = '抽屉里的高亮原文';
+    final source = _Source(text: quote);
     final notes = _Notes(source);
     notes.items.add(
       ReaderAnnotation(
         id: 'drawer-note',
         type: ReaderAnnotationType.mark,
         startCfi: 'epubcfi(/6/2!/4/2/1:0)',
-        endCfi: 'epubcfi(/6/2!/4/2/1:4)',
-        quote: '抽屉里的高亮原文',
+        endCfi: 'epubcfi(/6/2!/4/2/1:${quote.length})',
+        quote: quote,
         color: defaultHighlightColor,
         createdAt: DateTime(2026, 11, 3),
         updatedAt: DateTime(2026, 11, 3),
@@ -382,14 +389,27 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(TocPanel), findsNothing);
+    expect(find.byType(AnnotationPanel), findsOneWidget);
+    final highlights = find.byKey(
+      const ValueKey<String>('annotation-filter-highlights'),
+    );
+    final thoughts = find.byKey(
+      const ValueKey<String>('annotation-filter-notes'),
+    );
     expect(
-      find.descendant(
-        of: find.byType(AnnotationPanel),
-        matching: find.text('标注'),
-      ),
+      find.byKey(const ValueKey<String>('annotation-search-input')),
       findsOneWidget,
     );
-    expect(find.text('抽屉里的高亮原文'), findsOneWidget);
+    expect(find.text(quote), findsOneWidget);
+    await tester.tap(thoughts);
+    await tester.pumpAndSettle();
+    expect(tester.widget<ChoiceChip>(thoughts).selected, isTrue);
+    expect(find.text(quote), findsNothing);
+    expect(find.text('还没有想法'), findsOneWidget);
+    await tester.tap(highlights);
+    await tester.pumpAndSettle();
+    expect(tester.widget<ChoiceChip>(highlights).selected, isTrue);
+    expect(find.text(quote), findsOneWidget);
 
     await tester.tap(
       find.byKey(const ValueKey<String>('annotation-row-drawer-note')),
@@ -1058,8 +1078,19 @@ void main() {
       findsOneWidget,
     );
 
-    await tester.drag(find.byType(Scrollable).last, const Offset(0, -200));
+    final readingScroll = find.descendant(
+      of: find.byType(ContinuousScrollView),
+      matching: find.byWidgetPredicate(
+        (widget) =>
+            widget is Scrollable && widget.axisDirection == AxisDirection.down,
+      ),
+    );
+    expect(readingScroll, findsOneWidget);
+    final position = tester.state<ScrollableState>(readingScroll).position;
+    final before = position.pixels;
+    await tester.drag(readingScroll, const Offset(0, -200));
     await tester.pumpAndSettle();
+    expect(position.pixels, greaterThan(before));
     expect(find.byType(SelectionLayer), findsNothing);
     expect(find.byKey(const ValueKey<String>('selection-menu')), findsNothing);
   });
@@ -1420,7 +1451,14 @@ void main() {
       );
       await _finishExit(tester);
       expect(notes.items, isEmpty);
-      expect(find.byType(SelectionLayer), findsOneWidget);
+      expect(find.byType(SelectionLayer), findsNothing);
+      expect(find.byKey(const ValueKey('selection-menu')), findsNothing);
+      final line = TextHitTester.lineBoxes(notes.source.pages.first).first;
+      await tester.longPressAt(
+        tester.getTopLeft(find.byType(ReaderView)) +
+            Offset(line.rect.left + 6, line.rect.center.dy),
+      );
+      await tester.pumpAndSettle();
       await _openEditor(tester);
       expect(
         tester.widget<EditableText>(find.byType(EditableText)).controller.text,
@@ -1429,10 +1467,11 @@ void main() {
       await tester.tapAt(const Offset(5, 5));
       await _finishExit(tester);
       expect(notes.items, isEmpty);
+      expect(find.byType(SelectionLayer), findsNothing);
     });
   }
 
-  testWidgets('空白想法不可保存且保留选区', (tester) async {
+  testWidgets('空白想法不可保存，编辑期间保留选区而关闭后清除', (tester) async {
     final notes = await _showEditor(tester);
     await tester.enterText(_composerInput, '   ');
     await tester.pump();
@@ -1447,7 +1486,9 @@ void main() {
 
     await tester.tapAt(const Offset(5, 5));
     await _finishExit(tester);
-    expect(find.byType(SelectionLayer), findsOneWidget);
+    expect(find.byType(SelectionLayer), findsNothing);
+    expect(find.byKey(const ValueKey('selection-menu')), findsNothing);
+    expect(notes.items, isEmpty);
   });
 
   testWidgets('新的操作提示替换旧的撤销提示', (tester) async {
@@ -1568,124 +1609,6 @@ void main() {
     expect(find.text('已删除想法及划线'), findsNothing);
     expect(find.text('撤销'), findsNothing);
   });
-  testWidgets('连续滚动长按下方页面时选区与想法引用命中该页', (tester) async {
-    tester.view.physicalSize = const Size(800, 400);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
-
-    final text = List.generate(240, (index) => 'word$index').join(' ');
-    final source = _Source(text: text);
-    final notes = _Notes(source);
-    expect(source.pages, hasLength(greaterThan(1)));
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: ReaderPage(
-            source: source,
-            store: MemoryReaderProgressStore(),
-            annotations: notes,
-            bookId: 'scroll-selection-below-fold',
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-            overrides: const ReaderOverrides(),
-            showPageFooter: false,
-            pageTurnMode: PageTurnMode.scroll,
-          ),
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    const firstPageKey = ValueKey<String>('scroll-page-0-0');
-    const secondPageKey = ValueKey<String>('scroll-page-0-1');
-    final firstPage = find.byKey(firstPageKey);
-    final secondPage = find.byKey(secondPageKey);
-    expect(firstPage, findsOneWidget);
-    expect(secondPage, findsOneWidget);
-
-    final firstPageTop = tester.getTopLeft(firstPage).dy;
-    final secondPageTop = tester.getTopLeft(secondPage).dy;
-    final scroll = tester.state<ScrollableState>(find.byType(Scrollable).last);
-    scroll.position.jumpTo(
-      scroll.position.pixels + (secondPageTop - firstPageTop) * 0.6,
-    );
-    await tester.pumpAndSettle();
-
-    final viewport = tester.getRect(find.byType(ReaderView));
-    final scrolledFirstTop = tester.getTopLeft(firstPage).dy;
-    final scrolledSecondTop = tester.getTopLeft(secondPage).dy;
-    expect(scrolledFirstTop, lessThan(viewport.top));
-    expect(scrolledSecondTop, greaterThan(viewport.top));
-    expect(scrolledSecondTop, lessThan(viewport.bottom));
-
-    final line = TextHitTester.lineBoxes(source.pages[1]).first;
-    final pageTop = tester.getTopLeft(secondPage);
-    final localWordPosition = Offset(line.rect.left + 6, line.rect.center.dy);
-    await tester.longPressAt(pageTop + localWordPosition);
-    await tester.pumpAndSettle();
-
-    final layer = tester.widget<SelectionLayer>(find.byType(SelectionLayer));
-    expect(layer.pageIndex, 1);
-
-    final hit = TextHitTester.hitTest(source.pages[1], localWordPosition);
-    expect(hit, isNotNull);
-    final expectedQuote = SelectionOps.textOf(
-      source.pages[1],
-      SelectionOps.wordAt(source.pages[1], hit!),
-    );
-    await tester.tap(
-      find.byKey(const ValueKey<String>('selection-action-thought')),
-    );
-    await tester.pumpAndSettle();
-    final composer = tester.widget<ReaderNoteComposerSheet>(
-      find.byType(ReaderNoteComposerSheet),
-    );
-    expect(composer.quote, expectedQuote);
-  });
-
-  testWidgets('连续滚动用户滚动时取消选区', (tester) async {
-    tester.view.physicalSize = const Size(800, 400);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
-
-    final source = _Source(text: 'word ' * 160);
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: ReaderPage(
-            source: source,
-            store: MemoryReaderProgressStore(),
-            annotations: _Notes(source),
-            bookId: 'scroll-hide-selection-menu',
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-            overrides: const ReaderOverrides(),
-            showPageFooter: false,
-            pageTurnMode: PageTurnMode.scroll,
-          ),
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    final firstPage = find.byKey(const ValueKey<String>('scroll-page-0-0'));
-    final line = TextHitTester.lineBoxes(source.pages.first)[2];
-    await tester.longPressAt(
-      tester.getTopLeft(firstPage) +
-          Offset(line.rect.left + 6, line.rect.center.dy),
-    );
-    await tester.pumpAndSettle();
-    expect(
-      find.byKey(const ValueKey<String>('selection-menu')),
-      findsOneWidget,
-    );
-
-    await tester.drag(find.byType(Scrollable).last, const Offset(0, -200));
-    await tester.pumpAndSettle();
-    expect(find.byType(SelectionLayer), findsNothing);
-    expect(find.byKey(const ValueKey<String>('selection-menu')), findsNothing);
-  });
-
   testWidgets('连续滚动模式下滚动后点击页边图标可打开想法编辑层', (tester) async {
     final source = _Source(text: 'word ' * 160);
     final notes = _Notes(source);

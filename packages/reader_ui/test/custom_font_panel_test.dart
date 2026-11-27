@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/panels/settings_panel.dart';
+import 'package:reader_ui/reader_ui_diagnostics.dart';
 import 'package:reader_ui/theme/reader_panel_theme.dart';
 import 'package:reader_ui/theme/reader_theme.dart';
 
@@ -281,11 +282,21 @@ void main() {
     expect(_button(tester, _importKey).onPressed, isNotNull);
   });
 
-  testWidgets('无效文件显示中文提示且可重新导入', (tester) async {
+  testWidgets('无效字体记录诊断并保留原选择，重新导入可恢复', (tester) async {
     final changes = <ReaderOverrides>[];
+    final events = <(String, Map<String, Object?>)>[];
+    final previous = ReaderUiDiagnostics.onEvent;
+    ReaderUiDiagnostics.onEvent = (event, fields) =>
+        events.add((event, fields));
+    addTearDown(() => ReaderUiDiagnostics.onEvent = previous);
     var invalid = true;
     await tester.pumpWidget(
       _panel(
+        overrides: ReaderOverrides(
+          fontFamily: _otherFont.family,
+          overrideEmbeddedFonts: true,
+        ),
+        fonts: const [_otherFont],
         pick: () async {
           if (invalid) throw const FormatException('文件不是有效字体');
           return _font;
@@ -295,12 +306,21 @@ void main() {
     );
     await tester.tap(find.byKey(_importKey));
     await tester.pumpAndSettle();
-    expect(find.text('字体导入失败：文件不是有效字体'), findsOneWidget);
+    expect(events, hasLength(1));
+    expect(events.single.$1, 'reader_font_import_failed');
+    expect(events.single.$2['message'], '字体导入失败：文件不是有效字体');
+    expect(events.single.$2['error'], const FormatException('文件不是有效字体'));
+    expect(find.byType(SnackBar), findsNothing);
+    expect(find.text('当前：${_otherFont.label}'), findsOneWidget);
     expect(changes, isEmpty);
+    expect(_button(tester, _importKey).onPressed, isNotNull);
     invalid = false;
     await tester.tap(find.byKey(_importKey));
     await tester.pumpAndSettle();
     expect(changes.single.fontFamily, _font.family);
+    expect(changes.single.overrideEmbeddedFonts, isTrue);
+    expect(find.text('当前：${_font.label}'), findsOneWidget);
+    expect(events, hasLength(1));
   });
 
   testWidgets('重复导入去重，外部设置恢复与面板保持一致', (tester) async {

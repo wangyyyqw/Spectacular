@@ -17,7 +17,6 @@ import 'package:reader_ui/decorations/decoration_style_preview.dart';
 import 'package:reader_ui/decorations/decoration_typography_editor.dart';
 import 'package:reader_ui/panels/decoration_panel.dart';
 import 'package:reader_ui/panels/reader_settings_sheet.dart';
-import 'package:reader_ui/panels/search_panel.dart';
 import 'package:reader_ui/panels/settings_panel.dart' show ReaderFontOption;
 import 'package:reader_ui/decorations/decoration_highlight_editor.dart';
 import 'package:reader_ui/annotations/annotation.dart';

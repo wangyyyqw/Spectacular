@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -147,9 +148,11 @@ void main() {
       expect(bars, everyElement({'statusBar': false, 'navigationBar': false}));
       expect(session.page, same(page));
       // 注释关闭后，普通弹层仍恢复自己的系统栏状态。
-      showDialog<void>(
-        context: tester.element(find.byType(ReaderPage)),
-        builder: (_) => const AlertDialog(content: Text('普通弹层')),
+      unawaited(
+        showDialog<void>(
+          context: tester.element(find.byType(ReaderPage)),
+          builder: (_) => const AlertDialog(content: Text('普通弹层')),
+        ),
       );
       await tester.pumpAndSettle();
       expect(bars.last, {'statusBar': true, 'navigationBar': true});
@@ -503,6 +506,8 @@ span.reader {
     final blocks = pages
         .expand((page) => page.slices)
         .map((slice) => slice.block)
+        // 同一段跨页时多个切片共用内容块，注释按原始引用计数。
+        .toSet()
         .toList(growable: false);
     final pageText = blocks.map((block) => block.layout.text).join('\n');
     final footnotes = blocks
