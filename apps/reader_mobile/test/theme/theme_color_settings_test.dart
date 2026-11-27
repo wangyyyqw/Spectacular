@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:reader_ui/theme/reader_switch.dart';
+import 'package:reader_ui/theme/reader_ui_components.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/home/theme_color_settings_page.dart';
@@ -244,6 +245,9 @@ void main() {
     );
     final wallpaper = find.byKey(const ValueKey('wallpaper-color-switch'));
     final reader = find.byKey(const ValueKey('reader-background-color-switch'));
+    expect(tester.widget<ReaderSwitchListTile>(wallpaper).subtitle, isNull);
+    expect(tester.widget<ReaderSwitchListTile>(reader).subtitle, isNull);
+    expect(tester.widget<ReaderSectionGroup>(find.byType(ReaderSectionGroup)).footer, isNull);
     expect(tester.widget<ReaderSwitchListTile>(wallpaper).onChanged, isNull);
     expect(tester.widget<ReaderSwitchListTile>(reader).onChanged, isNotNull);
     await tester.tap(reader);

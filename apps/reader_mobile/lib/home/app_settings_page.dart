@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-import 'package:reader_ui/theme/reader_dropdown.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/theme/reader_ui_components.dart';
 
@@ -20,6 +19,7 @@ import 'app_font_settings_page.dart';
 import 'bookshelf_settings_page.dart';
 import 'navigation_settings.dart';
 import 'navigation_settings_page.dart';
+import 'settings_choice_tile.dart';
 import 'theme_color_settings_page.dart';
 
 /// 应用设置：外观、阅读、帮助与诊断和关于。
@@ -299,7 +299,7 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
           },
         ),
         if (widget.onThemeModeChanged != null)
-          _choiceTile<ThemeMode>(
+          SettingsChoiceTile<ThemeMode>(
             title: '界面主题',
             current: mode,
             values: ThemeMode.values,
@@ -313,7 +313,7 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
         if ((AppThemeScope.maybeOf(context)?.onUiStyleChanged ??
                 widget.onUiStyleChanged) !=
             null)
-          _choiceTile<AppUiStyle>(
+          SettingsChoiceTile<AppUiStyle>(
             key: const ValueKey('app-ui-style-setting'),
             title: '界面样式',
             current: uiStyle,
@@ -330,7 +330,7 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
             key: const ValueKey('app-font-setting'),
             leading: const AppIcon(AppGlyph.textFields),
             title: const Text('应用字体'),
-            trailing: _SettingValue(_appFontLabel),
+            trailing: SettingsTrailingValue(_appFontLabel),
             onTap: _chooseAppFont,
           ),
         if (widget.navigationSettings != null)
@@ -350,59 +350,6 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
       ],
     );
   }
-
-  Widget _choiceTile<T>({
-    Key? key,
-    required String title,
-    required T current,
-    required List<T> values,
-    required String Function(T) label,
-    required ValueChanged<T>? onChanged,
-  }) => Builder(
-    builder: (anchor) => ListTile(
-      key: key,
-      leading: const AppIcon(AppGlyph.palette),
-      title: Text(title),
-      trailing: _SettingValue(label(current)),
-      onTap: onChanged == null
-          ? null
-          : () async {
-              final selected = await showReaderChoiceMenu<T>(
-                anchor,
-                value: current,
-                items: [
-                  for (final value in values)
-                    DropdownMenuItem(value: value, child: Text(label(value))),
-                ],
-              );
-              if (mounted && selected != null && selected != current) {
-                onChanged(selected);
-              }
-            },
-    ),
-  );
-}
-
-class _SettingValue extends StatelessWidget {
-  const _SettingValue(this.label);
-  final String label;
-
-  @override
-  Widget build(BuildContext context) => ConstrainedBox(
-    constraints: BoxConstraints(
-      maxWidth: MediaQuery.sizeOf(context).width * .4,
-    ),
-    child: Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Flexible(
-          child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
-        ),
-        const SizedBox(width: 4),
-        const AppIcon(AppGlyph.chevronRight),
-      ],
-    ),
-  );
 }
 
 class _OnlineSourceEntry extends StatelessWidget {

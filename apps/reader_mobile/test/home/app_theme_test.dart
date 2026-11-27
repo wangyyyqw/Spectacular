@@ -231,11 +231,20 @@ void main() {
     await tester.ensureVisible(colors);
     await tester.tap(colors);
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('theme-preset-setting')));
+    final presetRow = find.widgetWithText(ListTile, '配色方案');
+    Finder presetValue(String label) => find.descendant(
+      of: find.byWidget(tester.widget<ListTile>(presetRow).trailing!),
+      matching: find.text(label),
+    );
+    expect(tester.widget<ListTile>(presetRow).subtitle, isNull);
+    expect(presetValue(AppThemePreset.warmAmber.name), findsOneWidget);
+    await tester.tap(presetRow);
     await tester.pumpAndSettle();
+    expect(find.byType(PopupMenuItem<AppThemePreset>), findsNWidgets(AppThemePreset.presets.length));
     await tester.tap(find.byKey(const ValueKey('theme-preset-ink_paper')));
     await tester.pumpAndSettle();
 
+    expect(presetValue(AppThemePreset.inkPaper.name), findsOneWidget);
     expect(
       await library.getSetting(AppThemePreset.settingKey),
       AppThemePreset.inkPaper.id,
