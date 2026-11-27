@@ -198,7 +198,7 @@ class _BookNotesCard extends StatelessWidget {
   Widget _details(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final author = book.author.trim().isEmpty ? '未知作者' : book.author.trim();
+    final author = book.author.trim().isEmpty ? '佚名' : book.author.trim();
     return ConstrainedBox(
       constraints: const BoxConstraints(minHeight: _coverHeight - 12),
       child: Column(

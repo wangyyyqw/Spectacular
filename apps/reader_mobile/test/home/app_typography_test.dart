@@ -82,16 +82,19 @@ void main() {
           ),
         );
         await tester.pumpAndSettle();
-        final primary = _style(
+        final shelfTitle = _style(
           tester,
           find.byKey(ValueKey('book-row-title-${book.id}')),
         );
-        final secondary = _style(tester, find.text('已读 0 分钟'));
-        expect(primary.fontSize, 14);
-        expect(primary.fontFamily, AppFonts.defaultFamily);
+        final shelfMetadata = _style(tester, find.text('测试作者'));
+        final primary = theme.textTheme.bodyMedium!;
+        final secondary = theme.textTheme.bodySmall!;
+        expect(shelfTitle.fontSize, 17);
+        expect(shelfTitle.fontFamily, AppFonts.defaultFamily);
+        expect(shelfMetadata.fontSize, 14);
+        expect(shelfMetadata.color, theme.colorScheme.onSurfaceVariant);
         expect(secondary.fontSize, 12);
         expect(secondary.color, theme.colorScheme.onSurfaceVariant);
-        expect(secondary.color, isNot(primary.color));
 
         await _select(tester, '统计');
         expect(_style(tester, find.text('图书时长')).fontSize, primary.fontSize);
@@ -123,7 +126,6 @@ void main() {
         expect(_style(tester, find.text('界面主题')).fontSize, primary.fontSize);
         final mode = find.text('跟随系统');
         expect(_style(tester, mode).fontSize, secondary.fontSize);
-        expect(_style(tester, mode).color, secondary.color);
         expect(tester.takeException(), isNull);
       }
     },

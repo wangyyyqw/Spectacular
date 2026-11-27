@@ -996,7 +996,7 @@ class _BookListDetailSheetState extends State<_BookListDetailSheet> {
                 ),
                 const SizedBox(height: 3),
                 Text(
-                  entry.author.trim().isEmpty ? '未知作者' : entry.author.trim(),
+                  entry.author.trim().isEmpty ? '佚名' : entry.author.trim(),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: theme.textTheme.bodySmall?.copyWith(
@@ -1185,7 +1185,7 @@ class _BookPickerSheetState extends State<_BookPickerSheet> {
                               ),
                               subtitle: Text(
                                 book.author.trim().isEmpty
-                                    ? '未知作者'
+                                    ? '佚名'
                                     : book.author.trim(),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,

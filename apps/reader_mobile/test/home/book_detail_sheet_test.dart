@@ -202,7 +202,7 @@ void main() {
     });
   }
 
-  testWidgets('无报告的书保留封面和未知作者，不显示报告空状态', (tester) async {
+  testWidgets('无报告的书保留封面并显示佚名，不显示报告空状态', (tester) async {
     final entry = BookEntry(
       id: 'clean-book',
       title: '干净书',
@@ -220,7 +220,7 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.text('无修复或告警'), findsNothing);
-    expect(find.text('未知作者'), findsOneWidget);
+    expect(find.text('佚名'), findsOneWidget);
     expect(find.text('已读 0 / 3 章'), findsNothing);
     expect(find.text('已读 0 分钟'), findsOneWidget);
     expect(

@@ -65,7 +65,7 @@ Future<void> _settle(WidgetTester tester, {int frames = 10}) async {
 }
 
 void main() {
-  testWidgets('列表分行显示作者、有效阅读时长和已读章节', (tester) async {
+  testWidgets('列表依次显示书名、作者、已读章节名和全文进度条', (tester) async {
     final dir = Directory.systemTemp.createTempSync('bookshelf-progress');
     addTearDown(() => dir.deleteSync(recursive: true));
     final db = AppDatabase(NativeDatabase.memory());
@@ -78,7 +78,11 @@ void main() {
     late BookEntry entry;
     await tester.runAsync(() async {
       entry = await library.importBytes(
-        buildMultiChapterEpub(title: '进度书', chapters: ['甲', '乙', '丙']),
+        buildMultiChapterEpub(
+          title: '进度书',
+          chapters: ['甲', '乙', '丙'],
+          chapterTitles: ['第一章 甲', '第二章 乙', '第三章 丙'],
+        ),
       );
       final other = await library.importBytes(buildTestEpub(title: '其他书'));
       final sessions = library.readingSessionStore()!;
@@ -110,21 +114,29 @@ void main() {
     );
     await _settle(tester, frames: 16);
 
-    expect(find.text('已读 1 小时 16 分'), findsNothing);
-    expect(find.text('已读 2 / 3 章'), findsNothing);
     expect(progressStore.loads, 0, reason: '书架应一次读取全部进度');
     expect(progressStore.snapshots, 1);
     await tester.tap(find.byTooltip('列表视图'));
     await _settle(tester);
     final row = find.byKey(ValueKey('book-row-${entry.id}'));
     Finder line(String label) => find.descendant(of: row, matching: find.text(label));
-    final author = tester.getRect(line('未知作者'));
-    final duration = tester.getRect(line('已读 1 小时 16 分'));
-    final chapters = tester.getRect(line('已读 2 / 3 章'));
-    expect(author.bottom, lessThanOrEqualTo(duration.top));
-    expect(duration.bottom, lessThanOrEqualTo(chapters.top));
-    expect(find.textContaining('50%'), findsNothing);
-    expect(find.text('已读 0 / 1 章'), findsOneWidget);
+    expect(line('佚名'), findsOneWidget);
+    expect(line('已读 · 第二章 乙'), findsOneWidget);
+    expect(line('（1 小时 16 分）'), findsNothing);
+    final progress = tester.widget<LinearProgressIndicator>(
+      find.byKey(ValueKey('book-row-progress-${entry.id}')),
+    );
+    expect(progress.value, closeTo(.5, .001));
+    final semantics = tester.ensureSemantics();
+    expect(
+      tester
+          .getSemantics(
+            find.byKey(ValueKey('book-row-progress-semantics-${entry.id}')),
+          )
+          .label,
+      '全文进度 50%',
+    );
+    semantics.dispose();
   });
 
   testWidgets('已读完的书回翻后列表显示当前章节与累计时长', (tester) async {
@@ -141,7 +153,11 @@ void main() {
     late BookEntry entry;
     await tester.runAsync(() async {
       entry = await library.importBytes(
-        buildMultiChapterEpub(title: '读完书', chapters: ['甲', '乙']),
+        buildMultiChapterEpub(
+          title: '读完书',
+          chapters: ['甲', '乙'],
+          chapterTitles: ['第一章 甲', '第二章 乙'],
+        ),
       );
       await library.touchLastRead(entry.id);
     });
@@ -165,8 +181,16 @@ void main() {
     await tester.pump();
     await tester.tap(find.byTooltip('列表视图'));
     await _settle(tester);
-    expect(find.text('已读 1 / 2 章'), findsOneWidget);
-    expect(find.text('已读 0 分钟'), findsOneWidget);
+    expect(find.text('佚名'), findsOneWidget);
+    expect(find.text('已读 · 第一章 甲'), findsOneWidget);
+    expect(
+      tester
+          .widget<LinearProgressIndicator>(
+            find.byKey(ValueKey('book-row-progress-${entry.id}')),
+          )
+          .value,
+      closeTo(.375, .001),
+    );
   });
 
   testWidgets('刷新进行中连续通知只追加一次最终刷新', (tester) async {

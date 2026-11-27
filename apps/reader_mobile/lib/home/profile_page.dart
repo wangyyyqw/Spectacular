@@ -378,7 +378,7 @@ class _ProfilePageState extends State<ProfilePage> {
                     ),
                     secondary: _iconBadge(context, AppGlyph.textFields),
                     title: const Text('显示书名'),
-                    subtitle: const Text('关闭后书架只显示封面'),
+                    subtitle: const Text('关闭后宫格书架只显示封面'),
                     value: _showShelfTitles,
                     onChanged: _toggleShelfTitles,
                   ),

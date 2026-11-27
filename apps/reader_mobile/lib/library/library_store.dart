@@ -276,6 +276,8 @@ class LibraryStore {
   final Future<Directory> Function()? _directoryProvider;
   final Map<String, Uint8List> _memoryBytes = <String, Uint8List>{};
   final Map<String, BookEntry> _memoryEntries = <String, BookEntry>{};
+  final Map<String, Map<int, String>> _memoryChapterTitles =
+      <String, Map<int, String>>{};
   final Map<String, String> _memorySettings = <String, String>{};
   final Map<String, ReaderFontEntry> _memoryFonts = <String, ReaderFontEntry>{};
   final Map<String, ShelfGroup> _memoryGroups = <String, ShelfGroup>{};
@@ -1214,6 +1216,7 @@ class LibraryStore {
         same ? BookImportOutcome.unchanged : BookImportOutcome.updated,
       );
       _memoryEntries[id] = entry;
+      _memoryChapterTitles[id] = _chapterTitlesFromToc(summary.toc);
       _notify();
       return entry;
     }
@@ -1293,6 +1296,7 @@ class LibraryStore {
       if (_isMemory) {
         _memoryBytes[id] = payload.bytes!;
         _memoryEntries[id] = entry;
+        _memoryChapterTitles[id] = _chapterTitlesFromToc(summary.toc);
       } else {
         final db = _db!;
         final companion = BooksCompanion.insert(
@@ -1345,6 +1349,7 @@ class LibraryStore {
           await _writeImportReports(bookId, report);
           // P4-09：spine 行落地（字符数与章前累计），供进度量化使用。
           await _writeSpineItems(bookId, summary.spine, charCounts, weights);
+          await _writeImportToc(bookId, summary.spine, summary.toc);
           _checkImportCancelled(isCancelled);
         });
       }
@@ -1399,6 +1404,7 @@ class LibraryStore {
     if (_isMemory) {
       _memoryBytes.remove(id);
       _memoryEntries.remove(id);
+      _memoryChapterTitles.remove(id);
       _notify();
       return;
     }
@@ -1525,6 +1531,43 @@ class LibraryStore {
     });
   }
 
+  Future<void> _writeImportToc(
+    int bookId,
+    List<SpineItem> spine,
+    List<({String title, int spineIndex, int depth, int orderIndex})> toc,
+  ) async {
+    final entries = [
+      for (final item in toc)
+        if (item.spineIndex >= 0 && item.spineIndex < spine.length)
+          ChaptersCompanion.insert(
+            bookId: bookId,
+            depth: Value(item.depth),
+            title: item.title,
+            href: spine[item.spineIndex].href,
+            orderIndex: item.orderIndex,
+          ),
+    ];
+    final db = _db!;
+    if (entries.isNotEmpty) {
+      await db.batch((batch) => batch.insertAll(db.chapters, entries));
+    }
+  }
+
+  Map<int, String> _chapterTitlesFromToc(
+    List<({String title, int spineIndex, int depth, int orderIndex})> toc,
+  ) {
+    final titles = <int, (String title, int depth)>{};
+    for (final item in toc) {
+      final previous = titles[item.spineIndex];
+      if (previous == null || item.depth > previous.$2) {
+        titles[item.spineIndex] = (item.title, item.depth);
+      }
+    }
+    return <int, String>{
+      for (final entry in titles.entries) entry.key: entry.value.$1,
+    };
+  }
+
   /// 读取某本书的进度权重表（§76.1）；未统计时按章等权估算。
   Future<ProgressWeights> progressWeights(String bookId) async {
     if (_isMemory) {
@@ -1590,6 +1633,54 @@ class LibraryStore {
           rowsByBook[book.id] ?? const <SpineItemRow>[],
         ),
     };
+  }
+
+  /// 按书架进度批量读取当前章节的目录标题。
+  Future<Map<String, String>> readingChapterTitles(
+    Map<String, int> spineIndexes,
+  ) async {
+    if (spineIndexes.isEmpty) return const <String, String>{};
+    if (_isMemory) {
+      final titles = <String, String>{};
+      for (final entry in spineIndexes.entries) {
+        final title = _memoryChapterTitles[entry.key]?[entry.value];
+        if (title != null) titles[entry.key] = title;
+      }
+      return titles;
+    }
+
+    final db = _db!;
+    final query =
+        db.selectOnly(db.books).join([
+            innerJoin(
+              db.spineItems,
+              db.spineItems.bookId.equalsExp(db.books.id),
+            ),
+            innerJoin(
+              db.chapters,
+              db.chapters.bookId.equalsExp(db.books.id) &
+                  db.chapters.href.equalsExp(db.spineItems.href),
+            ),
+          ])
+          ..addColumns([
+            db.books.uuid,
+            db.spineItems.spineIndex,
+            db.chapters.title,
+            db.chapters.depth,
+            db.chapters.orderIndex,
+          ])
+          ..where(db.books.uuid.isIn(spineIndexes.keys))
+          ..orderBy([
+            OrderingTerm.desc(db.chapters.depth),
+            OrderingTerm.asc(db.chapters.orderIndex),
+          ]);
+    final titles = <String, String>{};
+    for (final row in await query.get()) {
+      final id = row.read(db.books.uuid)!;
+      if (row.read(db.spineItems.spineIndex) != spineIndexes[id]) continue;
+      titles.putIfAbsent(id, () => row.read(db.chapters.title)!);
+    }
+    return titles;
   }
 
   ProgressWeights _weightsFromRows(List<SpineItemRow> rows) =>

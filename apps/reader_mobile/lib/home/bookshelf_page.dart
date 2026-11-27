@@ -32,14 +32,19 @@ import 'book_detail_sheet.dart';
 import 'book_lists_view.dart';
 import 'bookshelf_sort.dart';
 import 'book_cover_image.dart';
-import 'reading_insights.dart';
+import 'horizontal_page_switcher.dart';
 import '../storage/import_queue.dart';
 import '../storage/reading_session_store.dart';
 import '../diagnostics/reader_log.dart';
 import '../cloud/cloud_import_page.dart';
 
 /// 书架条目及列表显示的阅读记录。
-typedef _ShelfItem = ({BookEntry entry, int? spineIndex, Duration duration});
+typedef _ShelfItem = ({
+  BookEntry entry,
+  int? spineIndex,
+  String? chapterTitle,
+  double readingPercent,
+});
 
 const _shelfMinColumns = 3;
 const _shelfTargetCardWidth = 192.0;
@@ -736,21 +741,39 @@ class _BookshelfPageState extends State<BookshelfPage> {
       }
     }
     // 并发读取后一次更新书架快照。
-    final (books, groups, bookGroups, progress, durations) = await (
+    final (books, groups, bookGroups, progress) = await (
       widget.library.list(),
       widget.library.listGroups(),
       widget.library.groupAssignments(),
       widget.progressStore.snapshot(),
-      widget.library.bookReadingDurations(),
     ).wait;
-    final items = <_ShelfItem>[
-      for (final book in books)
-        (
-          entry: book,
-          spineIndex: progress[book.id]?.spineIndex,
-          duration: durations[book.id] ?? Duration.zero,
-        ),
-    ];
+    final (weights, chapterTitles) = await (
+      widget.library.progressWeightsForBooks(books.map((book) => book.id)),
+      widget.library.readingChapterTitles({
+        for (final book in books)
+          if (progress[book.id] case final current?)
+            book.id: current.spineIndex,
+      }),
+    ).wait;
+    final items = <_ShelfItem>[];
+    for (final book in books) {
+      final current = progress[book.id];
+      final chapterWeights = weights[book.id];
+      final readingPercent = current == null
+          ? 0.0
+          : current.readingPercent?.clamp(0.0, 1.0) ??
+                (chapterWeights != null && chapterWeights.total > 0
+                    ? chapterWeights.percentOf(current.spineIndex)
+                    : ((current.spineIndex + 1) /
+                              (book.spineCount ?? 0).clamp(1, 1 << 30))
+                          .clamp(0.0, 1.0));
+      items.add((
+        entry: book,
+        spineIndex: current?.spineIndex,
+        chapterTitle: chapterTitles[book.id],
+        readingPercent: readingPercent,
+      ));
+    }
     if (firstLoad) {
       // 开屏保持遮挡；布局确定后立即按实际显示宽度预解码前 12 本封面。
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -1493,9 +1516,10 @@ class _BookshelfPageState extends State<BookshelfPage> {
           ),
         if (_error == null && items != null) _buildShelfControls(items),
         Expanded(
-          child: _ShelfGroupPages(
-            groupIds: [null, for (final group in _groups) group.id],
-            groupId: _activeGroupId,
+          child: HorizontalPageSwitcher<String?>(
+            gestureKey: const ValueKey('bookshelf-group-pages'),
+            items: [null, for (final group in _groups) group.id],
+            value: _activeGroupId,
             enabled: canSwipe,
             onChanged: (id) => setState(() => _activeGroupId = id),
             builder: (id) => _ShelfBodyTransition(
@@ -1647,14 +1671,27 @@ class _BookshelfPageState extends State<BookshelfPage> {
             _selectionMode ? 160 : 96,
           ),
           itemCount: books.length,
-          separatorBuilder: (_, _) => const SizedBox(height: 10),
+          separatorBuilder: (_, _) => Padding(
+            padding: const EdgeInsets.only(left: 96, right: 4),
+            child: SizedBox(
+              height: 16,
+              child: Align(
+                alignment: Alignment.center,
+                child: Divider(
+                  height: 1,
+                  thickness: 1,
+                  color: Theme.of(context).colorScheme.outlineVariant
+                      .withValues(alpha: .45),
+                ),
+              ),
+            ),
+          ),
           itemBuilder: (context, index) {
             final item = books[index];
             return _desktopBook(
               _BookRow(
                 item: item,
                 pinned: _pinnedIds.contains(item.entry.id),
-                showTitle: _showTitles,
                 selectionMode: _selectionMode,
                 selected: _selectedIds.contains(item.entry.id),
                 onSelect: () => _activateBook(item.entry, books),
@@ -1778,191 +1815,6 @@ class _BookshelfPageState extends State<BookshelfPage> {
       ),
     );
   }
-}
-
-/// 分组整页随手势平移，松手后补完切换或回到原位。
-class _ShelfGroupPages extends StatefulWidget {
-  const _ShelfGroupPages({
-    required this.groupIds,
-    required this.groupId,
-    required this.enabled,
-    required this.onChanged,
-    required this.builder,
-  });
-
-  final List<String?> groupIds;
-  final String? groupId;
-  final bool enabled;
-  final ValueChanged<String?> onChanged;
-  final Widget Function(String?) builder;
-
-  @override
-  State<_ShelfGroupPages> createState() => _ShelfGroupPagesState();
-}
-
-class _ShelfGroupPagesState extends State<_ShelfGroupPages>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
-  late String? _displayId;
-  final _offset = ValueNotifier<double>(0);
-  double _from = 0;
-  double _to = 0;
-  double _distance = 0;
-  double _width = 1;
-  int _direction = 0;
-  int? _targetIndex;
-
-  @override
-  void initState() {
-    super.initState();
-    _displayId = widget.groupId;
-    _controller =
-        AnimationController(
-          vsync: this,
-          duration: const Duration(milliseconds: 200),
-        )..addListener(() {
-          final t = Curves.easeOutCubic.transform(_controller.value);
-          _offset.value = _from + (_to - _from) * t;
-        });
-  }
-
-  @override
-  void didUpdateWidget(_ShelfGroupPages oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (!widget.enabled || !widget.groupIds.contains(_displayId)) {
-      _controller.stop();
-      _displayId = widget.groupId;
-      _offset.value = 0;
-      _direction = 0;
-    } else if (oldWidget.groupId != widget.groupId &&
-        _displayId != widget.groupId) {
-      _controller.stop();
-      final previous = widget.groupIds.indexOf(_displayId);
-      final next = widget.groupIds.indexOf(widget.groupId);
-      _direction = (next - previous).sign;
-      _offset.value = 0;
-      _settle(true, targetIndex: next);
-    }
-  }
-
-  int get _neighborIndex => widget.groupIds.indexOf(_displayId) + _direction;
-
-  void _dragUpdate(DragUpdateDetails details) {
-    if (_controller.isAnimating) return;
-    _distance += details.primaryDelta ?? 0;
-    final direction = _distance < 0 ? 1 : -1;
-    final next = widget.groupIds.indexOf(_displayId) + direction;
-    final nextDirection = next >= 0 && next < widget.groupIds.length
-        ? direction
-        : 0;
-    if (_direction != nextDirection) {
-      setState(() => _direction = nextDirection);
-    }
-    _offset.value = _direction == 0 ? 0 : (_distance / _width).clamp(-1.0, 1.0);
-  }
-
-  void _dragEnd(DragEndDetails details) {
-    if (_controller.isAnimating) return;
-    final velocity = details.primaryVelocity ?? 0;
-    final commit =
-        _direction != 0 &&
-        (_distance.abs() >= 48 ||
-            (_distance.abs() >= 20 && velocity.abs() >= 400));
-    _settle(commit);
-  }
-
-  Future<void> _settle(bool commit, {int? targetIndex}) async {
-    _targetIndex = targetIndex;
-    final target = commit
-        ? widget.groupIds[targetIndex ?? _neighborIndex]
-        : _displayId;
-    _from = _offset.value;
-    _to = commit ? -_direction.toDouble() : 0;
-    if (!MediaQuery.disableAnimationsOf(context) && _from != _to) {
-      try {
-        await _controller.forward(from: 0).orCancel;
-      } on TickerCanceled {
-        return;
-      }
-    }
-    if (!mounted) return;
-    setState(() {
-      _displayId = target;
-      _offset.value = 0;
-      _direction = 0;
-    });
-    if (commit && widget.groupId != target) widget.onChanged(target);
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    _offset.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) => LayoutBuilder(
-    builder: (context, constraints) {
-      _width = constraints.maxWidth;
-      Widget page(String? id, double offset, {required bool active}) =>
-          AnimatedBuilder(
-            key: ValueKey(('bookshelf-group-page', id)),
-            animation: _offset,
-            builder: (_, child) => FractionalTranslation(
-              translation: Offset(_offset.value + offset, 0),
-              child: child,
-            ),
-            // 手势和补间只更新平移；筛选、封面构建与绘制复用本次页面。
-            child: ExcludeFocus(
-              excluding: !active,
-              child: ExcludeSemantics(
-                excluding: !active,
-                child: IgnorePointer(
-                  ignoring: !active,
-                  child: HeroMode(
-                    enabled: active,
-                    child: RepaintBoundary(child: widget.builder(id)),
-                  ),
-                ),
-              ),
-            ),
-          );
-      return GestureDetector(
-        key: const ValueKey('bookshelf-group-pages'),
-        behavior: HitTestBehavior.opaque,
-        onHorizontalDragStart: widget.enabled
-            ? (_) {
-                if (!_controller.isAnimating) {
-                  _distance = 0;
-                  _targetIndex = null;
-                }
-              }
-            : null,
-        onHorizontalDragUpdate: widget.enabled ? _dragUpdate : null,
-        onHorizontalDragEnd: widget.enabled ? _dragEnd : null,
-        onHorizontalDragCancel: widget.enabled
-            ? () {
-                if (!_controller.isAnimating) _settle(false);
-              }
-            : null,
-        child: ClipRect(
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              page(_displayId, 0, active: _direction == 0),
-              if (_direction != 0)
-                page(
-                  widget.groupIds[_targetIndex ?? _neighborIndex],
-                  _direction.toDouble(),
-                  active: false,
-                ),
-            ],
-          ),
-        ),
-      );
-    },
-  );
 }
 
 /// 网格与列表视图切换保持轻微纵移淡入。
@@ -2430,7 +2282,6 @@ class _BookRow extends StatelessWidget {
   const _BookRow({
     required this.item,
     required this.pinned,
-    required this.showTitle,
     required this.selectionMode,
     required this.selected,
     required this.onSelect,
@@ -2441,7 +2292,6 @@ class _BookRow extends StatelessWidget {
 
   final _ShelfItem item;
   final bool pinned;
-  final bool showTitle;
   final bool selectionMode;
   final bool selected;
   final VoidCallback onSelect;
@@ -2454,9 +2304,13 @@ class _BookRow extends StatelessWidget {
     final theme = Theme.of(context);
     final entry = item.entry;
     final author = entry.author.trim();
-    final metadataStyle = theme.textTheme.bodySmall?.copyWith(
-      color: theme.colorScheme.onSurfaceVariant,
+    final colors = theme.colorScheme;
+    final metadataStyle = theme.textTheme.bodyMedium?.copyWith(
+      color: colors.onSurfaceVariant,
     );
+    final chapterLine = item.spineIndex == null
+        ? '尚未开始阅读'
+        : '已读 · ${item.chapterTitle ?? '第 ${item.spineIndex! + 1} 章'}';
     final cover = Hero(
       tag: bookCoverHeroTag(entry.id),
       transitionOnUserGestures: true,
@@ -2469,30 +2323,32 @@ class _BookRow extends StatelessWidget {
         shadowOpacity: pinned ? _pinnedCoverShadowOpacity : .12,
       ),
     );
-    final trailing = <Widget>[
-      if (entry.readabilityLevel >= 2)
-        AppIcon(AppGlyph.warning, color: theme.colorScheme.error, size: 18),
-      if (selectionMode)
-        Checkbox(
-          key: ValueKey<String>('book-row-check-${entry.id}'),
-          value: selected,
-          onChanged: (_) => onSelect(),
-          visualDensity: VisualDensity.compact,
+    final chapterProgress = Semantics(
+      key: ValueKey<String>('book-row-progress-semantics-${entry.id}'),
+      container: true,
+      label: '全文进度 ${(item.readingPercent * 100).round()}%',
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(8),
+        child: LinearProgressIndicator(
+          key: ValueKey<String>('book-row-progress-${entry.id}'),
+          value: item.readingPercent,
+          minHeight: 4,
+          color: colors.primary.withValues(alpha: .68),
+          backgroundColor: colors.outlineVariant.withValues(alpha: .35),
         ),
-    ];
+      ),
+    );
     return Semantics(
       selected: selectionMode && selected,
       child: Material(
         color: selectionMode && selected
-            ? theme.colorScheme.primaryContainer.withValues(alpha: .42)
-            : theme.colorScheme.surface,
+            ? colors.primaryContainer.withValues(alpha: .42)
+            : Colors.transparent,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-          side: BorderSide(
-            color: selectionMode && selected
-                ? theme.colorScheme.primary
-                : theme.colorScheme.outlineVariant,
-          ),
+          borderRadius: BorderRadius.circular(10),
+          side: selectionMode && selected
+              ? BorderSide(color: colors.primary)
+              : BorderSide.none,
         ),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
@@ -2521,47 +2377,56 @@ class _BookRow extends StatelessWidget {
               ? null
               : (details) => onSecondaryTap(details.globalPosition),
           child: Padding(
-            padding: const EdgeInsets.all(12),
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 12),
             child: Row(
               children: <Widget>[
                 cover,
-                const SizedBox(width: 14),
+                const SizedBox(width: 20),
                 Expanded(
                   child: Column(
+                    mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: <Widget>[
-                      if (showTitle) ...[
-                        Text(
-                          entry.title,
-                          key: ValueKey<String>('book-row-title-${entry.id}'),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            fontWeight: FontWeight.w600,
-                          ),
+                      Text(
+                        entry.title,
+                        key: ValueKey<String>('book-row-title-${entry.id}'),
+                        maxLines: 1,
+                        softWrap: false,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w600,
                         ),
-                        const SizedBox(height: 4),
-                      ],
-                      for (final label in [
-                        author.isEmpty ? '未知作者' : author,
-                        '已读 ${formatReadingDuration(item.duration)}',
-                        formatReadingChapters(item.spineIndex, entry.spineCount),
-                      ])
-                        Padding(
-                          padding: const EdgeInsets.only(top: 2),
-                          child: Text(
-                            label,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: metadataStyle,
-                          ),
-                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        author.isEmpty ? '佚名' : author,
+                        maxLines: 1,
+                        softWrap: false,
+                        overflow: TextOverflow.ellipsis,
+                        style: metadataStyle,
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        chapterLine,
+                        maxLines: 1,
+                        softWrap: false,
+                        overflow: TextOverflow.ellipsis,
+                        style: metadataStyle?.copyWith(fontSize: 12),
+                      ),
+                      const SizedBox(height: 6),
+                      chapterProgress,
                     ],
                   ),
                 ),
-                if (trailing.isNotEmpty) ...<Widget>[
-                  const SizedBox(width: 8),
-                  ...trailing,
+                if (selectionMode) ...[
+                  const SizedBox(width: 10),
+                  Checkbox(
+                    key: ValueKey<String>('book-row-check-${entry.id}'),
+                    value: selected,
+                    onChanged: (_) => onSelect(),
+                    visualDensity: VisualDensity.compact,
+                  ),
                 ],
               ],
             ),

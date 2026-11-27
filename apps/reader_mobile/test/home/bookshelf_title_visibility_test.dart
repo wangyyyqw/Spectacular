@@ -64,7 +64,7 @@ void main() {
     }
   });
 
-  testWidgets('我的页关闭“显示书名”后书架隐藏书名，重启保持', (tester) async {
+  testWidgets('“显示书名”只控制宫格，列表始终显示书名', (tester) async {
     final library = LibraryStore.memory();
     final ids = <String>[];
     await tester.runAsync(() async {
@@ -108,13 +108,14 @@ void main() {
       expect(cardTitle(id), findsNothing);
     }
 
+    // 列表不受开关影响，始终显示书名。
     await tester.tap(find.byTooltip('列表视图'));
     await _settle(tester);
     for (final id in ids) {
-      expect(rowTitle(id), findsNothing);
+      expect(rowTitle(id), findsOneWidget);
     }
 
-    // 重新构建页面（≈ 重启）仍保持隐藏。
+    // 重新构建页面（≈ 重启）宫格保持隐藏，列表仍显示书名。
     await tester.pumpWidget(
       MaterialApp(
         home: BookshelfPage(
@@ -125,7 +126,12 @@ void main() {
     );
     await _settle(tester);
     for (final id in ids) {
-      expect(rowTitle(id), findsNothing);
+      expect(rowTitle(id), findsOneWidget);
+    }
+    await tester.tap(find.byTooltip('网格视图'));
+    await _settle(tester);
+    for (final id in ids) {
+      expect(cardTitle(id), findsNothing);
     }
   });
 }

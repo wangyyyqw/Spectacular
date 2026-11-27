@@ -3,7 +3,8 @@ import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
-import 'package:reader_core/api.dart' show BookMeta, ImportReport, SpineItem;
+import 'package:reader_core/api.dart'
+    show BookMeta, ImportReport, SpineItem, TocEntry;
 import 'package:reader_core/epub/epub_document.dart';
 import 'package:reader_core/epub/opf.dart';
 import 'package:reader_core/epub/archive_reader.dart';
@@ -16,6 +17,7 @@ class ImportBookSummary {
   const ImportBookSummary({
     required this.meta,
     required this.spine,
+    required this.toc,
     required this.excludedSpineIndexes,
     required this.identifier,
     required this.coverBytes,
@@ -27,6 +29,9 @@ class ImportBookSummary {
 
   /// 线性阅读顺序。
   final List<SpineItem> spine;
+
+  /// 目录项的显示标题和目标章节，用于书架展示当前章节名。
+  final List<({String title, int spineIndex, int depth, int orderIndex})> toc;
 
   /// 不参与进度计算的章节。
   final Set<int> excludedSpineIndexes;
@@ -267,6 +272,7 @@ Future<ImportAnalysis> _analyzeFile(
       summary: ImportBookSummary(
         meta: document.meta,
         spine: List<SpineItem>.unmodifiable(document.spine),
+        toc: _flattenToc(document.toc, document.tocSource),
         excludedSpineIndexes: Set<int>.unmodifiable(
           document.progressExcludedSpineIndexes,
         ),
@@ -399,6 +405,7 @@ Future<ImportAnalysis> _analyze(Uint8List bytes, {String? revision}) async {
       summary: ImportBookSummary(
         meta: document.meta,
         spine: List<SpineItem>.unmodifiable(document.spine),
+        toc: _flattenToc(document.toc, document.tocSource),
         excludedSpineIndexes: Set<int>.unmodifiable(
           document.progressExcludedSpineIndexes,
         ),
@@ -412,6 +419,30 @@ Future<ImportAnalysis> _analyze(Uint8List bytes, {String? revision}) async {
     // 避免 isolate 返回前后同时持有整本解压内容。
     document.archive.close();
   }
+}
+
+List<({String title, int spineIndex, int depth, int orderIndex})> _flattenToc(
+  List<TocEntry> entries,
+  String source,
+) {
+  // 兜底目录只是文件名，不写入章节标题，书架退回显示章节序号。
+  if (source == 'spine') return const [];
+  final result =
+      <({String title, int spineIndex, int depth, int orderIndex})>[];
+  void visit(List<TocEntry> items, int depth) {
+    for (final item in items) {
+      result.add((
+        title: item.title,
+        spineIndex: item.spineIndex,
+        depth: depth,
+        orderIndex: result.length,
+      ));
+      visit(item.children, depth + 1);
+    }
+  }
+
+  visit(entries, 1);
+  return List.unmodifiable(result);
 }
 
 /// 从原 OPF 读取标识；缺少 OPF 时不将解析器占位值用于书籍身份。

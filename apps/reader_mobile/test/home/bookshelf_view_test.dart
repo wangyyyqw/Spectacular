@@ -243,8 +243,15 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('测试作者'), findsNWidgets(entries.length));
-    expect(find.text('已读 0 分钟'), findsNWidgets(entries.length));
-    expect(find.text('已读 0 / 1 章'), findsNWidgets(entries.length));
+    expect(find.text('尚未开始阅读'), findsNWidgets(entries.length));
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is LinearProgressIndicator &&
+            widget.key.toString().contains('book-row-progress-'),
+      ),
+      findsNWidgets(entries.length),
+    );
     expect(find.textContaining('文件名与元数据不同'), findsNothing);
     expect(
       find.byWidgetPredicate(
@@ -280,6 +287,82 @@ void main() {
     );
     expect(_listTitles(tester), <String>['C书', 'A书', 'B书']);
   });
+
+  for (final width in [320.0, 390.0]) {
+    for (final textScale in [1.0, 1.5]) {
+      testWidgets('列表四行布局与整宽进度条：$width/$textScale', (tester) async {
+        tester.view
+          ..physicalSize = Size(width, 844)
+          ..devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+        final library = LibraryStore.memory();
+        late BookEntry book;
+        await tester.runAsync(() async {
+          book = await library.importBytes(
+            buildTestEpub(
+              title: '这是一本需要省略而不能换行的很长很长的图书书名',
+              author: '这是一位名字需要省略而不能换行的作者',
+            ),
+          );
+        });
+        await library.setSetting('bookshelf.grid', 'false');
+        await tester.pumpWidget(
+          MaterialApp(
+            builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(context)
+                  .copyWith(textScaler: TextScaler.linear(textScale)),
+              child: child!,
+            ),
+            home: BookshelfPage(
+              library: library,
+              progressStore: MemoryReaderProgressStore(),
+            ),
+          ),
+        );
+        await _settle(tester);
+
+        final row = find.byKey(ValueKey('book-row-${book.id}'));
+        final title = find.byKey(ValueKey('book-row-title-${book.id}'));
+        final author = find.text(book.author);
+        final chapter = find.text('尚未开始阅读');
+        final progress = find.byKey(ValueKey('book-row-progress-${book.id}'));
+        for (final text in [title, author, chapter]) {
+          final widget = tester.widget<Text>(text);
+          expect(widget.maxLines, 1);
+          expect(widget.softWrap, isFalse);
+          expect(widget.overflow, TextOverflow.ellipsis);
+        }
+        final titleBounds = tester.getRect(title);
+        final authorBounds = tester.getRect(author);
+        final chapterBounds = tester.getRect(chapter);
+        final progressBounds = tester.getRect(progress);
+        final coverBounds = tester.getRect(
+          find.descendant(
+            of: row,
+            matching: find.byKey(const ValueKey('book-row-cover')),
+          ),
+        );
+        // 书名、作者、已读章节、进度条依次换行，全部位于封面右侧。
+        expect(titleBounds.bottom, lessThanOrEqualTo(authorBounds.top));
+        expect(authorBounds.bottom, lessThanOrEqualTo(chapterBounds.top));
+        expect(chapterBounds.bottom, lessThanOrEqualTo(progressBounds.top));
+        expect(titleBounds.left, greaterThan(coverBounds.right));
+        expect(progressBounds.left, closeTo(titleBounds.left, .01));
+        expect(
+          progressBounds.right,
+          lessThanOrEqualTo(tester.getRect(row).right),
+        );
+        if (textScale == 1.0) {
+          expect(
+            progressBounds.bottom,
+            lessThanOrEqualTo(coverBounds.bottom + .01),
+            reason: '默认字号下四行内容不应超出封面高度',
+          );
+        }
+        expect(tester.takeException(), isNull);
+      });
+    }
+  }
 
   testWidgets('网格与列表按压图书时不覆盖封面', (tester) async {
     final library = LibraryStore.memory();

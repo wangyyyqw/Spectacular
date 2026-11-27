@@ -96,7 +96,7 @@ class BookDetailSheet extends StatelessWidget {
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          entry.author.isEmpty ? '未知作者' : entry.author,
+                          entry.author.isEmpty ? '佚名' : entry.author,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.bodySmall?.copyWith(

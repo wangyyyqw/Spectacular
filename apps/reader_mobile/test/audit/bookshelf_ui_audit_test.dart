@@ -140,7 +140,7 @@ void main() {
     await _tap(tester, find.byTooltip('列表视图'));
     expect(_key('book-row-${first.id}'), findsOneWidget);
     expect(find.text('乙作者'), findsOneWidget);
-    expect(find.text('已读 1 / 1 章'), findsOneWidget);
+    expect(find.text('已读 · 第 1 章'), findsOneWidget);
     final rowCover = tester.getSize(_key('book-row-cover').first);
     expect(rowCover.width / rowCover.height, closeTo(3 / 4, 0.001));
     expect(tester.takeException(), isNull);
