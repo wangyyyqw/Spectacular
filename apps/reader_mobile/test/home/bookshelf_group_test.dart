@@ -314,7 +314,7 @@ void main() {
     expect(find.text('文学'), findsOneWidget);
   });
 
-  testWidgets('多选底栏新建分组直接使用已选书籍', (tester) async {
+  testWidgets('搜索后多选新建分组清空输入并保留已选书籍', (tester) async {
     final library = LibraryStore.memory();
     late BookEntry first;
     await tester.runAsync(() async {
@@ -335,6 +335,12 @@ void main() {
       ),
     );
     await _settle(tester);
+
+    final search = find.byKey(const ValueKey('bookshelf-search-field'));
+    await tester.tap(search);
+    await tester.enterText(search, '新建甲');
+    await _settle(tester, frames: 3);
+    expect(find.text('新建乙'), findsNothing);
 
     await tester.tap(find.byTooltip('多选'));
     await _settle(tester, frames: 4);
@@ -357,28 +363,37 @@ void main() {
     );
     await _settle(tester);
 
+    expect(tester.widget<TextField>(search).controller!.text, isEmpty);
     expect(find.text('待读'), findsOneWidget);
+    expect(find.text('新建甲'), findsWidgets);
+    expect(find.text('新建乙'), findsNothing);
     final groups = await library.listGroups();
     expect(groups, hasLength(1));
     expect(await library.groupAssignments(), <String, String>{
       first.id: groups.single.id,
     });
+    await tester.tap(find.byKey(const ValueKey('bookshelf-group-all')));
+    await _settle(tester, frames: 3);
+    expect(find.text('新建甲'), findsWidgets);
+    expect(find.text('新建乙'), findsWidgets);
+    expect(tester.takeException(), isNull);
   });
 
-  testWidgets('长按分组仅移动当前书籍，也可为当前书籍新建分组', (tester) async {
+  testWidgets('搜索后移入现有分组清空输入，可继续为当前书籍新建分组', (tester) async {
     final library = LibraryStore.memory();
     final books = <BookEntry>[];
     await tester.runAsync(() async {
-      for (final title in ['当前书籍', '其他书籍']) {
+      for (final title in ['当前书籍', '其他书籍', '已有书籍']) {
         books.add(await library.importBytes(buildTestEpub(title: title)));
       }
     });
     final original = await library.createGroup('原分组');
     final target = await library.createGroup('待读');
     await library.setBooksGroup(
-      books.map((book) => book.id),
+      books.take(2).map((book) => book.id),
       groupId: original.id,
     );
+    await library.setBooksGroup([books.last.id], groupId: target.id);
     await tester.pumpWidget(
       MaterialApp(
         home: BookshelfPage(
@@ -388,6 +403,12 @@ void main() {
       ),
     );
     await _settle(tester);
+    final search = find.byKey(const ValueKey('bookshelf-search-field'));
+    await tester.tap(search);
+    await tester.enterText(search, '当前');
+    await _settle(tester, frames: 3);
+    expect(find.text('其他书籍'), findsNothing);
+    expect(find.text('已有书籍'), findsNothing);
     await tester.longPress(find.byKey(ValueKey('book-card-${books.first.id}')));
     await _settle(tester);
     await tester.tap(find.text('分组'));
@@ -396,9 +417,14 @@ void main() {
     expect(find.text('当前分组'), findsOneWidget);
     await tester.tap(find.byKey(ValueKey('bookshelf-book-group-${target.id}')));
     await _settle(tester);
+    expect(tester.widget<TextField>(search).controller!.text, isEmpty);
+    expect(find.text('当前书籍'), findsWidgets);
+    expect(find.text('已有书籍'), findsWidgets);
+    expect(find.text('其他书籍'), findsNothing);
     expect(await library.groupAssignments(), {
       books.first.id: target.id,
-      books.last.id: original.id,
+      books[1].id: original.id,
+      books.last.id: target.id,
     });
     expect(await library.listGroups(), hasLength(2));
     await tester.longPress(find.byKey(ValueKey('book-card-${books.first.id}')));
@@ -420,8 +446,10 @@ void main() {
     );
     expect(await library.groupAssignments(), {
       books.first.id: created.id,
-      books.last.id: original.id,
+      books[1].id: original.id,
+      books.last.id: target.id,
     });
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('小屏键盘弹出时新建分组抽屉保留输入和操作，取消不创建分组', (tester) async {

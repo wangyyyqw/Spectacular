@@ -324,6 +324,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
         setState(() {
           _activeGroupId = group.id;
           _query = '';
+          _searchController.clear();
           _selectionMode = false;
           _selectedIds.clear();
         });
@@ -380,6 +381,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
         setState(() {
           _activeGroupId = groupId;
           _query = '';
+          _searchController.clear();
         });
       }
     } on LibraryImportException catch (error, stackTrace) {
