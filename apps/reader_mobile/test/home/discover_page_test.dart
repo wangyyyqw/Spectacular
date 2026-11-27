@@ -19,6 +19,7 @@ import 'package:reader_mobile/home/discover_filter_dialog.dart';
 import 'package:reader_mobile/home/discover_page.dart';
 import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/theme/app_theme.dart';
+import 'package:reader_ui/icons/app_icon.dart';
 
 import '../support/reader_pump.dart';
 
@@ -126,15 +127,24 @@ void main() {
           return http.Response(
             jsonEncode({
               'books': [
-                if (request.url.path.contains('search') && request.url.host != 'second.example.com')
-                  {'name': '第一来源弱匹配', 'author': '其他', 'url': '/book/weak'},
+                if (request.url.path.contains('search') &&
+                    request.url.host != 'second.example.com')
+                  {
+                    'name': '第一来源弱匹配',
+                    'author': '其他',
+                    'url': '/book/weak',
+                    'lastChapter': '备选最新章',
+                  },
                 if (request.url.host == 'second.example.com' &&
                     request.url.queryParameters['q'] == '第二来源书')
                   {'name': '第二来源备选', 'author': '其他', 'url': '/book/extra'},
                 {
                   'name': name,
-                  'author': request.url.path.contains('search') && request.url.host == 'second.example.com'
-                      ? '搜索书' : '作者',
+                  'author':
+                      request.url.path.contains('search') &&
+                          request.url.host == 'second.example.com'
+                      ? '搜索书'
+                      : '作者',
                   'status': '连载',
                   'wordCount': '25万字',
                   'lastChapter': '第十章',
@@ -343,43 +353,82 @@ void main() {
     await pumpReaderUntil(tester, find.text('2 个书源 · 3 条结果'));
     await tester.pumpAndSettle();
     final results = find.byKey(const ValueKey('discover-search-results'));
-    final cards = find.descendant(of: results, matching: find.byType(Card));
-    Finder resultText(String title) => find.descendant(of: results, matching: find.text(title));
-    double bookTop(String title) => tester.getTopLeft(resultText(title).first).dy;
+    final cards = find.descendant(
+      of: results,
+      matching: find.byType(DecoratedSliver),
+    );
+    Finder resultText(String title) => find.descendant(
+      of: results,
+      matching: find.byWidgetPredicate(
+        (widget) =>
+            widget is Text && widget.data == title && widget.maxLines == 1,
+      ),
+    );
+    double bookTop(String title) => tester.getTopLeft(resultText(title)).dy;
     expect(cards, findsNWidgets(2));
     expect(bookTop('搜索书'), lessThan(bookTop('第二来源书')));
     expect(resultText('第一来源弱匹配'), findsNothing);
     final toggle = find.byKey(ValueKey('discover-expand-${searchSource.id}'));
-    final secondId = controller.sources.singleWhere((source) => source.name == '第二来源').id;
+    final secondId = controller.sources
+        .singleWhere((source) => source.name == '第二来源')
+        .id;
     final secondToggle = find.byKey(ValueKey('discover-expand-$secondId'));
     expect(secondToggle, findsNothing);
     expect(find.byKey(const ValueKey('discover-toggle-view')), findsNothing);
-    final beforeExpand = requested.length;
-    await tester.tap(toggle);
-    await tester.pumpAndSettle();
-    expect(cards, findsNWidgets(2));
-    expect(bookTop('搜索书'), lessThan(bookTop('第一来源弱匹配')));
-    expect(bookTop('第一来源弱匹配'), lessThan(bookTop('第二来源书')));
     final searchCard = find.byKey(
       ValueKey('discover-book-${searchSource.id}-${searchBook.bookUrl}'),
     );
     final searchSourceName = find.descendant(
-      of: searchCard,
+      of: toggle,
       matching: find.text('测试平台'),
+    );
+    final groupCount = find.descendant(of: toggle, matching: find.text('（2）'));
+    Finder arrow(AppGlyph glyph) => find.descendant(
+      of: toggle,
+      matching: find.byWidgetPredicate(
+        (widget) => widget is AppIcon && widget.glyph == glyph,
+      ),
+    );
+    expect(searchSourceName, findsOneWidget);
+    expect(groupCount, findsOneWidget);
+    expect(
+      tester.getCenter(arrow(AppGlyph.chevronDown)).dx,
+      greaterThan(tester.getRect(groupCount).right),
+    );
+    expect(
+      tester.getRect(toggle).bottom,
+      lessThanOrEqualTo(tester.getRect(searchCard).top),
+    );
+    expect(resultText('第二来源'), findsOneWidget);
+    expect(find.text('（1）'), findsOneWidget);
+    final beforeExpand = requested.length;
+    await tester.tap(searchSourceName);
+    await tester.pumpAndSettle();
+    expect(cards, findsNWidgets(2));
+    expect(bookTop('搜索书'), lessThan(bookTop('第一来源弱匹配')));
+    expect(bookTop('第一来源弱匹配'), lessThan(bookTop('第二来源书')));
+    expect(arrow(AppGlyph.chevronUp), findsOneWidget);
+    expect(resultText('测试平台'), findsOneWidget);
+    final weakRow = find
+        .ancestor(of: resultText('第一来源弱匹配'), matching: find.byType(InkWell))
+        .first;
+    Rect coverIn(Finder row) => tester.getRect(
+      find.descendant(of: row, matching: find.byType(ClipRRect)),
+    );
+    expect(coverIn(weakRow).size, coverIn(searchCard).size);
+    expect(coverIn(weakRow).left, coverIn(searchCard).left);
+    expect(
+      find.descendant(of: weakRow, matching: find.text('最新：备选最新章')),
+      findsOneWidget,
     );
     expect(searchCard, findsOneWidget);
     final searchShelfBadge = find.descendant(
       of: searchCard,
       matching: find.text('已在书架'),
     );
-    expect(searchSourceName, findsOneWidget);
     expect(searchShelfBadge, findsOneWidget);
-    expect(
-      tester.getRect(searchSourceName).right,
-      closeTo(tester.getRect(searchShelfBadge).right, 0.5),
-    );
     expect(find.text('人气书'), findsNothing);
-    await tester.tap(toggle);
+    await tester.tap(arrow(AppGlyph.chevronUp));
     await tester.pumpAndSettle();
     expect(resultText('第一来源弱匹配'), findsNothing);
     expect(requested, hasLength(beforeExpand));
@@ -702,10 +751,12 @@ void main() {
     await tester.pumpAndSettle();
     expect(requested, hasLength(1));
     Rect coverRect(int index) {
-      final tile = find.ancestor(
-        of: find.text('第一-1-$index').first,
-        matching: find.byType(InkWell),
-      ).first;
+      final tile = find
+          .ancestor(
+            of: find.text('第一-1-$index').first,
+            matching: find.byType(InkWell),
+          )
+          .first;
       return tester.getRect(
         find.descendant(of: tile, matching: find.byType(ClipRRect)),
       );

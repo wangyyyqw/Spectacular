@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
+import 'package:reader_ui/theme/reader_ui_style.dart';
 
 import '../book_source/book_source_discovery.dart';
 import '../book_source/book_source_compat.dart';
@@ -719,14 +720,19 @@ class _DiscoverPageState extends State<DiscoverPage> {
     if (_searchMode) {
       return RefreshIndicator(
         onRefresh: _search,
-        child: ListView.separated(
+        child: CustomScrollView(
           key: const ValueKey('discover-search-results'),
           controller: _scroll,
-          padding: EdgeInsets.fromLTRB(inset, 8, inset, 28),
           physics: const AlwaysScrollableScrollPhysics(),
-          itemCount: _searchGroups.length,
-          separatorBuilder: (_, _) => const SizedBox(height: 8),
-          itemBuilder: (_, index) => _searchCard(_searchGroups[index]),
+          slivers: [
+            for (final group in _searchGroups)
+              SliverPadding(
+                key: ValueKey('discover-source-card-${group.source.id}'),
+                padding: EdgeInsets.fromLTRB(inset, 8, inset, 0),
+                sliver: _searchCard(group),
+              ),
+            const SliverToBoxAdapter(child: SizedBox(height: 28)),
+          ],
         ),
       );
     }
@@ -768,84 +774,98 @@ class _DiscoverPageState extends State<DiscoverPage> {
   }
 
   Widget _searchCard(_SearchGroup group) {
+    final theme = Theme.of(context);
     final source = group.source;
     final books = group.books;
     final expanded = _expandedSources.contains(source.id);
-    return Card(
-      key: ValueKey('discover-source-card-${source.id}'),
-      margin: EdgeInsets.zero,
-      clipBehavior: Clip.antiAlias,
-      child: Padding(
+    return DecoratedSliver(
+      decoration: ShapeDecoration(
+        color: theme.cardTheme.color ?? theme.colorScheme.surface,
+        shape: ReaderUiStyle.cardShapeOf(theme),
+      ),
+      sliver: SliverPadding(
         padding: const EdgeInsets.symmetric(horizontal: 12),
-        child: Column(
-          children: [
-            Row(
-              children: [
-                Expanded(child: _bookTile(source, books.first)),
-                if (books.length > 1)
-                  Semantics(
-                    expanded: expanded,
-                    child: TextButton(
-                      key: ValueKey('discover-expand-${source.id}'),
-                      onPressed: () => setState(() {
-                        if (expanded) {
-                          _expandedSources.remove(source.id);
-                        } else {
-                          _expandedSources.add(source.id);
-                        }
-                      }),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          AppIcon(
-                            expanded
-                                ? AppGlyph.chevronUp
-                                : AppGlyph.chevronDown,
-                            size: 18,
-                          ),
-                          Text(
-                            '${books.length} 条',
-                            semanticsLabel:
-                                '${expanded ? '收起' : '展开'}${source.name}的 ${books.length} 条结果',
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-            if (expanded)
-              for (final book in books.skip(1)) ...[
-                const Divider(height: 1),
-                ListTile(
-                  key: ValueKey('discover-book-${source.id}-${book.bookUrl}'),
-                  contentPadding: EdgeInsets.zero,
-                  title: Text(
-                    book.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  subtitle: Text(
-                    book.author.isEmpty ? '佚名' : book.author,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  trailing:
-                      widget.controller.shelfEntryFor(source, book) == null
-                      ? null
-                      : Text(
-                          '已在书架',
-                          style: Theme.of(context).textTheme.labelSmall
-                              ?.copyWith(
-                                color: Theme.of(context).colorScheme.primary,
-                              ),
-                        ),
-                  onTap: () => _open(source, book),
-                ),
-              ],
-          ],
+        sliver: SliverList.separated(
+          itemCount: 1 + (expanded ? books.length : 1),
+          separatorBuilder: (_, index) => Divider(
+            height: 1,
+            indent: index == 0
+                ? 0
+                : BookCollectionLayout.rowCover.width +
+                      BookCollectionLayout.rowTextGap,
+          ),
+          itemBuilder: (_, index) => Material(
+            type: MaterialType.transparency,
+            child: index == 0
+                ? _searchHeader(group, expanded)
+                : _bookTile(source, books[index - 1]),
+          ),
         ),
       ),
+    );
+  }
+
+  Widget _searchHeader(_SearchGroup group, bool expanded) {
+    final source = group.source;
+    final count = group.books.length;
+    final theme = Theme.of(context);
+    final name = source.name.trim().isEmpty ? '未知来源' : source.name;
+    final header = ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: kMinInteractiveDimension),
+      child: Row(
+        children: [
+          AppIcon(
+            AppGlyph.menuBook,
+            size: 16,
+            color: theme.colorScheme.primary,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Row(
+              children: [
+                Flexible(
+                  child: Text(
+                    name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.titleSmall,
+                  ),
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  '（$count）',
+                  semanticsLabel: '$count 条结果',
+                  style: theme.textTheme.bodySmall,
+                ),
+              ],
+            ),
+          ),
+          if (count > 1)
+            AppIcon(
+              expanded ? AppGlyph.chevronUp : AppGlyph.chevronDown,
+              size: 18,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+        ],
+      ),
+    );
+    return Semantics(
+      header: true,
+      button: count > 1 ? true : null,
+      expanded: count > 1 ? expanded : null,
+      child: count == 1
+          ? header
+          : InkWell(
+              key: ValueKey('discover-expand-${source.id}'),
+              onTap: () => setState(() {
+                if (expanded) {
+                  _expandedSources.remove(source.id);
+                } else {
+                  _expandedSources.add(source.id);
+                }
+              }),
+              child: header,
+            ),
     );
   }
 
@@ -865,7 +885,6 @@ class _DiscoverPageState extends State<DiscoverPage> {
   Widget _bookTile(BookSource source, OnlineBook book, {bool grid = false}) {
     final theme = Theme.of(context);
     final summary = onlineBookCardSummary(book);
-    final showSourceName = _searchMode && !grid;
     final cover = _DiscoverCover(
       controller: widget.controller,
       source: source,
@@ -904,36 +923,16 @@ class _DiscoverPageState extends State<DiscoverPage> {
         ),
         if (!grid) ...[
           const SizedBox(height: 3),
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  summary.author,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
-              ),
-              if (showSourceName) ...[
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    source.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.end,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                ),
-              ],
-            ],
+          Text(
+            summary.author,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
           ),
         ],
-        if (!grid) ...[
+        if (!grid && summary.latest.isNotEmpty) ...[
           const SizedBox(height: 3),
           Text(
             summary.latest,
@@ -942,7 +941,7 @@ class _DiscoverPageState extends State<DiscoverPage> {
             style: theme.textTheme.bodySmall,
           ),
         ],
-        if (!grid) ...[
+        if (!grid && summary.description.isNotEmpty) ...[
           const SizedBox(height: 3),
           Text(
             summary.description,
@@ -971,7 +970,9 @@ class _DiscoverPageState extends State<DiscoverPage> {
                 ],
               )
             : Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                crossAxisAlignment: _searchMode
+                    ? CrossAxisAlignment.center
+                    : CrossAxisAlignment.start,
                 children: [
                   cover,
                   const SizedBox(width: BookCollectionLayout.rowTextGap),
