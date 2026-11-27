@@ -467,6 +467,7 @@ void main() {
 
   testWidgets('云端统计展示概览、周期趋势和已关联书籍', (tester) async {
     ReaMicroBookRecord? opened;
+    final annualCalls = <int>[];
     final stats = ReaMicroCloudStats(
       overview: const ReaMicroOverview(
         years: <int>[2025, 2026],
@@ -546,6 +547,11 @@ void main() {
             loading: false,
             onRefresh: () async {},
             onOpenBook: (record) => opened = record,
+            onLoadPeriod: (period, date) async {
+              expect(period, ReaMicroRecordPeriod.year);
+              annualCalls.add(date.year);
+              return _period(day: 1, total: 1800);
+            },
           ),
         ),
       ),
@@ -570,9 +576,20 @@ void main() {
       if (row > 0) expect(left[row].top, greaterThan(left[row - 1].top));
     }
     expect(find.text('2 小时'), findsOneWidget);
+    expect(annualCalls, isEmpty);
+    expect(find.text('阅读排行'), findsNothing);
+    final totalTab = find.text('总');
+    await tester.ensureVisible(totalTab);
+    await tester.tap(totalTab);
+    await tester.pumpAndSettle();
+    expect(find.text('2 小时 · 阅读 42 天'), findsOneWidget);
+    expect(find.text('2026年阅读最久 · 1 小时 30 分'), findsOneWidget);
+    expect(find.byKey(const ValueKey('cloud-duration-previous')), findsNothing);
+    expect(annualCalls, [2025]);
     await tester.scrollUntilVisible(
       find.byKey(const ValueKey<String>('cloud-ranking-21')),
       300,
+      scrollable: find.byType(Scrollable).first,
     );
     await tester.ensureVisible(
       find.byKey(const ValueKey<String>('cloud-ranking-21')),

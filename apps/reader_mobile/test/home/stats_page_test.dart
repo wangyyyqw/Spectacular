@@ -241,7 +241,7 @@ void main() {
       ]) {
         expect(find.byKey(ValueKey(key)), findsNothing);
       }
-      for (final title in ['图书时长', '阅读日历', '阅读排行']) {
+      for (final title in ['图书时长', '阅读日历']) {
         expect(find.text(title), findsOneWidget);
       }
       expect(_valueOf(tester, 'stats-overview-total-duration'), '20 分钟');
@@ -250,6 +250,9 @@ void main() {
         find.byKey(const ValueKey('stats-reading-calendar')),
         findsOneWidget,
       );
+      expect(find.text('阅读排行'), findsNothing);
+      expect(find.byKey(const ValueKey('stats-ranking-a')), findsNothing);
+      await _selectPeriod(tester, 'total');
       expect(find.byKey(const ValueKey('stats-ranking-a')), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
@@ -399,8 +402,7 @@ void main() {
     log.resetForTest();
     addTearDown(log.resetForTest);
     tester.view
-      // 移除花瓣区块后页面变短，使用较矮窗口继续覆盖滚动位置保留。
-      ..physicalSize = const Size(1280, 700)
+      ..physicalSize = const Size(1280, 480)
       ..devicePixelRatio = 1;
     addTearDown(tester.view.reset);
     final library = _FakeLibrary([_book('a', '第一本')], const {});
@@ -529,6 +531,7 @@ void main() {
       tester.widget<BookDurationChart>(find.byType(BookDurationChart)),
       isNot(same(original)),
     );
+    await _selectPeriod(tester, 'total');
     await _scrollTo(
       tester,
       find.byKey(const ValueKey('stats-ranking-percent-a')),
@@ -550,6 +553,7 @@ void main() {
     expect(find.text('新书名'), findsWidgets);
     expect(find.text('旧书名'), findsNothing);
 
+    await _selectPeriod(tester, 'day');
     final scroll = tester.state<ScrollableState>(find.byType(Scrollable).first);
     scroll.position.jumpTo(0);
     await tester.pumpAndSettle();
@@ -998,6 +1002,7 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(_valueOf(tester, 'stats-book-duration-total'), '40 分钟');
+    await _selectPeriod(tester, 'total');
     final ranking = find.byKey(const ValueKey('stats-ranking-archived'));
     await _scrollTo(tester, ranking, 180);
     expect(
@@ -1049,7 +1054,8 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(_valueOf(tester, 'stats-book-duration-total'), '1 小时');
-    await _scrollTo(tester, find.text('阅读排行'), 180);
+    await _selectPeriod(tester, 'total');
+    await _scrollTo(tester, find.text('读过的书'), 180);
     expect(find.text('阅读热力图'), findsNothing);
     expect(find.text('阅读习惯'), findsNothing);
     expect(find.byKey(const ValueKey('stats-heatmap')), findsNothing);
@@ -1059,11 +1065,7 @@ void main() {
       find.byKey(const ValueKey('stats-weekday-average-chart')),
       findsNothing,
     );
-    final calendarBottom = tester.getBottomLeft(
-      find.byKey(const ValueKey('stats-reading-calendar')),
-    );
-    final rankingTop = tester.getTopLeft(find.text('阅读排行'));
-    expect(rankingTop.dy - calendarBottom.dy, inExclusiveRange(0, 90));
+    expect(find.text('阅读排行'), findsNothing);
     await _scrollTo(
       tester,
       find.byKey(const ValueKey('stats-ranking-duration-a')),
@@ -1112,6 +1114,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    await _selectPeriod(tester, 'total');
     await _scrollTo(
       tester,
       find.byKey(const ValueKey('stats-ranking-duration-a')),
@@ -1169,6 +1172,7 @@ void main() {
 
     expect(library.progressWeightCalls, 0, reason: '统计页应批量读取进度权重');
     expect(library.batchProgressWeightCalls, 1);
+    await _selectPeriod(tester, 'total');
     await _scrollTo(tester, find.text('开始阅读后，这里会按投入时长列出书目。'), 300);
     expect(find.text('阅读分布'), findsNothing);
     expect(find.byKey(const ValueKey('stats-band-unread')), findsNothing);
@@ -1249,6 +1253,7 @@ void main() {
     for (var i = 0; i < 16; i++) {
       await tester.pump(const Duration(milliseconds: 100));
     }
+    await _selectPeriod(tester, 'total');
     await _scrollTo(
       tester,
       find.byKey(ValueKey<String>('stats-ranking-${entry.id}')),
@@ -1353,6 +1358,7 @@ void main() {
     expect(find.text('合计 8 分钟'), findsOneWidget);
     Navigator.of(tester.element(find.text('合计 8 分钟'))).pop();
     await tester.pumpAndSettle();
+    await _selectPeriod(tester, 'total');
     await _scrollTo(tester, find.byKey(const ValueKey('stats-ranking-a')), 180);
     expect(
       _valueOf(tester, 'stats-ranking-duration-a'),
@@ -1363,9 +1369,7 @@ void main() {
       _valueOf(tester, 'stats-ranking-duration-a'),
       startsWith('6 分钟 · 读了 '),
     );
-    await _scrollTo(tester, find.text('阅读排行'), 180);
-    expect(find.byKey(const ValueKey('stats-ranking-a')), findsOneWidget);
-    expect(find.byKey(const ValueKey('stats-ranking-b')), findsNothing);
+    expect(find.text('阅读排行'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
@@ -1443,7 +1447,8 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    await _scrollTo(tester, find.text('阅读排行'), 300);
+    await _selectPeriod(tester, 'total');
+    await _scrollTo(tester, find.text('读过的书'), 300);
     expect(find.byKey(const ValueKey('stats-ranking-short')), findsNothing);
     expect(find.byKey(const ValueKey('stats-ranking-kept')), findsOneWidget);
     expect(find.byKey(const ValueKey('stats-ranking-legacy')), findsNothing);

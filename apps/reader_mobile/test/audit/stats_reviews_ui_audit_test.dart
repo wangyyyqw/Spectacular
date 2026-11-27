@@ -172,14 +172,22 @@ void main() {
       );
       expect(tester.takeException(), isNull);
     }
+    final total = find.byKey(
+      const ValueKey('stats-book-duration-period-total'),
+    );
+    await tester.ensureVisible(total);
+    await tester.tap(total);
+    await tester.pumpAndSettle();
     final ranking = find.byKey(ValueKey('stats-ranking-${book.id}'));
     await _scrollTo(tester, ranking);
     expect(find.text('新的阅读记录'), findsWidgets);
     expect(
       tester
-          .widget<Text>(find.byKey(ValueKey('stats-ranking-counts-${book.id}')))
+          .widget<Text>(
+            find.byKey(ValueKey('stats-ranking-duration-${book.id}')),
+          )
           .data,
-      '1 次 · 4 次翻页 · 80 字',
+      '30 分钟 · 读了 1 天',
     );
     expect(tester.takeException(), isNull);
   });

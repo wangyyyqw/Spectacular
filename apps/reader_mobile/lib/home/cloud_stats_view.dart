@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:reader_ui/theme/reader_ui_style.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
+import 'package:reader_ui/theme/reader_section_slider.dart';
 
 import '../rea_micro/rea_micro_book_record_tile.dart';
 import '../rea_micro/rea_micro_models.dart';
@@ -11,6 +12,7 @@ import 'reading_insights.dart';
 import 'stats_section.dart';
 import 'reading_book_list.dart';
 import 'weekday_average_chart.dart';
+import 'yearly_reading_chart.dart';
 
 /// 阅微阅读数据视图，沿用统计页自己的分区、日历和排行排版。
 class CloudStatsView extends StatefulWidget {
@@ -69,6 +71,8 @@ class CloudStatsView extends StatefulWidget {
 }
 
 class _CloudStatsViewState extends State<CloudStatsView> {
+  bool _showTotal = false;
+  Future<Map<int, Duration>>? _annualTotals;
   ReaMicroRecordPeriod _period = ReaMicroRecordPeriod.month;
   late DateTime _anchor;
   ReaMicroPeriodStats? _data;
@@ -108,7 +112,8 @@ class _CloudStatsViewState extends State<CloudStatsView> {
   void didUpdateWidget(CloudStatsView oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (!identical(oldWidget.stats, widget.stats)) {
-      unawaited(_loadPeriod(preserveData: true));
+      _annualTotals = null;
+      if (!_showTotal) unawaited(_loadPeriod(preserveData: true));
     }
   }
 
@@ -150,10 +155,92 @@ class _CloudStatsViewState extends State<CloudStatsView> {
     }
   }
 
-  void _changePeriod(ReaMicroRecordPeriod period) {
-    if (_period == period) return;
-    setState(() => _period = period);
+  void _changePeriod(ReaMicroRecordPeriod? period) {
+    if ((_showTotal ? null : _period) == period) return;
+    if (period == null) {
+      setState(() {
+        _showTotal = true;
+        _request++;
+      });
+      return;
+    }
+    setState(() {
+      _showTotal = false;
+      _period = period;
+    });
     unawaited(_loadPeriod());
+  }
+
+  Future<Map<int, Duration>> _loadAnnualTotals() async {
+    final stats = widget.stats;
+    final current = (stats.periodDate ?? stats.fetchedAt).year;
+    final years = {
+      ...stats.overview.years,
+      if (stats.year.totalDurationSeconds > 0) current,
+    };
+    final load = widget.onLoadPeriod;
+    final entries = await Future.wait(
+      years.map((year) async {
+        final data = year == current
+            ? stats.year
+            : load != null
+            ? await load(ReaMicroRecordPeriod.year, DateTime(year))
+            : throw StateError('缺少年度统计');
+        return MapEntry(year, Duration(seconds: data.totalDurationSeconds));
+      }),
+    );
+    return Map.fromEntries(entries);
+  }
+
+  Widget _totalView() {
+    final stats = widget.stats;
+    final overview = stats.overview;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          '${_formatSeconds(overview.totalDurationSeconds)} · 阅读 ${overview.readDays} 天',
+        ),
+        Text(
+          '阅读 ${_formatSeconds(overview.readingDurationSeconds)} · 听书 ${_formatSeconds(overview.listeningDurationSeconds)}',
+        ),
+        const SizedBox(height: 12),
+        FutureBuilder<Map<int, Duration>>(
+          future: _annualTotals ??= _loadAnnualTotals(),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState != ConnectionState.done) {
+              return const LinearProgressIndicator();
+            }
+            if (snapshot.hasError) {
+              return Wrap(
+                children: [
+                  const Text('年度时长暂不可用'),
+                  if (widget.onLoadPeriod != null)
+                    TextButton(
+                      onPressed: () => setState(() => _annualTotals = null),
+                      child: const Text('重试'),
+                    ),
+                ],
+              );
+            }
+            return YearlyReadingChart(byYear: snapshot.requireData);
+          },
+        ),
+        const SizedBox(height: 16),
+        Text('读过的书', style: Theme.of(context).textTheme.titleSmall),
+        const SizedBox(height: 8),
+        if (stats.books.isEmpty)
+          const Text('暂无阅微阅读记录。')
+        else
+          _bookList(
+            stats.books,
+            '读过的书',
+            'cloud-ranking-all',
+            prefix: 'cloud-ranking',
+            initialSort: ReadingBookSort.duration,
+          ),
+      ],
+    );
   }
 
   void _shiftPeriod(int direction) {
@@ -295,93 +382,97 @@ class _CloudStatsViewState extends State<CloudStatsView> {
               ),
               StatsSection(
                 title: '图书时长',
-                detail: _currentPeriod ? _periodLabel(_period) : _dateLabel,
+                detail: _showTotal
+                    ? '全部时间'
+                    : _currentPeriod
+                    ? _periodLabel(_period)
+                    : _dateLabel,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: <Widget>[
-                    SegmentedButton<ReaMicroRecordPeriod>(
+                    ReaderSectionSlider(
                       key: const ValueKey<String>('cloud-stats-period'),
-                      segments: const <ButtonSegment<ReaMicroRecordPeriod>>[
-                        ButtonSegment<ReaMicroRecordPeriod>(
-                          value: ReaMicroRecordPeriod.week,
-                          label: Text('周'),
+                      sections: const [
+                        (key: 'total', label: '总'),
+                        (key: 'week', label: '周'),
+                        (key: 'month', label: '月'),
+                        (key: 'year', label: '年'),
+                      ],
+                      index: _showTotal ? 0 : _period.index + 1,
+                      onSelected: (index) => _changePeriod(
+                        index == 0
+                            ? null
+                            : ReaMicroRecordPeriod.values[index - 1],
+                      ),
+                    ),
+                    if (_showTotal) ...[
+                      const SizedBox(height: 14),
+                      _totalView(),
+                    ] else ...[
+                      if (widget.onLoadPeriod != null)
+                        Row(
+                          children: [
+                            IconButton(
+                              key: const ValueKey('cloud-duration-previous'),
+                              tooltip: '上一周期',
+                              onPressed: () => _shiftPeriod(-1),
+                              icon: const Icon(Icons.chevron_left),
+                            ),
+                            Expanded(
+                              child: Text(
+                                _dateLabel,
+                                textAlign: TextAlign.center,
+                              ),
+                            ),
+                            IconButton(
+                              key: const ValueKey('cloud-duration-next'),
+                              tooltip: '下一周期',
+                              onPressed: () => _shiftPeriod(1),
+                              icon: const Icon(Icons.chevron_right),
+                            ),
+                          ],
                         ),
-                        ButtonSegment<ReaMicroRecordPeriod>(
-                          value: ReaMicroRecordPeriod.month,
-                          label: Text('月'),
+                      const SizedBox(height: 14),
+                      if (_periodError != null)
+                        Row(
+                          children: [
+                            Expanded(child: Text(_periodError!)),
+                            TextButton(
+                              onPressed: _loadPeriod,
+                              child: const Text('重试'),
+                            ),
+                          ],
                         ),
-                        ButtonSegment<ReaMicroRecordPeriod>(
-                          value: ReaMicroRecordPeriod.year,
-                          label: Text('年'),
+                      if (_loadingPeriod && _data == null)
+                        const Center(child: CircularProgressIndicator()),
+                      if (_data != null) ...[
+                        _PeriodSummary(stats: _data!),
+                        const SizedBox(height: 10),
+                        _PeriodBars(
+                          stats: _data!,
+                          period: _period,
+                          anchor: _anchor,
                         ),
                       ],
-                      selected: <ReaMicroRecordPeriod>{_period},
-                      onSelectionChanged: (selection) =>
-                          _changePeriod(selection.first),
-                    ),
-                    if (widget.onLoadPeriod != null)
-                      Row(
-                        children: [
-                          IconButton(
-                            key: const ValueKey('cloud-duration-previous'),
-                            tooltip: '上一周期',
-                            onPressed: () => _shiftPeriod(-1),
-                            icon: const Icon(Icons.chevron_left),
-                          ),
-                          Expanded(
-                            child: Text(
-                              _dateLabel,
-                              textAlign: TextAlign.center,
-                            ),
-                          ),
-                          IconButton(
-                            key: const ValueKey('cloud-duration-next'),
-                            tooltip: '下一周期',
-                            onPressed: () => _shiftPeriod(1),
-                            icon: const Icon(Icons.chevron_right),
-                          ),
-                        ],
-                      ),
-                    const SizedBox(height: 14),
-                    if (_periodError != null)
-                      Row(
-                        children: [
-                          Expanded(child: Text(_periodError!)),
-                          TextButton(
-                            onPressed: _loadPeriod,
-                            child: const Text('重试'),
-                          ),
-                        ],
-                      ),
-                    if (_loadingPeriod && _data == null)
-                      const Center(child: CircularProgressIndicator()),
-                    if (_data != null) ...[
-                      _PeriodSummary(stats: _data!),
-                      const SizedBox(height: 10),
-                      _PeriodBars(
-                        stats: _data!,
-                        period: _period,
-                        anchor: _anchor,
-                      ),
-                    ],
-                    if (widget.onLoadBookRecords != null) ...[
-                      const SizedBox(height: 14),
-                      Text(
-                        '阅读记录 ${_records?.length ?? 0}',
-                        style: Theme.of(context).textTheme.labelMedium,
-                      ),
-                      const SizedBox(height: 8),
-                      if (_loadingPeriod && _records == null)
-                        const Center(child: CircularProgressIndicator())
-                      else if (_records?.isEmpty == true)
-                        const Text('该周期没有阅微阅读记录。')
-                      else if (_records != null)
-                        _bookList(
-                          _records!,
-                          '阅读记录',
-                          'cloud-records-all',
-                          prefix: 'cloud-duration-record',
+                      if (widget.onLoadBookRecords != null) ...[
+                        const SizedBox(height: 14),
+                        Text(
+                          '阅读记录 ${_records?.length ?? 0}',
+                          style: Theme.of(context).textTheme.labelMedium,
                         ),
+                        const SizedBox(height: 8),
+                        if (_loadingPeriod && _records == null)
+                          const Center(child: CircularProgressIndicator())
+                        else if (_records?.isEmpty == true)
+                          const Text('该周期没有阅微阅读记录。')
+                        else if (_records != null)
+                          _bookList(
+                            _records!,
+                            '阅读记录',
+                            'cloud-records-all',
+                            prefix: 'cloud-duration-record',
+                          ),
+                      ],
                     ],
                   ],
                 ),
@@ -402,17 +493,6 @@ class _CloudStatsViewState extends State<CloudStatsView> {
                   insights: ReadingInsights(const [], now: stats.fetchedAt),
                   dailyTotals: dailyTotals,
                   onLoadHourlyInsights: widget.onLoadHourlyInsights,
-                ),
-              ),
-              StatsSection(
-                title: '阅读排行',
-                detail: '按累计时长',
-                child: _bookList(
-                  stats.books,
-                  '阅读排行',
-                  'cloud-ranking-all',
-                  prefix: 'cloud-ranking',
-                  initialSort: ReadingBookSort.duration,
                 ),
               ),
               const SizedBox(height: 20),

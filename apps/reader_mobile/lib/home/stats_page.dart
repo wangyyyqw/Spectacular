@@ -15,7 +15,6 @@ import 'desktop_layout.dart';
 import 'reading_calendar.dart';
 import 'reading_book_color.dart';
 import 'reading_insights.dart';
-import 'book_reading_ranking.dart';
 import 'stats_section.dart';
 import '../reader/book_opener.dart';
 import '../storage/reading_session_store.dart';
@@ -589,6 +588,8 @@ class _StatsContent extends StatelessWidget {
           books: {for (final row in stats.rows) row.book.id: row.book},
           bookTitles: titles,
           bookColors: bookColors,
+          percents: {for (final row in stats.rows) row.book.id: row.percent},
+          onOpenBook: onOpenBook,
           now: now,
         ),
       ),
@@ -604,22 +605,6 @@ class _StatsContent extends StatelessWidget {
             for (final row in stats.rows)
               if (row.progress?.finished ?? false) row.book.id,
           },
-        ),
-      ),
-      StatsSection(
-        title: '阅读排行',
-        detail: '按累计时长',
-        showDivider: !desktop,
-        child: BookReadingRanking(
-          books: [for (final row in stats.rows) row.book],
-          totals: {
-            for (final entry in stats.insights.byBook.entries)
-              if (stats.insights.visibleBookIds.contains(entry.key))
-                entry.key: entry.value,
-          },
-          bookTitles: stats.insights.bookTitles,
-          percents: {for (final row in stats.rows) row.book.id: row.percent},
-          onOpen: onOpenBook,
         ),
       ),
     ];

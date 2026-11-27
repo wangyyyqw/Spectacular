@@ -20,7 +20,7 @@ class BookReadingRanking extends StatelessWidget {
   final Map<String, BookReadingTotals> totals;
   final Map<String, String> bookTitles;
   final Map<String, int?> percents;
-  final ValueChanged<BookEntry> onOpen;
+  final ValueChanged<BookEntry>? onOpen;
 
   @override
   Widget build(BuildContext context) {
@@ -35,7 +35,7 @@ class BookReadingRanking extends StatelessWidget {
       );
     }
     return ReadingBookList(
-      title: '阅读排行',
+      title: '读过的书',
       allKey: const ValueKey('stats-ranking-all'),
       initialSort: ReadingBookSort.duration,
       books: [
@@ -52,9 +52,9 @@ class BookReadingRanking extends StatelessWidget {
             percentKey: ValueKey('stats-ranking-percent-${entry.key}'),
             rowKey: ValueKey('stats-ranking-${entry.key}'),
             durationKey: ValueKey('stats-ranking-duration-${entry.key}'),
-            onOpen: byId[entry.key] == null
+            onOpen: byId[entry.key] == null || onOpen == null
                 ? null
-                : () => onOpen(byId[entry.key]!),
+                : () => onOpen!(byId[entry.key]!),
             coverBuilder: (width, height) => byId[entry.key] == null
                 ? SizedBox(
                     width: width,

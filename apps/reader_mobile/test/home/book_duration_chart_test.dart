@@ -179,6 +179,7 @@ void main() {
       _session('month', DateTime(2026, 11, 8, 8), 30),
       _session('quarter', DateTime(2026, 10, 1, 8), 40),
       _session('year', DateTime(2026, 9, 30, 8), 50),
+      _session('previousYear', DateTime(2025, 12, 31, 8), 60),
     ]);
     for (final (period, total, count) in [
       ('day', '10 分钟', 1),
@@ -192,6 +193,11 @@ void main() {
       expect(tester.widget<IconButton>(_key('next')).onPressed, isNull);
       expect(tester.takeException(), isNull);
     }
+    await _selectPeriod(tester, 'total');
+    expect(find.text('3 小时 30 分 · 阅读 6 天'), findsOneWidget);
+    expect(find.text('2026年阅读最久 · 2 小时 30 分'), findsOneWidget);
+    expect(find.text('2025'), findsOneWidget);
+    expect(_key('previous'), findsNothing);
     await _selectPeriod(tester, 'week');
     expect(_text(tester, 'value-week'), '20 分钟');
     expect(_key('tag-year'), findsNothing);

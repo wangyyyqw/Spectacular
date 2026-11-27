@@ -10,9 +10,11 @@ import 'package:reader_ui/theme/reader_ui_style.dart';
 import '../library/library_store.dart';
 import 'book_cover_image.dart';
 import 'book_duration_summary.dart';
+import 'book_reading_ranking.dart';
 import 'reading_book_color.dart';
 import 'reading_insights.dart';
 import 'voxel_duration_chart.dart';
+import 'yearly_reading_chart.dart';
 
 const _tagTitleStyle = TextStyle(
   fontSize: 14,
@@ -30,6 +32,7 @@ final _countingHint =
 /// 图书时长：按自然周期查看各书投入和占比，保留已移出书架的记录。
 const _selectablePeriods = [
   BookDurationPeriod.day,
+  null,
   BookDurationPeriod.week,
   BookDurationPeriod.month,
   BookDurationPeriod.year,
@@ -42,6 +45,8 @@ class BookDurationChart extends StatefulWidget {
     this.books = const {},
     this.bookTitles = const {},
     this.bookColors = const {},
+    this.percents = const {},
+    this.onOpenBook,
     this.now,
     this.startWithTimeOfDay = true,
   });
@@ -50,6 +55,8 @@ class BookDurationChart extends StatefulWidget {
   final Map<String, BookEntry> books;
   final Map<String, String> bookTitles;
   final Map<String, Color> bookColors;
+  final Map<String, int?> percents;
+  final ValueChanged<BookEntry>? onOpenBook;
 
   /// 测试可固定当前日期；正常使用时取设备本地时间。
   final DateTime? now;
@@ -64,6 +71,7 @@ class BookDurationChart extends StatefulWidget {
 class _BookDurationChartState extends State<BookDurationChart>
     with AutomaticKeepAliveClientMixin<BookDurationChart> {
   BookDurationPeriod _period = BookDurationPeriod.day;
+  bool _showTotal = false;
   DateTime? _date;
   String? _selectedBookId;
 
@@ -94,20 +102,23 @@ class _BookDurationChartState extends State<BookDurationChart>
     _selectedBookId = null;
   });
 
-  void _changePeriod(BookDurationPeriod period) {
-    if (_period == period) return;
+  void _changePeriod(BookDurationPeriod? period) {
+    if ((_showTotal ? null : _period) == period) return;
     setState(() {
-      _period = period;
+      _showTotal = period == null;
+      if (period != null) _period = period;
       _selectedBookId = null;
     });
   }
 
   Widget _periodSlider(BuildContext context) {
-    final selectedIndex = _selectablePeriods.indexOf(_period);
+    final selectedIndex = _selectablePeriods.indexOf(
+      _showTotal ? null : _period,
+    );
     return ReaderSectionSlider(
       sections: [
         for (final period in _selectablePeriods)
-          (key: period.name, label: period.label),
+          (key: period?.name ?? 'total', label: period?.label ?? '总'),
       ],
       index: selectedIndex < 0 ? 0 : selectedIndex,
       itemKeyBuilder: (item) =>
@@ -153,6 +164,40 @@ class _BookDurationChartState extends State<BookDurationChart>
   @override
   Widget build(BuildContext context) {
     super.build(context);
+    if (_showTotal) {
+      final insights = widget.insights;
+      final byYear = <int, Duration>{};
+      for (final entry in insights.byDay.entries) {
+        final year = entry.key.year;
+        byYear[year] = (byYear[year] ?? Duration.zero) + entry.value;
+      }
+      return Column(
+        key: const ValueKey('stats-book-duration'),
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _periodSlider(context),
+          const SizedBox(height: 14),
+          Text(
+            '${formatReadingDuration(insights.totalReading)} · 阅读 ${insights.byDay.length} 天',
+          ),
+          const SizedBox(height: 12),
+          YearlyReadingChart(byYear: byYear),
+          const SizedBox(height: 16),
+          Text('读过的书', style: Theme.of(context).textTheme.titleSmall),
+          const SizedBox(height: 8),
+          BookReadingRanking(
+            books: widget.books.values.toList(),
+            totals: {
+              for (final id in insights.visibleBookIds)
+                id: insights.byBook[id]!,
+            },
+            bookTitles: insights.bookTitles,
+            percents: widget.percents,
+            onOpen: widget.onOpenBook,
+          ),
+        ],
+      );
+    }
     final summary = BookDurationSummary(
       widget.insights,
       period: _period,
