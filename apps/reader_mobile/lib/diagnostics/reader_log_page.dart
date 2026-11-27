@@ -46,7 +46,11 @@ class _ReaderLogPageState extends State<ReaderLogPage> {
     setState(() => _busy = true);
     try {
       await _log.clear();
-      if (mounted) setState(() => _text = _log.exportText());
+      if (mounted) {
+        setState(() {
+          _text = _log.exportText();
+        });
+      }
     } catch (error, stackTrace) {
       recordAppError('log_clear_failed', error, stackTrace: stackTrace);
       if (mounted) {
@@ -60,10 +64,10 @@ class _ReaderLogPageState extends State<ReaderLogPage> {
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
-      title: const Text('诊断日志'),
+      title: const Text('查看日志'),
       actions: [
         IconButton(
-          tooltip: '导出诊断日志',
+          tooltip: '导出日志',
           onPressed: _busy ? null : _export,
           icon: const AppIcon(AppGlyph.share),
         ),

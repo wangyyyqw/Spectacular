@@ -1555,7 +1555,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
         title: Text('删除《${entry.title}》'),
         content: const Text(
           '将删除书籍文件，保留笔记、书评、书单和阅读记录。'
-          '已配置同步时会传播到所有设备；仅清理本机副本请使用多设备同步页。',
+          '如已配置同步，删除操作也会同步到其他设备。',
         ),
         actions: [
           TextButton(
@@ -1594,7 +1594,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
         title: Text('删除选中的 ${entries.length} 本书？'),
         content: const Text(
           '将删除书籍文件，保留笔记、书评、书单和阅读记录。'
-          '已配置同步时会传播到所有设备；仅清理本机副本请使用多设备同步页。',
+          '如已配置同步，删除操作也会同步到其他设备。',
         ),
         actions: <Widget>[
           TextButton(

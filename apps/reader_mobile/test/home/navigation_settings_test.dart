@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:reader_ui/theme/reader_switch.dart';
+import 'package:reader_ui/theme/reader_ui_components.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/home/navigation_settings.dart';
 import 'package:reader_mobile/home/navigation_settings_page.dart';
@@ -62,6 +63,7 @@ void main() {
       library: library,
       api: api,
       enableLanLoginServer: false,
+      appVersion: () async => null,
     );
     addTearDown(account.dispose);
     await account.initialize();
@@ -72,6 +74,10 @@ void main() {
       MaterialApp(home: NavigationSettingsPage(settings: settings)),
     );
     final finder = find.byKey(const ValueKey('navigation-setting-stats'));
+    expect(
+      find.ancestor(of: finder, matching: find.byType(ReaderSectionGroup)),
+      findsOneWidget,
+    );
     expect(settings.visible(HomeDestination.stats), isFalse);
     expect(tester.widget<ReaderSwitchListTile>(finder).onChanged, isNull);
     await settings.setVisible(HomeDestination.stats, true);

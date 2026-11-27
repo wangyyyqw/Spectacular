@@ -374,7 +374,6 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
       appFontStore: widget.appFontStore,
       onAppFontFamilyChanged: widget.onAppFontFamilyChanged,
       navigationSettings: _navigation,
-      sync: _sync,
     ),
   };
 

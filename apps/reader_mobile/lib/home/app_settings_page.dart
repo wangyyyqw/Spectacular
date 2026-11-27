@@ -1,13 +1,7 @@
 import 'package:flutter/material.dart';
 
-import '../sync/sync_controller.dart';
-import '../sync/sync_page.dart';
-
-import 'package:reader_ui/theme/reader_switch.dart';
 import 'package:reader_ui/theme/reader_dropdown.dart';
 import 'package:reader_ui/icons/app_icon.dart';
-import 'package:reader_ui/theme/reader_frosted_popup.dart';
-import 'package:reader_ui/theme/reader_sheet_form.dart';
 import 'package:reader_ui/theme/reader_ui_components.dart';
 
 import '../book_source/online_book_controller.dart';
@@ -22,8 +16,8 @@ import '../reader/reader_font_store.dart';
 import 'about_page.dart';
 import '../theme/app_theme.dart';
 import '../theme/theme_color_settings.dart';
-import 'app_font_picker.dart';
-import 'bookshelf_sort.dart';
+import 'app_font_settings_page.dart';
+import 'bookshelf_settings_page.dart';
 import 'navigation_settings.dart';
 import 'navigation_settings_page.dart';
 import 'theme_color_settings_page.dart';
@@ -44,7 +38,6 @@ class AppSettingsPage extends StatefulWidget {
     this.appFontStore,
     this.onAppFontFamilyChanged,
     this.navigationSettings,
-    this.sync,
   });
 
   /// 书架存储。
@@ -75,7 +68,6 @@ class AppSettingsPage extends StatefulWidget {
   /// 切换并保存应用字体。
   final Future<void> Function(String family)? onAppFontFamilyChanged;
   final NavigationSettings? navigationSettings;
-  final SyncController? sync;
 
   @override
   State<AppSettingsPage> createState() => _AppSettingsPageState();
@@ -87,13 +79,6 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
   late ThemeMode _themeMode;
   late AppUiStyle _uiStyle;
   late String _appFontFamily;
-  bool _gridShowTitles = true;
-  bool _listDividers = true;
-  bool _newestFirst = false;
-  bool _autoUpdateFirst = false;
-  bool _autoCheckUpdates = false;
-  bool _skipFinishedUpdates = true;
-  bool _allAsGroup = false;
   List<ReaderFontEntry> _appFonts = const [];
 
   @override
@@ -102,7 +87,6 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
     _themeMode = widget.themeMode;
     _uiStyle = widget.uiStyle;
     _appFontFamily = widget.appFontFamily;
-    _loadShelfPreferences();
     _loadAppFonts();
   }
 
@@ -135,190 +119,6 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
     } catch (error, stackTrace) {
       recordAppError('app_font_list_failed', error, stackTrace: stackTrace);
     }
-  }
-
-  Future<void> _loadShelfPreferences() async {
-    final oldShowTitles = await widget.library.getSetting(
-      bookshelfShowTitlesKey,
-    );
-    final gridShowTitles = await widget.library.getSetting(
-      bookshelfGridShowTitlesKey,
-    );
-    final listDividers = await widget.library.getSetting(
-      bookshelfListDividersKey,
-    );
-    final newestFirst = await widget.library.getSetting(
-      bookshelfNewestFirstKey,
-    );
-    final autoUpdateFirst = await widget.library.getSetting(
-      bookshelfAutoUpdateFirstKey,
-    );
-    final autoCheckUpdates = await widget.library.getSetting(
-      bookshelfAutoCheckUpdatesKey,
-    );
-    final skipFinishedUpdates = await widget.library.getSetting(
-      bookshelfSkipFinishedUpdatesKey,
-    );
-    final allAsGroup = await widget.library.getSetting(bookshelfAllAsGroupKey);
-    if (mounted) {
-      setState(() {
-        _gridShowTitles = gridShowTitles == null
-            ? oldShowTitles != 'false'
-            : gridShowTitles != 'false';
-        _listDividers = listDividers != 'false';
-        _newestFirst = newestFirst == 'true';
-        _autoUpdateFirst = autoUpdateFirst == 'true';
-        _autoCheckUpdates = autoCheckUpdates == 'true';
-        _skipFinishedUpdates = skipFinishedUpdates != 'false';
-        _allAsGroup = allAsGroup == 'true';
-      });
-    }
-  }
-
-  Future<bool> _toggleShelfSetting(String key, bool value) async {
-    // 先更新抽屉内状态，让开关立即反馈；持久化失败时回滚并记录错误。
-    setState(() {
-      if (key == bookshelfGridShowTitlesKey) _gridShowTitles = value;
-      if (key == bookshelfListDividersKey) _listDividers = value;
-      if (key == bookshelfNewestFirstKey) _newestFirst = value;
-      if (key == bookshelfAutoUpdateFirstKey) _autoUpdateFirst = value;
-      if (key == bookshelfAutoCheckUpdatesKey) _autoCheckUpdates = value;
-      if (key == bookshelfSkipFinishedUpdatesKey) _skipFinishedUpdates = value;
-      if (key == bookshelfAllAsGroupKey) _allAsGroup = value;
-    });
-    try {
-      await widget.library.setSetting(key, value.toString());
-      return true;
-    } catch (error, stackTrace) {
-      recordAppError(
-        'bookshelf_setting_save_failed',
-        error,
-        stackTrace: stackTrace,
-      );
-      if (!mounted) return false;
-      setState(() {
-        if (key == bookshelfGridShowTitlesKey) _gridShowTitles = !value;
-        if (key == bookshelfListDividersKey) _listDividers = !value;
-        if (key == bookshelfNewestFirstKey) _newestFirst = !value;
-        if (key == bookshelfAutoUpdateFirstKey) _autoUpdateFirst = !value;
-        if (key == bookshelfAutoCheckUpdatesKey) _autoCheckUpdates = !value;
-        if (key == bookshelfSkipFinishedUpdatesKey) {
-          _skipFinishedUpdates = !value;
-        }
-        if (key == bookshelfAllAsGroupKey) _allAsGroup = !value;
-      });
-      return false;
-    }
-  }
-
-  Future<void> _openShelfManagement() {
-    var gridShowTitles = _gridShowTitles;
-    var listDividers = _listDividers;
-    var newestFirst = _newestFirst;
-    var autoUpdateFirst = _autoUpdateFirst;
-    var autoCheckUpdates = _autoCheckUpdates;
-    var skipFinishedUpdates = _skipFinishedUpdates;
-    var allAsGroup = _allAsGroup;
-
-    return showReaderDrawer<void>(
-      context: context,
-      builder: (_) => StatefulBuilder(
-        builder: (context, setDrawerState) {
-          Future<void> change(String key, bool value) async {
-            setDrawerState(() {
-              if (key == bookshelfGridShowTitlesKey) gridShowTitles = value;
-              if (key == bookshelfListDividersKey) listDividers = value;
-              if (key == bookshelfNewestFirstKey) newestFirst = value;
-              if (key == bookshelfAutoUpdateFirstKey) autoUpdateFirst = value;
-              if (key == bookshelfAutoCheckUpdatesKey) {
-                autoCheckUpdates = value;
-              }
-              if (key == bookshelfSkipFinishedUpdatesKey) {
-                skipFinishedUpdates = value;
-              }
-              if (key == bookshelfAllAsGroupKey) allAsGroup = value;
-            });
-            final saved = await _toggleShelfSetting(key, value);
-            if (!saved && context.mounted) {
-              setDrawerState(() {
-                if (key == bookshelfGridShowTitlesKey) {
-                  gridShowTitles = !value;
-                }
-                if (key == bookshelfListDividersKey) listDividers = !value;
-                if (key == bookshelfNewestFirstKey) newestFirst = !value;
-                if (key == bookshelfAutoUpdateFirstKey) {
-                  autoUpdateFirst = !value;
-                }
-                if (key == bookshelfAutoCheckUpdatesKey) {
-                  autoCheckUpdates = !value;
-                }
-                if (key == bookshelfSkipFinishedUpdatesKey) {
-                  skipFinishedUpdates = !value;
-                }
-                if (key == bookshelfAllAsGroupKey) allAsGroup = !value;
-              });
-            }
-          }
-
-          return ReaderSheetForm(
-            title: const Text('书架管理'),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                ReaderSwitchListTile(
-                  key: const ValueKey('bookshelf-grid-title-setting'),
-                  title: const Text('宫格书架显示书名'),
-                  value: gridShowTitles,
-                  onChanged: (value) =>
-                      change(bookshelfGridShowTitlesKey, value),
-                ),
-                ReaderSwitchListTile(
-                  key: const ValueKey('bookshelf-list-divider-setting'),
-                  title: const Text('列表书架显示分割线'),
-                  value: listDividers,
-                  onChanged: (value) => change(bookshelfListDividersKey, value),
-                ),
-                ReaderSwitchListTile(
-                  key: const ValueKey('bookshelf-newest-first-setting'),
-                  title: const Text('新导入图书放到最上面'),
-                  value: newestFirst,
-                  onChanged: (value) => change(bookshelfNewestFirstKey, value),
-                ),
-                ReaderSwitchListTile(
-                  key: const ValueKey('bookshelf-auto-update-first-setting'),
-                  title: const Text('在线图书更新后自动上浮'),
-                  value: autoUpdateFirst,
-                  onChanged: (value) =>
-                      change(bookshelfAutoUpdateFirstKey, value),
-                ),
-                ReaderSwitchListTile(
-                  key: const ValueKey('bookshelf-auto-check-updates-setting'),
-                  title: const Text('在线图书自动检查更新'),
-                  value: autoCheckUpdates,
-                  onChanged: (value) =>
-                      change(bookshelfAutoCheckUpdatesKey, value),
-                ),
-                ReaderSwitchListTile(
-                  key: const ValueKey(
-                    'bookshelf-skip-finished-updates-setting',
-                  ),
-                  title: const Text('完结或读完图书跳过检查更新'),
-                  value: skipFinishedUpdates,
-                  onChanged: (value) =>
-                      change(bookshelfSkipFinishedUpdatesKey, value),
-                ),
-                ReaderSwitchListTile(
-                  key: const ValueKey('bookshelf-all-as-group-setting'),
-                  title: const Text('全部书架视为分组'),
-                  value: allAsGroup,
-                  onChanged: (value) => change(bookshelfAllAsGroupKey, value),
-                ),
-              ],
-            ),
-          );
-        },
-      ),
-    );
   }
 
   Future<void> _setTheme(ThemeMode selected) async {
@@ -362,14 +162,15 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
     final store = widget.appFontStore;
     final onChanged = widget.onAppFontFamilyChanged;
     if (store == null || onChanged == null) return;
-    await showReaderDrawer<void>(
-      context: context,
-      builder: (_) => AppFontPickerSheet(
-        fonts: _appFonts,
-        selectedFamily: _appFontFamily,
-        onSelect: _setAppFont,
-        onImport: _importAppFont,
-        onRemove: _removeAppFont,
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => AppFontSettingsPage(
+          fonts: _appFonts,
+          selectedFamily: _appFontFamily,
+          onSelect: _setAppFont,
+          onImport: _importAppFont,
+          onRemove: _removeAppFont,
+        ),
       ),
     );
   }
@@ -398,25 +199,6 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
     return ReaderSettingsScaffold(
       title: const Text('设置'),
       children: [
-        if (widget.sync != null) ...[
-          ReaderSectionGroup(
-            title: '数据',
-            children: [
-              ListTile(
-                key: const ValueKey('multi-device-sync-entry'),
-                leading: const AppIcon(AppGlyph.cloudSync),
-                title: const Text('多设备同步'),
-                trailing: const AppIcon(AppGlyph.chevronRight),
-                onTap: () => Navigator.of(context).push<void>(
-                  MaterialPageRoute(
-                    builder: (_) => SyncPage(controller: widget.sync!),
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: ReaderUiTokens.spacingXl),
-        ],
         _appearance(context),
         const SizedBox(height: ReaderUiTokens.spacingXl),
         ReaderSectionGroup(
@@ -427,12 +209,11 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
               leading: const AppIcon(AppGlyph.bookshelf),
               title: const Text('词典设置'),
               trailing: const AppIcon(AppGlyph.chevronRight),
-              onTap: () => showReaderBottomSheet<void>(
-                context: context,
-                useSafeArea: true,
-                isScrollControlled: true,
-                builder: (_) => DictionarySettingsPage(
-                  store: DictionaryStore(widget.library),
+              onTap: () => Navigator.of(context).push<void>(
+                MaterialPageRoute(
+                  builder: (_) => DictionarySettingsPage(
+                    store: DictionaryStore(widget.library),
+                  ),
                 ),
               ),
             ),
@@ -449,7 +230,7 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
           children: [
             ListTile(
               leading: const AppIcon(AppGlyph.listBulleted),
-              title: const Text('查看诊断日志'),
+              title: const Text('查看日志'),
               trailing: const AppIcon(AppGlyph.chevronRight),
               onTap: () => Navigator.of(context).push<void>(
                 MaterialPageRoute(builder: (_) => const ReaderLogPage()),
@@ -487,7 +268,11 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
           leading: const AppIcon(AppGlyph.bookshelf),
           title: const Text('书架管理'),
           trailing: const AppIcon(AppGlyph.chevronRight),
-          onTap: _openShelfManagement,
+          onTap: () => Navigator.of(context).push<void>(
+            MaterialPageRoute(
+              builder: (_) => BookshelfSettingsPage(library: widget.library),
+            ),
+          ),
         ),
         ListTile(
           key: const ValueKey('theme-color-settings-entry'),
@@ -556,8 +341,9 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
             trailing: const AppIcon(AppGlyph.chevronRight),
             onTap: () => Navigator.of(context).push<void>(
               MaterialPageRoute(
-                builder: (_) =>
-                    NavigationSettingsPage(settings: widget.navigationSettings!),
+                builder: (_) => NavigationSettingsPage(
+                  settings: widget.navigationSettings!,
+                ),
               ),
             ),
           ),
@@ -603,7 +389,9 @@ class _SettingValue extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => ConstrainedBox(
-    constraints: BoxConstraints(maxWidth: MediaQuery.sizeOf(context).width * .4),
+    constraints: BoxConstraints(
+      maxWidth: MediaQuery.sizeOf(context).width * .4,
+    ),
     child: Row(
       mainAxisSize: MainAxisSize.min,
       children: [

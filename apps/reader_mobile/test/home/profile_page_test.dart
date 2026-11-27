@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/diagnostics/reader_log.dart';
+import 'package:reader_mobile/dictionary/dictionary_settings_page.dart';
 import 'package:reader_mobile/home/bookshelf_sort.dart';
 import 'package:reader_mobile/home/profile_page.dart';
 import 'package:reader_mobile/home/app_settings_page.dart';
@@ -14,7 +15,7 @@ import 'package:reader_mobile/theme/app_theme.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/panels/reader_settings_sheet.dart';
 import 'package:reader_ui/theme/reader_section_slider.dart';
-import 'package:reader_ui/theme/reader_ui_style.dart';
+import 'package:reader_ui/theme/reader_ui_components.dart';
 import 'package:reader_ui/theme/reader_switch.dart';
 
 class _AccountController extends ReaMicroController {
@@ -69,7 +70,7 @@ void main() {
     (label: '320dp 窄屏', size: const Size(320, 600), scale: 1.0),
     (label: '大字', size: const Size(400, 800), scale: 1.3),
   ]) {
-    testWidgets('${scenario.label}我的页词典设置使用弹窗与固定三分栏', (tester) async {
+    testWidgets('${scenario.label}词典设置独立成页，滚动时固定三分栏', (tester) async {
       tester.view.physicalSize = scenario.size;
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);
@@ -92,19 +93,13 @@ void main() {
       await tester.ensureVisible(entry);
       await tester.tap(entry);
       await tester.pumpAndSettle();
-      final sheet = find.byType(ReaderSettingsSheet);
+      final page = find.byType(DictionarySettingsPage);
       final tabs = find.byType(ReaderSectionSlider);
       final tabsRect = tester.getRect(tabs);
-      expect(find.byType(BottomSheet), findsOneWidget);
-      expect(tester.widget<ReaderSettingsSheet>(sheet).title, isNull);
-      expect(find.byTooltip('关闭'), findsNothing);
-      expect(
-        tester.getSize(sheet).height,
-        closeTo(
-          scenario.size.height * ReaderUiStyle.settingsSheetHeightFraction,
-          .1,
-        ),
-      );
+      expect(find.byType(BottomSheet), findsNothing);
+      expect(find.byType(ReaderSettingsSheet), findsNothing);
+      expect(find.widgetWithText(AppBar, '词典设置'), findsOneWidget);
+      expect(tester.getSize(page).height, scenario.size.height);
       expect(
         tester
             .widget<ReaderSectionSlider>(tabs)
@@ -120,8 +115,8 @@ void main() {
       expect(find.byKey(const ValueKey('dictionary-rule-add')), findsNothing);
       await tester.drag(
         find.descendant(
-          of: sheet,
-          matching: find.byType(SingleChildScrollView),
+          of: page,
+          matching: find.byType(ListView),
         ),
         const Offset(0, -200),
       );
@@ -151,7 +146,7 @@ void main() {
       expect(tester.getRect(tabs), tabsRect);
       await tester.binding.handlePopRoute();
       await tester.pumpAndSettle();
-      expect(sheet, findsNothing);
+      expect(page, findsNothing);
       expect(entry.hitTestable(), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
@@ -239,23 +234,23 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('设置页可查看诊断日志且不显示浮动提示', (tester) async {
+  testWidgets('查看日志独立成页且不显示浮动提示', (tester) async {
     await tester.pumpWidget(
       MaterialApp(home: AppSettingsPage(library: LibraryStore.memory())),
     );
     await tester.pumpAndSettle();
-    expect(find.text('查看诊断日志'), findsOneWidget);
+    expect(find.text('查看诊断日志'), findsNothing);
 
-    await tester.tap(find.text('查看诊断日志'));
+    await tester.tap(find.text('查看日志'));
     await tester.pumpAndSettle();
-    expect(find.text('诊断日志'), findsOneWidget);
+    expect(find.widgetWithText(AppBar, '查看日志'), findsOneWidget);
     expect(find.byType(SelectableText), findsOneWidget);
     expect(find.byType(Dialog), findsNothing);
     expect(find.byType(SnackBar), findsNothing);
     await tester.binding.handlePopRoute();
     await tester.pumpAndSettle();
-    expect(find.text('诊断日志'), findsNothing);
-    expect(find.text('查看诊断日志'), findsOneWidget);
+    expect(find.widgetWithText(AppBar, '设置'), findsOneWidget);
+    expect(find.widgetWithText(ListTile, '查看日志'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -335,6 +330,9 @@ void main() {
       );
       await tester.tap(entry);
       await tester.pumpAndSettle();
+      expect(find.widgetWithText(AppBar, '书架管理'), findsOneWidget);
+      expect(find.byType(BottomSheet), findsNothing);
+      expect(find.descendant(of: find.byType(ReaderSectionGroup), matching: find.byType(ReaderSwitchListTile)), findsNWidgets(7));
       expect(tester.widget<ReaderSwitchListTile>(toggle).value, isTrue);
       await tester.binding.handlePopRoute();
       await tester.pumpAndSettle();
@@ -392,6 +390,8 @@ void main() {
 
     await tester.tap(entry);
     await tester.pumpAndSettle();
+    expect(find.widgetWithText(AppBar, '应用字体'), findsOneWidget);
+    expect(find.byType(BottomSheet), findsNothing);
     expect(find.byKey(const ValueKey('app-font-default')), findsOneWidget);
     expect(find.text('演示字体'), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('app-font-user_demo')));
@@ -473,17 +473,17 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('logs-clear')), findsNothing);
-    expect(find.byTooltip('导出诊断日志'), findsNothing);
+    expect(find.byTooltip('导出日志'), findsNothing);
     expect(tester.widgetList<ListTile>(find.byType(ListTile)).every((tile) => tile.subtitle == null), isTrue);
     final about = find.byKey(const ValueKey('about-entry'));
     await tester.ensureVisible(about);
     expect((tester.widget<ListTile>(about).leading! as AppIcon).glyph, AppGlyph.info);
-    final view = find.text('查看诊断日志');
+    final view = find.text('查看日志');
     await tester.ensureVisible(view);
     await tester.tap(view);
     await tester.pumpAndSettle();
     final bar = find.byType(AppBar);
-    expect(find.descendant(of: bar, matching: find.byTooltip('导出诊断日志')), findsOneWidget);
+    expect(find.descendant(of: bar, matching: find.byTooltip('导出日志')), findsOneWidget);
     expect(find.descendant(of: bar, matching: find.byTooltip('清理日志')), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('logs-clear')));
     await tester.pumpAndSettle();
@@ -504,6 +504,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('logs-clear-confirm')));
     await tester.pumpAndSettle();
     expect(text(), isNot(contains('settings_log_clear_test')));
+    expect(find.text('日志清理失败'), findsNothing);
   });
 
   testWidgets('账号与同步中社区入口位于野社入口下方', (tester) async {

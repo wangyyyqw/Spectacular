@@ -118,24 +118,19 @@ Future<(SyncController, _Secrets, _Storage)> _controller() async {
 void main() {
   setUpAll(() => driftRuntimeOptions.dontWarnAboutMultipleDatabases = true);
 
-  testWidgets('我的设置页可打开同一控制器的多设备同步', (tester) async {
-    final controller = _WidgetController();
-    addTearDown(controller.dispose);
+  testWidgets('设置中不显示旧的多设备同步入口或空数据分组', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
-        home: ProfilePage(library: controller.library, sync: controller),
+        home: ProfilePage(library: LibraryStore.memory()),
       ),
     );
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('profile-settings-entry')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('multi-device-sync-entry')));
-    await tester.pumpAndSettle();
-    expect(
-      tester.widget<SyncPage>(find.byType(SyncPage)).controller,
-      same(controller),
-    );
-    expect(find.text('WebDAV'), findsOneWidget);
+    expect(find.widgetWithText(AppBar, '设置'), findsOneWidget);
+    expect(find.byKey(const ValueKey('multi-device-sync-entry')), findsNothing);
+    expect(find.text('多设备同步'), findsNothing);
+    expect(find.text('数据'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 

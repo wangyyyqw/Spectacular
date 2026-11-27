@@ -13,7 +13,6 @@ import 'package:reader_mobile/dictionary/dictionary_store.dart';
 import 'package:reader_mobile/dictionary/local_dictionary_store.dart';
 import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/theme/app_theme.dart';
-import 'package:reader_ui/theme/reader_frosted_popup.dart';
 
 const _first = LocalDictionaryEntry(
   id: 'local-first',
@@ -52,12 +51,9 @@ Future<void> _openSettings(WidgetTester tester, DictionaryStore store) async {
       home: Scaffold(
         body: Builder(
           builder: (context) => TextButton(
-            onPressed: () => showReaderBottomSheet<void>(
-              context: context,
-              useSafeArea: true,
-              isScrollControlled: true,
+            onPressed: () => Navigator.of(context).push<void>(MaterialPageRoute(
               builder: (_) => DictionarySettingsPage(store: store),
-            ),
+            )),
             child: const Text('打开词典设置'),
           ),
         ),

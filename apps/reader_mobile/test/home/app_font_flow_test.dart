@@ -5,18 +5,17 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:package_info_plus/package_info_plus.dart';
-import 'package:reader_mobile/home/app_font_picker.dart';
+import 'package:reader_mobile/home/app_font_settings_page.dart';
 import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/main.dart';
 import 'package:reader_mobile/reader/reader_font_store.dart';
 import 'package:reader_mobile/theme/app_theme.dart';
 import 'package:reader_ui/reader_session.dart';
-import 'package:reader_ui/theme/reader_frosted_popup.dart';
 
 import '../support/reader_pump.dart';
 
 void main() {
-  testWidgets('应用字体保存中禁用标题关闭，失败后可以重试并正常退出', (tester) async {
+  testWidgets('应用字体设置页保存中阻止返回，失败后可以重试并正常退出', (tester) async {
     final pending = Completer<void>();
     var calls = 0;
     await tester.pumpWidget(
@@ -25,9 +24,8 @@ void main() {
         home: Scaffold(
           body: Builder(
             builder: (context) => TextButton(
-              onPressed: () => showReaderDrawer<void>(
-                context: context,
-                builder: (_) => AppFontPickerSheet(
+              onPressed: () => Navigator.of(context).push<void>(MaterialPageRoute(
+                builder: (_) => AppFontSettingsPage(
                   fonts: const [],
                   selectedFamily: AppFonts.defaultFamily,
                   onSelect: (_) {
@@ -37,7 +35,7 @@ void main() {
                   onImport: () async => null,
                   onRemove: (_) async {},
                 ),
-              ),
+              )),
               child: const Text('打开字体'),
             ),
           ),
@@ -48,23 +46,19 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('app-font-default')));
     await tester.pump();
-    final close = find.byWidgetPredicate(
-      (widget) => widget is IconButton && widget.tooltip == '关闭',
-    );
-    final disabled = tester.widget<IconButton>(close).onPressed == null;
-    await tester.tap(close);
+    await tester.pageBack();
+    await tester.binding.handlePopRoute();
     await tester.pump(const Duration(milliseconds: 200));
-    final stayedOpen = find.byType(AppFontPickerSheet).evaluate().isNotEmpty;
+    final page = find.byType(AppFontSettingsPage);
+    expect(page, findsOneWidget);
     pending.completeError(const FormatException('字体保存失败'));
     await tester.pumpAndSettle();
-    expect(disabled, isTrue);
-    expect(stayedOpen, isTrue);
     expect(find.text('字体保存失败'), findsOneWidget);
-    expect(tester.widget<IconButton>(close).onPressed, isNotNull);
+    expect(ModalRoute.of(tester.element(page))!.popDisposition, RoutePopDisposition.pop);
     await tester.tap(find.byKey(const ValueKey('app-font-default')));
     await tester.pumpAndSettle();
     expect(calls, 2);
-    expect(find.byType(AppFontPickerSheet), findsNothing);
+    expect(page, findsNothing);
     expect(tester.takeException(), isNull);
   });
 

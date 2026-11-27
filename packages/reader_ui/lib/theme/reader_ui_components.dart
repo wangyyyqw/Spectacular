@@ -134,6 +134,7 @@ class ReaderSettingsScaffold extends StatelessWidget {
     required this.title,
     required this.children,
     this.actions,
+    this.fixedHeader,
     this.maxWidth = ReaderUiTokens.pageMaxWidth,
     this.padding = ReaderUiTokens.pagePadding,
     this.floatingActionButton,
@@ -143,6 +144,7 @@ class ReaderSettingsScaffold extends StatelessWidget {
   final Widget title;
   final List<Widget> children;
   final List<Widget>? actions;
+  final Widget? fixedHeader;
   final double maxWidth;
   final EdgeInsetsGeometry padding;
   final Widget? floatingActionButton;
@@ -150,6 +152,7 @@ class ReaderSettingsScaffold extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final list = ListView(padding: padding, children: children);
     return Scaffold(
       appBar: AppBar(title: title, actions: actions),
       floatingActionButton: floatingActionButton,
@@ -159,7 +162,15 @@ class ReaderSettingsScaffold extends StatelessWidget {
         child: Center(
           child: ConstrainedBox(
             constraints: BoxConstraints(maxWidth: maxWidth),
-            child: ListView(padding: padding, children: children),
+            child: fixedHeader == null
+                ? list
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Padding(padding: padding, child: fixedHeader),
+                      Expanded(child: list),
+                    ],
+                  ),
           ),
         ),
       ),

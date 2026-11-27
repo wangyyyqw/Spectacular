@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:reader_ui/theme/reader_sheet_form.dart';
 import 'package:reader_ui/theme/reader_ui_components.dart';
 import 'package:reader_ui/theme/reader_font_preview.dart';
 import 'package:reader_ui/icons/app_icon.dart';
@@ -9,8 +8,8 @@ import '../library/library_store.dart';
 import '../theme/app_theme.dart';
 
 /// 选择、导入和移除应用界面字体；字体文件与清单由宿主统一存储。
-class AppFontPickerSheet extends StatefulWidget {
-  const AppFontPickerSheet({
+class AppFontSettingsPage extends StatefulWidget {
+  const AppFontSettingsPage({
     super.key,
     required this.fonts,
     required this.selectedFamily,
@@ -26,10 +25,10 @@ class AppFontPickerSheet extends StatefulWidget {
   final Future<void> Function(String family) onRemove;
 
   @override
-  State<AppFontPickerSheet> createState() => _AppFontPickerSheetState();
+  State<AppFontSettingsPage> createState() => _AppFontSettingsPageState();
 }
 
-class _AppFontPickerSheetState extends State<AppFontPickerSheet> {
+class _AppFontSettingsPageState extends State<AppFontSettingsPage> {
   late final List<ReaderFontEntry> _fonts = List.of(widget.fonts);
   late String _selected = widget.selectedFamily;
   String? _error;
@@ -111,65 +110,45 @@ class _AppFontPickerSheetState extends State<AppFontPickerSheet> {
       error is FormatException ? error.message : '字体操作失败，请重试';
 
   @override
-  Widget build(BuildContext context) => ReaderSheetForm(
-    title: const Text('应用字体'),
-    showCloseButton: true,
-    closeEnabled: !_busy,
-    contentPadding: EdgeInsets.zero,
-    scrollContent: false,
-    content: ConstrainedBox(
-      constraints: BoxConstraints(
-        maxHeight: MediaQuery.sizeOf(context).height * .72,
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const SizedBox(height: 12),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
-            child: ReaderFontPreview(
-              textKey: const ValueKey('app-font-preview'),
-              sample: '山水之间，字里行间。\nAa Bb 0123456789',
-              family: _selected,
-              fallback: _selected == AppFonts.defaultFamily
-                  ? null
-                  : AppFonts.fallback,
-            ),
+  Widget build(BuildContext context) => PopScope<void>(
+    canPop: !_busy,
+    child: ReaderSettingsScaffold(
+      title: const Text('应用字体'),
+      children: [
+        ReaderFontPreview(
+          textKey: const ValueKey('app-font-preview'),
+          sample: '山水之间，字里行间。\nAa Bb 0123456789',
+          family: _selected,
+          fallback: _selected == AppFonts.defaultFamily
+              ? null
+              : AppFonts.fallback,
+        ),
+        if (_busy) const LinearProgressIndicator(minHeight: 2),
+        if (_error != null)
+          ReaderInlineNotice(
+            key: const ValueKey('app-font-error'),
+            message: _error!,
+            isError: true,
           ),
-          if (_busy) const LinearProgressIndicator(minHeight: 2),
-          if (_error != null) _errorBanner(context),
-          Flexible(child: _fontList(context)),
-        ],
-      ),
+        const SizedBox(height: ReaderUiTokens.spacingXl),
+        _fontList(),
+      ],
     ),
   );
 
-  Widget _errorBanner(BuildContext context) => Padding(
-    padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
-    child: ReaderInlineNotice(
-      key: const ValueKey('app-font-error'),
-      message: _error!,
-      isError: true,
-    ),
-  );
-
-  Widget _fontList(BuildContext context) => ListView(
-    shrinkWrap: true,
+  Widget _fontList() => ReaderSectionGroup(
     children: [
       ListTile(
         key: const ValueKey('app-font-default'),
         enabled: !_busy,
         selected: _selected == AppFonts.defaultFamily,
         title: const Text('思源宋体'),
-        subtitle: const Text('内置应用字体'),
         trailing: _selected == AppFonts.defaultFamily
             ? const AppIcon(AppGlyph.check, size: 20)
             : null,
         onTap: () => _select(AppFonts.defaultFamily),
       ),
       for (final font in _fonts) _fontTile(font),
-      const Divider(height: 1),
       ListTile(
         key: const ValueKey('app-font-import'),
         enabled: !_busy,

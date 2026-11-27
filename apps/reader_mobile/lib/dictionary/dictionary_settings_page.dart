@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:html/parser.dart' as html;
 import 'package:reader_ui/icons/app_icon.dart';
-import 'package:reader_ui/panels/reader_settings_sheet.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
 import 'package:reader_ui/theme/reader_sheet_form.dart';
 import 'package:reader_ui/theme/reader_section_slider.dart';
@@ -265,9 +264,9 @@ class _DictionarySettingsPageState extends State<DictionarySettingsPage> {
   }
 
   @override
-  Widget build(BuildContext context) => ReaderSettingsSheet(
-    key: const ValueKey('dictionary-settings-sheet'),
-    header: ReaderSectionSlider(
+  Widget build(BuildContext context) => ReaderSettingsScaffold(
+    title: const Text('词典设置'),
+    fixedHeader: ReaderSectionSlider(
       key: const ValueKey('dictionary-settings-tabs'),
       sections: const [
         (key: 'ai', label: 'AI 查词'),
@@ -278,7 +277,7 @@ class _DictionarySettingsPageState extends State<DictionarySettingsPage> {
       index: _sectionIndex,
       onSelected: _selectSection,
     ),
-    child: _content(),
+    children: [_content()],
   );
 
   Widget _content() {
