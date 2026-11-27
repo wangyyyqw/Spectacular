@@ -1,11 +1,10 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 
 import '../sync/sync_controller.dart';
 import '../sync/sync_page.dart';
 
 import 'package:reader_ui/theme/reader_switch.dart';
+import 'package:reader_ui/theme/reader_dropdown.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
 import 'package:reader_ui/theme/reader_sheet_form.dart';
@@ -17,6 +16,7 @@ import '../dictionary/dictionary_settings_page.dart';
 import '../book_source/online_book_detail_page.dart';
 import '../book_source/online_source_page.dart';
 import '../diagnostics/reader_log.dart';
+import '../diagnostics/reader_log_page.dart';
 import '../library/library_store.dart';
 import '../reader/reader_font_store.dart';
 import 'about_page.dart';
@@ -82,7 +82,6 @@ class AppSettingsPage extends StatefulWidget {
 }
 
 class _AppSettingsPageState extends State<AppSettingsPage> {
-  bool _exporting = false;
   bool _savingTheme = false;
   bool _savingUiStyle = false;
   late ThemeMode _themeMode;
@@ -322,33 +321,7 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
     );
   }
 
-  Future<void> _chooseTheme(ThemeMode current) async {
-    final selected = await showReaderDrawer<ThemeMode>(
-      context: context,
-      builder: (context) => ReaderSheetForm(
-        title: const Text('界面主题'),
-        content: RadioGroup<ThemeMode>(
-          groupValue: current,
-          onChanged: (mode) => Navigator.of(context).pop(mode),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              for (final mode in ThemeMode.values)
-                RadioListTile<ThemeMode>(
-                  value: mode,
-                  contentPadding: EdgeInsets.zero,
-                  title: Text(switch (mode) {
-                    ThemeMode.system => '跟随系统',
-                    ThemeMode.light => '日间模式',
-                    ThemeMode.dark => '夜间模式',
-                  }),
-                ),
-            ],
-          ),
-        ),
-      ),
-    );
-    if (!mounted || selected == null || selected == current) return;
+  Future<void> _setTheme(ThemeMode selected) async {
     setState(() => _savingTheme = true);
     try {
       await widget.onThemeModeChanged!(selected);
@@ -360,36 +333,7 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
     }
   }
 
-  Future<void> _chooseUiStyle(AppUiStyle current) async {
-    final selected = await showReaderDrawer<AppUiStyle>(
-      context: context,
-      builder: (context) => ReaderSheetForm(
-        title: const Text('界面样式'),
-        content: RadioGroup<AppUiStyle>(
-          groupValue: current,
-          onChanged: (style) => Navigator.of(context).pop(style),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              for (final style in AppUiStyle.values)
-                RadioListTile<AppUiStyle>(
-                  value: style,
-                  contentPadding: EdgeInsets.zero,
-                  title: Text(switch (style) {
-                    AppUiStyle.classic => '经典',
-                    AppUiStyle.material3 => 'Material 3',
-                  }),
-                  subtitle: Text(switch (style) {
-                    AppUiStyle.classic => '克制精炼的工具风，平面细描边与小圆角',
-                    AppUiStyle.material3 => 'Material 3 规范控件、大圆角与柔和色调容器',
-                  }),
-                ),
-            ],
-          ),
-        ),
-      ),
-    );
-    if (!mounted || selected == null || selected == current) return;
+  Future<void> _setUiStyle(AppUiStyle selected) async {
     final onChanged =
         AppThemeScope.maybeOf(context)?.onUiStyleChanged ??
         widget.onUiStyleChanged;
@@ -449,56 +393,6 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
     await _loadAppFonts();
   }
 
-  Future<void> _clearLogs() async {
-    final confirmed = await showReaderConfirmDialog(
-      context: context,
-      title: '清理日志',
-      message: '将删除本机保存的全部诊断日志（含历史会话），确定吗？',
-      confirmLabel: '清理',
-      destructive: true,
-      confirmKey: const ValueKey<String>('logs-clear-confirm'),
-    );
-    if (!confirmed) {
-      return;
-    }
-    try {
-      await ReaderLog.instance.clear();
-    } catch (error, stackTrace) {
-      recordAppError('log_clear_failed', error, stackTrace: stackTrace);
-    }
-  }
-
-  Future<void> _exportLogs() async {
-    if (_exporting) {
-      return;
-    }
-    setState(() => _exporting = true);
-    final log = ReaderLog.instance;
-    try {
-      await log.log('export_logs');
-      await log.exportFile();
-      await log.share();
-    } catch (error, stackTrace) {
-      recordAppError('log_export_failed', error, stackTrace: stackTrace);
-    } finally {
-      if (mounted) {
-        setState(() => _exporting = false);
-      }
-    }
-  }
-
-  Future<void> _viewLogs() async {
-    final text = await ReaderLog.instance.exportText();
-    if (!mounted) return;
-    await showReaderDrawer<void>(
-      context: context,
-      builder: (context) => ReaderSheetForm(
-        title: const Text('诊断日志'),
-        content: SelectableText(text.isEmpty ? '暂无日志' : text),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return ReaderSettingsScaffold(
@@ -510,9 +404,8 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
             children: [
               ListTile(
                 key: const ValueKey('multi-device-sync-entry'),
-                leading: const Icon(Icons.cloud_sync_outlined),
+                leading: const AppIcon(AppGlyph.cloudSync),
                 title: const Text('多设备同步'),
-                subtitle: const Text('WebDAV / S3 · 完整阅读数据与可选加密'),
                 trailing: const AppIcon(AppGlyph.chevronRight),
                 onTap: () => Navigator.of(context).push<void>(
                   MaterialPageRoute(
@@ -533,7 +426,6 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
               key: const ValueKey('dictionary-settings-entry'),
               leading: const AppIcon(AppGlyph.bookshelf),
               title: const Text('词典设置'),
-              subtitle: const Text('释义服务、模型与查询预设'),
               trailing: const AppIcon(AppGlyph.chevronRight),
               onTap: () => showReaderBottomSheet<void>(
                 context: context,
@@ -558,27 +450,10 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
             ListTile(
               leading: const AppIcon(AppGlyph.listBulleted),
               title: const Text('查看诊断日志'),
-              subtitle: const Text('查看应用错误和运行记录'),
-              onTap: _viewLogs,
-            ),
-            ListTile(
-              leading: _exporting
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const AppIcon(AppGlyph.share),
-              title: const Text('导出诊断日志'),
-              subtitle: const Text('遇到阅读问题时，可随反馈附上'),
-              onTap: _exporting ? null : _exportLogs,
-            ),
-            ListTile(
-              key: const ValueKey<String>('logs-clear'),
-              leading: const AppIcon(AppGlyph.deleteSweep),
-              title: const Text('清理日志'),
-              subtitle: const Text('删除本机保存的全部诊断日志'),
-              onTap: _exporting ? null : _clearLogs,
+              trailing: const AppIcon(AppGlyph.chevronRight),
+              onTap: () => Navigator.of(context).push<void>(
+                MaterialPageRoute(builder: (_) => const ReaderLogPage()),
+              ),
             ),
           ],
         ),
@@ -588,6 +463,7 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
           children: [
             ListTile(
               key: const ValueKey('about-entry'),
+              leading: const AppIcon(AppGlyph.info),
               title: const Text('关于'),
               trailing: const AppIcon(AppGlyph.chevronRight),
               onTap: () => Navigator.of(context).push<void>(
@@ -610,7 +486,6 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
           key: const ValueKey('bookshelf-management-entry'),
           leading: const AppIcon(AppGlyph.bookshelf),
           title: const Text('书架管理'),
-          subtitle: const Text('书架显示、排序、更新和分组'),
           trailing: const AppIcon(AppGlyph.chevronRight),
           onTap: _openShelfManagement,
         ),
@@ -639,30 +514,30 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
           },
         ),
         if (widget.onThemeModeChanged != null)
-          ListTile(
-            leading: const AppIcon(AppGlyph.palette),
-            title: const Text('界面主题'),
-            subtitle: Text(switch (mode) {
+          _choiceTile<ThemeMode>(
+            title: '界面主题',
+            current: mode,
+            values: ThemeMode.values,
+            label: (mode) => switch (mode) {
               ThemeMode.system => '跟随系统',
               ThemeMode.light => '日间模式',
               ThemeMode.dark => '夜间模式',
-            }),
-            trailing: const AppIcon(AppGlyph.chevronRight),
-            onTap: _savingTheme ? null : () => _chooseTheme(mode),
+            },
+            onChanged: _savingTheme ? null : _setTheme,
           ),
         if ((AppThemeScope.maybeOf(context)?.onUiStyleChanged ??
                 widget.onUiStyleChanged) !=
             null)
-          ListTile(
+          _choiceTile<AppUiStyle>(
             key: const ValueKey('app-ui-style-setting'),
-            leading: const AppIcon(AppGlyph.palette),
-            title: const Text('界面样式'),
-            subtitle: Text(switch (uiStyle) {
+            title: '界面样式',
+            current: uiStyle,
+            values: AppUiStyle.values,
+            label: (style) => switch (style) {
               AppUiStyle.classic => '经典',
               AppUiStyle.material3 => 'Material 3',
-            }),
-            trailing: const AppIcon(AppGlyph.chevronRight),
-            onTap: _savingUiStyle ? null : () => _chooseUiStyle(uiStyle),
+            },
+            onChanged: _savingUiStyle ? null : _setUiStyle,
           ),
         if (widget.appFontStore != null &&
             widget.onAppFontFamilyChanged != null)
@@ -670,8 +545,7 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
             key: const ValueKey('app-font-setting'),
             leading: const AppIcon(AppGlyph.textFields),
             title: const Text('应用字体'),
-            subtitle: Text(_appFontLabel),
-            trailing: const AppIcon(AppGlyph.chevronRight),
+            trailing: _SettingValue(_appFontLabel),
             onTap: _chooseAppFont,
           ),
         if (widget.navigationSettings != null)
@@ -690,6 +564,57 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
       ],
     );
   }
+
+  Widget _choiceTile<T>({
+    Key? key,
+    required String title,
+    required T current,
+    required List<T> values,
+    required String Function(T) label,
+    required ValueChanged<T>? onChanged,
+  }) => Builder(
+    builder: (anchor) => ListTile(
+      key: key,
+      leading: const AppIcon(AppGlyph.palette),
+      title: Text(title),
+      trailing: _SettingValue(label(current)),
+      onTap: onChanged == null
+          ? null
+          : () async {
+              final selected = await showReaderChoiceMenu<T>(
+                anchor,
+                value: current,
+                items: [
+                  for (final value in values)
+                    DropdownMenuItem(value: value, child: Text(label(value))),
+                ],
+              );
+              if (mounted && selected != null && selected != current) {
+                onChanged(selected);
+              }
+            },
+    ),
+  );
+}
+
+class _SettingValue extends StatelessWidget {
+  const _SettingValue(this.label);
+  final String label;
+
+  @override
+  Widget build(BuildContext context) => ConstrainedBox(
+    constraints: BoxConstraints(maxWidth: MediaQuery.sizeOf(context).width * .4),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Flexible(
+          child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
+        ),
+        const SizedBox(width: 4),
+        const AppIcon(AppGlyph.chevronRight),
+      ],
+    ),
+  );
 }
 
 class _OnlineSourceEntry extends StatelessWidget {
@@ -700,32 +625,17 @@ class _OnlineSourceEntry extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListenableBuilder(
-      listenable: controller,
-      builder: (context, child) {
-        final subtitle = controller.error != null
-            ? controller.error!
-            : controller.enabledCount == 0
-            ? '导入 Legado/阅读 JSON 书源，搜索并下载书籍'
-            : '已启用 ${controller.enabledCount} / ${controller.sources.length} 个书源';
-        return ListTile(
-          key: const ValueKey<String>('online-source-entry'),
-          leading: const AppIcon(AppGlyph.link),
-          title: const Text('在线书源'),
-          subtitle: Text(
-            subtitle,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-          ),
-          trailing: const AppIcon(AppGlyph.chevronRight),
-          onTap: () => Navigator.of(context).push<void>(
-            MaterialPageRoute(
-              builder: (context) =>
-                  OnlineSourcePage(controller: controller, onRead: onRead),
-            ),
-          ),
-        );
-      },
+    return ListTile(
+      key: const ValueKey<String>('online-source-entry'),
+      leading: const AppIcon(AppGlyph.link),
+      title: const Text('在线书源'),
+      trailing: const AppIcon(AppGlyph.chevronRight),
+      onTap: () => Navigator.of(context).push<void>(
+        MaterialPageRoute(
+          builder: (context) =>
+              OnlineSourcePage(controller: controller, onRead: onRead),
+        ),
+      ),
     );
   }
 }

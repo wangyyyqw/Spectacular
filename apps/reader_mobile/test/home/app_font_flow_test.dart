@@ -90,14 +90,8 @@ void main() {
     );
     expect(await library.getSetting(AppFonts.settingKey), font.family);
     expect(
-      (tester
-                  .widget<ListTile>(
-                    find.byKey(const ValueKey('app-font-setting')),
-                  )
-                  .subtitle!
-              as Text)
-          .data,
-      font.displayName,
+      find.descendant(of: find.byKey(const ValueKey('app-font-setting')), matching: find.text(font.displayName)),
+      findsOneWidget,
     );
 
     await tester.pumpWidget(const SizedBox.shrink());
@@ -119,7 +113,8 @@ void main() {
     final setting = tester.widget<ListTile>(
       find.byKey(const ValueKey('app-font-setting')),
     );
-    expect((setting.subtitle! as Text).data, font.displayName);
+    expect(setting.subtitle, isNull);
+    expect(find.descendant(of: find.byWidget(setting.trailing!), matching: find.text(font.displayName)), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

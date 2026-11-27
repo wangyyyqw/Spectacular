@@ -83,17 +83,10 @@ void main() {
 
     Future<void> selectStyle(String label) async {
       final entry = find.byKey(const ValueKey('app-ui-style-setting'));
-      tester.widget<ListTile>(entry).onTap!.call();
+      await tester.ensureVisible(entry);
+      await tester.tap(entry);
       await tester.pumpAndSettle();
-      final option = find.widgetWithText(RadioListTile<AppUiStyle>, label);
-      final radio = tester.widget<RadioListTile<AppUiStyle>>(option);
-      final group = tester.widget<RadioGroup<AppUiStyle>>(
-        find.ancestor(
-          of: option,
-          matching: find.byType(RadioGroup<AppUiStyle>),
-        ),
-      );
-      group.onChanged.call(radio.value);
+      await tester.tap(find.widgetWithText(PopupMenuItem<AppUiStyle>, label));
       await tester.pumpAndSettle();
       await pumpReaderUntil(
         tester,
@@ -108,14 +101,8 @@ void main() {
     );
     await openSettings();
     expect(
-      (tester
-                  .widget<ListTile>(
-                    find.byKey(const ValueKey('app-ui-style-setting')),
-                  )
-                  .subtitle!
-              as Text)
-          .data,
-      '经典',
+      find.descendant(of: find.byKey(const ValueKey('app-ui-style-setting')), matching: find.text('经典')),
+      findsOneWidget,
     );
     await selectStyle('Material 3');
     expect(await library.getSetting(AppUiStyle.settingKey), 'material3');
@@ -138,14 +125,8 @@ void main() {
     );
     await openSettings();
     expect(
-      (tester
-                  .widget<ListTile>(
-                    find.byKey(const ValueKey('app-ui-style-setting')),
-                  )
-                  .subtitle!
-              as Text)
-          .data,
-      'Material 3',
+      find.descendant(of: find.byKey(const ValueKey('app-ui-style-setting')), matching: find.text('Material 3')),
+      findsOneWidget,
     );
     await selectStyle('经典');
     expect(await library.getSetting(AppUiStyle.settingKey), 'classic');
@@ -171,7 +152,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('app-ui-style-setting')));
     await tester.pumpAndSettle();
-    expect(find.byType(RadioListTile<AppUiStyle>), findsNWidgets(2));
+    expect(find.byType(PopupMenuItem<AppUiStyle>), findsNWidgets(2));
     await tester.tap(find.text('Material 3'));
     await tester.pumpAndSettle();
     expect(selected, AppUiStyle.material3);

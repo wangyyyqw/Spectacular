@@ -10,7 +10,6 @@ import 'package:reader_mobile/main.dart';
 import 'package:reader_mobile/reader/reader_route.dart';
 import 'package:reader_mobile/storage/db.dart';
 import 'package:reader_ui/reader_session.dart';
-import 'package:reader_ui/theme/reader_sheet_form.dart';
 
 import '../support/reader_pump.dart';
 
@@ -62,22 +61,17 @@ Future<void> _selectMode(
 ) async {
   await tester.tap(find.text('界面主题'));
   await _pumpApp(tester);
-  final drawer = find.byType(ReaderSheetForm);
-  expect(drawer, findsOneWidget);
+  final options = find.byType(PopupMenuItem<ThemeMode>);
+  expect(options, findsNWidgets(3));
   expect(
     find.byWidgetPredicate((widget) => widget is AlertDialog),
     findsNothing,
   );
-  await tester.tap(
-    find.descendant(
-      of: drawer,
-      matching: find.widgetWithText(RadioListTile<ThemeMode>, label),
-    ),
-  );
+  await tester.tap(find.widgetWithText(PopupMenuItem<ThemeMode>, label));
   await pumpReaderUntilComplete(
     tester,
-    () => drawer.evaluate().isEmpty,
-    description: '界面主题抽屉退场',
+    () => options.evaluate().isEmpty,
+    description: '界面主题菜单关闭',
   );
   await pumpReaderUntilComplete(
     tester,
@@ -352,24 +346,13 @@ void main() {
       expect(brightness(), Brightness.dark);
       await tester.tap(find.text('界面主题'));
       await _pumpApp(tester);
-      final drawer = find.byType(ReaderSheetForm);
-      expect(drawer, findsOneWidget);
-      expect(
-        tester
-            .widget<RadioGroup<ThemeMode>>(
-              find.descendant(
-                of: drawer,
-                matching: find.byType(RadioGroup<ThemeMode>),
-              ),
-            )
-            .groupValue,
-        ThemeMode.system,
-      );
+      final options = find.byType(PopupMenuItem<ThemeMode>);
+      expect(options, findsNWidgets(3));
       await tester.binding.handlePopRoute();
       await pumpReaderUntilComplete(
         tester,
-        () => drawer.evaluate().isEmpty,
-        description: '关闭主题抽屉',
+        () => options.evaluate().isEmpty,
+        description: '关闭主题菜单',
       );
       expect(
         tester.widget<MaterialApp>(find.byType(MaterialApp)).themeMode,

@@ -49,6 +49,8 @@ Future<T?> showReaderChoiceMenu<T>(
           enabled: item.enabled,
           onTap: item.onTap,
           height: 52,
+          textStyle: theme.textTheme.bodyMedium,
+          labelTextStyle: WidgetStatePropertyAll(theme.textTheme.bodyMedium),
           child: Semantics(
             selected: item.value == value,
             child: Center(

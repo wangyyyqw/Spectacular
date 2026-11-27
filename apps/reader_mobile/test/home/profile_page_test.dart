@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:reader_mobile/diagnostics/reader_log.dart';
 import 'package:reader_mobile/home/bookshelf_sort.dart';
 import 'package:reader_mobile/home/profile_page.dart';
 import 'package:reader_mobile/home/app_settings_page.dart';
@@ -10,6 +11,7 @@ import 'package:reader_mobile/rea_micro/rea_micro_controller.dart';
 import 'package:reader_mobile/rea_micro/rea_micro_models.dart';
 import 'package:reader_mobile/reader/reader_font_store.dart';
 import 'package:reader_mobile/theme/app_theme.dart';
+import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/panels/reader_settings_sheet.dart';
 import 'package:reader_ui/theme/reader_section_slider.dart';
 import 'package:reader_ui/theme/reader_ui_style.dart';
@@ -258,7 +260,7 @@ void main() {
   });
 
   testWidgets(
-    '主题抽屉关闭保留原设置，选择后等待真实保存回调',
+    '主题选项菜单关闭保留原设置，选择后等待真实保存回调',
     (tester) async {
       final saved = <ThemeMode>[];
       final pending = Completer<void>();
@@ -279,7 +281,7 @@ void main() {
       await tester.tap(find.text('界面主题'));
       await tester.pumpAndSettle();
       expect(find.byType(Dialog), findsNothing);
-      expect(find.byType(RadioListTile<ThemeMode>), findsNWidgets(3));
+      expect(find.byType(PopupMenuItem<ThemeMode>), findsNWidgets(3));
       await tester.binding.handlePopRoute();
       await tester.pumpAndSettle();
       expect(saved, isEmpty);
@@ -295,15 +297,15 @@ void main() {
       await tester.pumpAndSettle();
       expect(tester.widget<ListTile>(themeTile).onTap, isNotNull);
       expect(
-        (tester.widget<ListTile>(themeTile).subtitle! as Text).data,
-        '夜间模式',
+        find.descendant(of: themeTile, matching: find.text('夜间模式')),
+        findsOneWidget,
       );
       await tester.tap(themeTile);
       await tester.pumpAndSettle();
-      final group = tester.widget<RadioGroup<ThemeMode>>(
-        find.byType(RadioGroup<ThemeMode>),
-      );
-      expect(group.groupValue, ThemeMode.dark);
+      final option = find.widgetWithText(PopupMenuItem<ThemeMode>, '夜间模式');
+      expect(find.descendant(of: option, matching: find.byWidgetPredicate(
+        (widget) => widget is Semantics && widget.properties.selected == true,
+      )), findsOneWidget);
       await tester.binding.handlePopRoute();
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
@@ -386,7 +388,7 @@ void main() {
     await tester.pumpAndSettle();
     final entry = find.byKey(const ValueKey('app-font-setting'));
     expect(entry, findsOneWidget);
-    expect((tester.widget<ListTile>(entry).subtitle! as Text).data, '思源宋体');
+    expect(find.descendant(of: entry, matching: find.text('思源宋体')), findsOneWidget);
 
     await tester.tap(entry);
     await tester.pumpAndSettle();
@@ -461,7 +463,8 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('清理日志保留后果确认，可取消返回设置', (tester) async {
+  testWidgets('设置行去掉副标题，日志操作移至查看页并在确认清理后刷新', (tester) async {
+    await tester.runAsync(() => ReaderLog.instance.log('settings_log_clear_test'));
     await tester.pumpWidget(
       MaterialApp(
         theme: buildAppTheme(),
@@ -469,8 +472,19 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    await tester.ensureVisible(find.byKey(const ValueKey('logs-clear')));
+    expect(find.byKey(const ValueKey('logs-clear')), findsNothing);
+    expect(find.byTooltip('导出诊断日志'), findsNothing);
+    expect(tester.widgetList<ListTile>(find.byType(ListTile)).every((tile) => tile.subtitle == null), isTrue);
+    final about = find.byKey(const ValueKey('about-entry'));
+    await tester.ensureVisible(about);
+    expect((tester.widget<ListTile>(about).leading! as AppIcon).glyph, AppGlyph.info);
+    final view = find.text('查看诊断日志');
+    await tester.ensureVisible(view);
+    await tester.tap(view);
     await tester.pumpAndSettle();
+    final bar = find.byType(AppBar);
+    expect(find.descendant(of: bar, matching: find.byTooltip('导出诊断日志')), findsOneWidget);
+    expect(find.descendant(of: bar, matching: find.byTooltip('清理日志')), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('logs-clear')));
     await tester.pumpAndSettle();
     final confirmation = find.byWidgetPredicate(
@@ -478,11 +492,18 @@ void main() {
     );
     expect(confirmation, findsOneWidget);
     expect(find.byKey(const ValueKey('logs-clear-confirm')), findsOneWidget);
-    expect(find.text('将删除本机保存的全部诊断日志（含历史会话），确定吗？'), findsOneWidget);
+    expect(find.textContaining('保留上传失败记录'), findsOneWidget);
     await tester.tap(find.text('取消'));
     await tester.pumpAndSettle();
     expect(confirmation, findsNothing);
     expect(find.byKey(const ValueKey('logs-clear')), findsOneWidget);
+    String text() => tester.widget<SelectableText>(find.byType(SelectableText)).data!;
+    expect(text(), contains('settings_log_clear_test'));
+    await tester.tap(find.byTooltip('清理日志'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('logs-clear-confirm')));
+    await tester.pumpAndSettle();
+    expect(text(), isNot(contains('settings_log_clear_test')));
   });
 
   testWidgets('账号与同步中社区入口位于野社入口下方', (tester) async {
