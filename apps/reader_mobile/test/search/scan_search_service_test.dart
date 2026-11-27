@@ -115,6 +115,33 @@ void main() {
     expect(results, hasLength(5));
   });
 
+  test('长章重复命中定位到各自原文块，跨页后序号保持一致', () async {
+    const count = 128;
+    const paragraph = '相同前文关键词相同后文';
+    final source = await openCssChapter(
+      body: [for (var i = 0; i < count; i++) '<p>$paragraph</p>'].join(),
+      contentWidth: 360,
+      contentHeight: 600,
+    );
+    addTearDown(source.close);
+    final service = ScanSearchService(source: source);
+    addTearDown(service.dispose);
+    final hits = await service.search('关键词');
+    expect(hits, hasLength(count));
+    final pages = await source.loadChapter(0);
+    expect(pages.length, greaterThan(1));
+    final chapter = ChapterText.fromPages(pages);
+    expect(chapter.blocks, hasLength(count));
+    for (final index in [0, 1, count ~/ 2, count - 1]) {
+      final cfi = await service.resolveCfi(hits[index]);
+      expect(
+        cfi,
+        chapter.blocks[index].block.cfiAt(paragraph.indexOf('关键词')),
+        reason: '相同上下文不能跳到另一段的命中',
+      );
+    }
+  });
+
   group('mapSearchOffset', () {
     test('扫描偏移越界或排版中无词时返回未命中', () {
       expect(mapSearchOffset('正文', '关键词', '关键词', 2918), -1);
