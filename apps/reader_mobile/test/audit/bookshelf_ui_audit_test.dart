@@ -102,6 +102,9 @@ void main() {
       tester,
       BookshelfPage(library: library, progressStore: progress),
     );
+    expect(_key('book-card-${first.id}'), findsNothing);
+    expect(_key('book-card-${third.id}'), findsOneWidget);
+    await _tap(tester, _key('bookshelf-group-${group.id}'));
 
     final grid = tester.widget<GridView>(_key('bookshelf-grid'));
     final layout =
@@ -123,14 +126,16 @@ void main() {
       greaterThan(tester.getBottomLeft(cover).dy),
     );
     expect(_key('book-card-meta-${second.id}'), findsNothing);
-    expect(find.text('全部'), findsOneWidget);
-    expect(find.textContaining('全部 '), findsNothing);
+    expect(find.text('默认分组'), findsOneWidget);
+    expect(find.text('全部'), findsNothing);
 
     await _tap(tester, _key('bookshelf-group-${group.id}'));
     expect(_key('book-card-${third.id}'), findsNothing);
     expect(_key('book-card-${first.id}'), findsOneWidget);
-    await _tap(tester, _key('bookshelf-group-all'));
+    await _tap(tester, _key('bookshelf-group-default'));
     expect(_key('book-card-${third.id}'), findsOneWidget);
+    expect(_key('book-card-${first.id}'), findsNothing);
+    await _tap(tester, _key('bookshelf-group-${group.id}'));
     await _tap(tester, find.byTooltip('搜索书架'));
     await tester.enterText(_key('bookshelf-search-field'), '乙作者');
     await tester.pumpAndSettle();

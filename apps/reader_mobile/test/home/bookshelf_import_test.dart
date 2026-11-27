@@ -159,8 +159,11 @@ void main() {
     );
   });
 
-  testWidgets('多选两本：队列依次导入并刷新书架', (tester) async {
+  testWidgets('在自定义分组批量导入，新书进入默认分组且不与原分组重复', (tester) async {
     final library = LibraryStore.memory();
+    final existing = await library.importBytes(buildTestEpub(title: '分组内的原书'));
+    final group = await library.createGroup('已有分组');
+    await library.setBooksGroup([existing.id], groupId: group.id);
     final second = File('${temp.path}/第二本.epub')
       ..writeAsBytesSync(buildTestEpub(title: '第二本'));
     await tester.pumpWidget(
@@ -174,13 +177,23 @@ void main() {
       ),
     );
     await _settle(tester);
+    await tester.tap(find.byKey(ValueKey('bookshelf-group-${group.id}')));
+    await _settle(tester);
+    expect(find.text(existing.title), findsWidgets);
 
     await _chooseLocalImport(tester);
     await _settle(tester, frames: 10);
 
     expect(find.text('山海小记'), findsWidgets);
     expect(find.text('第二本'), findsWidgets);
-    expect((await library.list()).length, 2);
+    expect(find.text(existing.title), findsNothing);
+    expect((await library.list()).length, 3);
+    expect(await library.groupAssignments(), {existing.id: group.id});
+    await tester.tap(find.byKey(ValueKey('bookshelf-group-${group.id}')));
+    await _settle(tester);
+    expect(find.text(existing.title), findsWidgets);
+    expect(find.text('山海小记'), findsNothing);
+    expect(find.text('第二本'), findsNothing);
   });
 
   testWidgets('临时模式禁用导入入口，不调用文件选择器', (tester) async {

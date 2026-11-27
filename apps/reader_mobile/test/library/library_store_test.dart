@@ -444,6 +444,7 @@ void main() {
     final second = await opened.store.importBytes(
       buildTestEpub(title: '分组乙', identifier: 'group-b'),
     );
+    expect(await opened.store.groupAssignments(), isEmpty);
 
     final group = await opened.store.createGroup(' 小说 ');
     expect(group.name, '小说');
@@ -468,6 +469,19 @@ void main() {
     });
     await secondStore.renameGroup(group.id, '文学');
     expect((await secondStore.listGroups()).single.name, '文学');
+    final target = await secondStore.createGroup('随笔');
+    await secondStore.setBooksGroup([first.id], groupId: target.id);
+    expect(await secondStore.groupAssignments(), {
+      first.id: target.id,
+      second.id: group.id,
+    });
+    expect(
+      await opened.db.select(opened.db.shelfGroupBooks).get(),
+      hasLength(2),
+    );
+    await secondStore.setBooksGroup([first.id]);
+    expect(await secondStore.groupAssignments(), {second.id: group.id});
+    await secondStore.deleteGroup(target.id);
     await secondStore.deleteGroup(group.id);
     expect(await secondStore.listGroups(), isEmpty);
     expect(await secondStore.groupAssignments(), isEmpty);

@@ -627,6 +627,42 @@ void main() {
     expect((await b.engine().sync()).downloaded, 1);
   });
 
+  test('跨设备移动分组只保留一个归属，移回默认和删除分组保留书籍', () async {
+    final cloud = _Cloud();
+    final a = await _device(cloud);
+    final b = await _device(cloud);
+    final book = await a.library.importBytes(buildTestEpub(title: '互斥分组'));
+    final first = await a.library.createGroup('待读');
+    final second = await a.library.createGroup('收藏');
+    await a.engine().create(encrypted: false);
+    await a.engine().sync();
+    await b.engine().sync();
+    final restored = (await b.library.list()).single;
+    expect(await b.library.groupAssignments(), isEmpty);
+
+    for (final group in [first, second]) {
+      await a.library.setBooksGroup([book.id], groupId: group.id);
+      await a.engine().sync();
+      await b.engine().sync();
+      expect(await b.library.groupAssignments(), {restored.id: group.id});
+      expect(await b.db.select(b.db.shelfGroupBooks).get(), hasLength(1));
+    }
+    await b.library.setBooksGroup([restored.id]);
+    await b.engine().sync();
+    await a.engine().sync();
+    expect(await a.library.groupAssignments(), isEmpty);
+
+    await a.library.setBooksGroup([book.id], groupId: second.id);
+    await a.engine().sync();
+    await b.engine().sync();
+    await a.library.deleteGroup(second.id);
+    await a.engine().sync();
+    await b.engine().sync();
+    expect(await b.library.groupAssignments(), isEmpty);
+    expect((await b.library.list()).single.id, restored.id);
+    expect((await b.engine().sync()).uploaded, 0);
+  });
+
   test('双端修改保留完整冲突版本，明确选择后向其他设备传播', () async {
     final cloud = _Cloud();
     final a = await _device(cloud);

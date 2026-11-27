@@ -15,6 +15,115 @@ Future<void> _settle(WidgetTester tester, {int frames = 12}) async {
 }
 
 void main() {
+  for (final grid in [true, false]) {
+    testWidgets('分组互斥、单本和批量移回默认分组，删除分组保留书籍：网格=$grid', (tester) async {
+      final library = LibraryStore.memory();
+      final books = <BookEntry>[];
+      await tester.runAsync(() async {
+        for (final title in ['甲书', '乙书', '丙书']) {
+          books.add(await library.importBytes(buildTestEpub(title: title)));
+        }
+      });
+      final first = await library.createGroup('小说');
+      final second = await library.createGroup('散文');
+      await library.setBooksGroup(
+        books.take(2).map((book) => book.id),
+        groupId: first.id,
+      );
+      await library.setBooksGroup([books.last.id], groupId: second.id);
+      await library.setSetting('bookshelf.grid', '$grid');
+      Future<void> show() async {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: BookshelfPage(
+              key: UniqueKey(),
+              library: library,
+              progressStore: MemoryReaderProgressStore(),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+      }
+
+      Future<void> select(String? id) async {
+        await tester.tap(
+          find.byKey(ValueKey('bookshelf-group-${id ?? 'default'}')),
+        );
+        await tester.pumpAndSettle();
+      }
+
+      void expectBooks(List<BookEntry> expected) {
+        for (final book in books) {
+          expect(
+            find.byKey(ValueKey('book-${grid ? 'card' : 'row'}-${book.id}')),
+            expected.contains(book) ? findsOneWidget : findsNothing,
+          );
+        }
+      }
+
+      await show();
+      expect(find.text('默认分组还没有书'), findsOneWidget);
+      expect(find.text('全部'), findsNothing);
+      expect(find.text('查看全部书籍'), findsNothing);
+      expectBooks([]);
+      await select(first.id);
+      expectBooks(books.take(2).toList());
+      await select(first.id);
+      expectBooks(books.take(2).toList());
+
+      final search = find.byKey(const ValueKey('bookshelf-search-field'));
+      await tester.tap(search);
+      await tester.enterText(search, '不存在');
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('清除筛选'));
+      await tester.pumpAndSettle();
+      expectBooks(books.take(2).toList());
+
+      await tester.longPress(find.text(books.first.title).first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('分组'));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const ValueKey('bookshelf-book-group-default')),
+      );
+      await tester.pumpAndSettle();
+      expectBooks([books.first]);
+      await select(first.id);
+      expectBooks([books[1]]);
+
+      await tester.tap(find.byTooltip('多选'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(books[1].title).first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('bookshelf-batch-group')));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const ValueKey('bookshelf-book-group-default')),
+      );
+      await tester.pumpAndSettle();
+      expectBooks(books.take(2).toList());
+      await select(first.id);
+      expectBooks([]);
+      await select(second.id);
+      expectBooks([books.last]);
+
+      await tester.longPress(
+        find.byKey(ValueKey('bookshelf-group-${second.id}')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('删除分组'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, '删除'));
+      await tester.pumpAndSettle();
+      expectBooks(books);
+      expect(await library.groupAssignments(), isEmpty);
+      await show();
+      expectBooks(books);
+      expect(await library.list(), hasLength(3));
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   testWidgets('内容区左右滑动切换分组，兼容空组、列表、多选及溢出标签', (tester) async {
     tester.view.physicalSize = const Size(400, 800);
     tester.view.devicePixelRatio = 1;
@@ -45,7 +154,7 @@ void main() {
     await _settle(tester);
     final pages = find.byKey(const ValueKey('bookshelf-group-pages'));
 
-    // 全部页向右不循环；短距离和纵向滑动不切换。
+    // 默认分组向右不循环；短距离和纵向滑动不切换。
     for (final offset in [
       const Offset(180, 0),
       const Offset(-32, 0),
@@ -208,8 +317,8 @@ void main() {
     );
     await _settle(tester);
 
-    expect(find.text('全部'), findsOneWidget);
-    expect(find.textContaining('全部 '), findsNothing);
+    expect(find.text('默认分组'), findsOneWidget);
+    expect(find.text('全部'), findsNothing);
     expect(find.text('未读 3'), findsNothing);
     expect(find.text('在读 0'), findsNothing);
     expect(find.text('已读完 0'), findsNothing);
@@ -239,13 +348,13 @@ void main() {
 
     expect(find.text('小说'), findsOneWidget);
     expect(find.textContaining('小说 '), findsNothing);
-    final allTab = tester.getRect(
-      find.byKey(const ValueKey('bookshelf-group-all')),
+    final defaultTab = tester.getRect(
+      find.byKey(const ValueKey('bookshelf-group-default')),
     );
-    expect(allTab.left, 16);
+    expect(defaultTab.left, 16);
     expect(
       tester.getTopLeft(find.text('小说')).dx,
-      greaterThanOrEqualTo(allTab.right),
+      greaterThanOrEqualTo(defaultTab.right),
     );
     expect(find.text('分组甲'), findsWidgets);
     expect(find.text('分组乙'), findsNothing);
@@ -253,8 +362,9 @@ void main() {
 
     expect(find.text('退出分组'), findsNothing);
     expect(find.text('管理当前分组'), findsNothing);
-    await tester.tap(find.byKey(const ValueKey<String>('bookshelf-group-all')));
+    await tester.tap(find.byKey(const ValueKey('bookshelf-group-default')));
     await _settle(tester, frames: 4);
+    expect(find.text('分组甲'), findsNothing);
     expect(find.text('分组丙'), findsWidgets);
 
     await tester.tap(find.byTooltip('多选'));
@@ -372,9 +482,9 @@ void main() {
     expect(await library.groupAssignments(), <String, String>{
       first.id: groups.single.id,
     });
-    await tester.tap(find.byKey(const ValueKey('bookshelf-group-all')));
-    await _settle(tester, frames: 3);
-    expect(find.text('新建甲'), findsWidgets);
+    await tester.tap(find.byKey(const ValueKey('bookshelf-group-default')));
+    await tester.pumpAndSettle();
+    expect(find.text('新建甲'), findsNothing);
     expect(find.text('新建乙'), findsWidgets);
     expect(tester.takeException(), isNull);
   });
@@ -403,6 +513,8 @@ void main() {
       ),
     );
     await _settle(tester);
+    await tester.tap(find.byKey(ValueKey('bookshelf-group-${original.id}')));
+    await _settle(tester, frames: 3);
     final search = find.byKey(const ValueKey('bookshelf-search-field'));
     await tester.tap(search);
     await tester.enterText(search, '当前');

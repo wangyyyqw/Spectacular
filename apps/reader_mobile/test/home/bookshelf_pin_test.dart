@@ -42,10 +42,6 @@ void main() {
       await library.setSetting('bookshelf.grid', 'false');
       await library.setSetting(bookshelfSortKey, sort.value);
       final group = await library.createGroup('置顶分组');
-      await library.setBooksGroup(
-        books.take(2).map((book) => book.id),
-        groupId: group.id,
-      );
 
       Future<void> showShelf() async {
         await tester.pumpWidget(
@@ -107,6 +103,12 @@ void main() {
         books[1].id,
         books[0].id,
       ]);
+      await library.setBooksGroup(
+        books.take(2).map((book) => book.id),
+        groupId: group.id,
+      );
+      await tester.pumpAndSettle();
+      expect(_titles(tester), ['C书']);
       await tester.tap(find.text('置顶分组'));
       await tester.pumpAndSettle();
       expect(_titles(tester), ['A书', 'B书']);
@@ -130,7 +132,10 @@ void main() {
       await tester.pumpAndSettle();
       await togglePin(books[1], '取消置顶');
       expect(_titles(tester), ['B书', 'A书']);
-      await tester.tap(find.text('全部'));
+      await tester.tap(find.text('默认分组'));
+      await tester.pumpAndSettle();
+      expect(_titles(tester), ['C书']);
+      await library.setBooksGroup(books.take(2).map((book) => book.id));
       await tester.pumpAndSettle();
       expect(_titles(tester), ['B书', ...original.where((t) => t != 'B书')]);
       await togglePin(books[0], '取消置顶');

@@ -464,7 +464,7 @@ class LibraryStore {
     ];
   }
 
-  /// 书籍 uuid → 分组 id；没有分组的书不出现在结果中。
+  /// 书籍 uuid → 自定义分组 id；没有归属记录的书属于默认分组。
   Future<Map<String, String>> groupAssignments() async {
     if (_isMemory) {
       return Map<String, String>.of(_memoryBookGroups);
@@ -544,7 +544,7 @@ class LibraryStore {
     _notify();
   }
 
-  /// 删除分组；书籍本身保留，归属关系一并移除。
+  /// 删除分组；移除归属关系，书籍回到默认分组，阅读记录保留。
   Future<void> deleteGroup(String id) async {
     if (_isMemory) {
       _memoryGroups.remove(id);
@@ -558,7 +558,7 @@ class LibraryStore {
     _notify();
   }
 
-  /// 将书籍移入分组；[groupId] 为 null 时移出分组。
+  /// 将书籍移入唯一的目标分组；[groupId] 为 null 时移回默认分组。
   Future<void> setBooksGroup(
     Iterable<String> bookIds, {
     String? groupId,

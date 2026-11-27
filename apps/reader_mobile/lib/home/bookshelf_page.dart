@@ -306,11 +306,9 @@ class _BookshelfPageState extends State<BookshelfPage> {
     if (mounted) setState(() => _pinnedIds = pinned);
   }
 
-  void _toggleGroup(String id) {
-    setState(() {
-      _activeGroupId = _activeGroupId == id ? null : id;
-    });
-  }
+  void _selectGroup(String? id) => setState(() {
+    _activeGroupId = id;
+  });
 
   int _groupBookCount(ShelfGroup group) => (_items ?? const <_ShelfItem>[])
       .where((item) => _bookGroups[item.entry.id] == group.id)
@@ -364,9 +362,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
 
   Future<void> _groupBook(BookEntry entry) async {
     final target =
-        await showReaderBottomSheet<
-          ({String? groupId, String? name, bool ungroup})
-        >(
+        await showReaderBottomSheet<({String? groupId, String? name})>(
           context: context,
           isScrollControlled: true,
           useSafeArea: true,
@@ -381,7 +377,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
     try {
       final groupId = target.name != null
           ? (await widget.library.createGroup(target.name!)).id
-          : target.groupId!;
+          : target.groupId;
       await widget.library.setBooksGroup([entry.id], groupId: groupId);
       await _reload();
       if (mounted) {
@@ -425,7 +421,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
             ReaderOptionTile(
               leading: const AppIcon(AppGlyph.delete),
               title: '删除分组',
-              subtitle: '书籍会保留在书架中',
+              subtitle: '书籍会移回默认分组',
               destructive: true,
               onTap: () => Navigator.of(context).pop('delete'),
             ),
@@ -452,14 +448,14 @@ class _BookshelfPageState extends State<BookshelfPage> {
       final confirmed = await showReaderConfirmDialog(
         context: context,
         title: '删除分组「${group.name}」？',
-        message: '书籍会保留在书架中，只删除分组。',
+        message: '只删除分组，书籍会移回默认分组，阅读记录保留。',
         confirmLabel: '删除',
         destructive: true,
       );
       if (confirmed) {
         await widget.library.deleteGroup(group.id);
         if (mounted && _activeGroupId == group.id) {
-          setState(() => _activeGroupId = null);
+          _selectGroup(null);
         }
       }
     }
@@ -486,7 +482,6 @@ class _BookshelfPageState extends State<BookshelfPage> {
     setState(() {
       _searching = false;
       _query = '';
-      _activeGroupId = null;
     });
   }
 
@@ -638,7 +633,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
   List<_ShelfItem> _visible(List<_ShelfItem> items, {String? groupId}) {
     final query = _query.trim().toLowerCase();
     final filtered = items.where((item) {
-      if (groupId != null && _bookGroups[item.entry.id] != groupId) {
+      if (_bookGroups[item.entry.id] != groupId) {
         return false;
       }
       if (query.isEmpty) {
@@ -690,6 +685,17 @@ class _BookshelfPageState extends State<BookshelfPage> {
         .where((job) => job.status == ImportStatus.cancelled)
         .length;
     if (succeeded > 0) {
+      if (_batch.any(
+        (job) =>
+            job.status == ImportStatus.succeeded &&
+            job.entry?.importOutcome == BookImportOutcome.added,
+      )) {
+        setState(() {
+          _activeGroupId = null;
+          _query = '';
+          _searchController.clear();
+        });
+      }
       recordAppEvent('book_import_completed');
     }
     if (failed != null) {
@@ -1197,9 +1203,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
       return;
     }
     final target =
-        await showReaderBottomSheet<
-          ({String? groupId, String? name, bool ungroup})
-        >(
+        await showReaderBottomSheet<({String? groupId, String? name})>(
           context: context,
           isScrollControlled: true,
           useSafeArea: true,
@@ -1207,7 +1211,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
           builder: (_) => _BookGroupSheet(
             summary: '将 ${entries.length} 本书移入分组',
             groups: _groups,
-            allowUngroup: true,
+            showCurrentGroup: false,
           ),
         );
     if (!mounted || target == null) {
@@ -1215,18 +1219,18 @@ class _BookshelfPageState extends State<BookshelfPage> {
     }
     final ids = <String>[for (final entry in entries) entry.id];
     try {
-      if (target.ungroup) {
-        await widget.library.setBooksGroup(ids);
-      } else {
-        final groupId = target.name != null
-            ? (await widget.library.createGroup(target.name!)).id
-            : target.groupId!;
-        await widget.library.setBooksGroup(ids, groupId: groupId);
-      }
+      final groupId = target.name != null
+          ? (await widget.library.createGroup(target.name!)).id
+          : target.groupId;
+      await widget.library.setBooksGroup(ids, groupId: groupId);
+      await _reload();
       if (!mounted) {
         return;
       }
       setState(() {
+        _activeGroupId = groupId;
+        _query = '';
+        _searchController.clear();
         _selectionMode = false;
         _selectedIds.clear();
       });
@@ -1472,8 +1476,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
           child: _ShelfGroupBar(
             groups: _groups,
             activeGroupId: _activeGroupId,
-            onToggle: _toggleGroup,
-            onShowAll: () => setState(() => _activeGroupId = null),
+            onSelect: _selectGroup,
             onManage: _manageGroup,
           ),
         ),
@@ -1548,7 +1551,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
             items: [null, for (final group in _groups) group.id],
             value: _activeGroupId,
             enabled: canSwipe,
-            onChanged: (id) => setState(() => _activeGroupId = id),
+            onChanged: _selectGroup,
             builder: (id) => _ShelfBodyTransition(
               groupId: id,
               groupIndex: 0,
@@ -1596,7 +1599,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
     if (books.isEmpty) {
       return _NoMatchesPane(
         query: _query.trim(),
-        groupName: _query.trim().isEmpty && groupId != null
+        groupName: groupId != null
             ? _groups.where((group) => group.id == groupId).firstOrNull?.name
             : null,
         onReset: _resetFilters,
@@ -1952,13 +1955,13 @@ class _BookGroupSheet extends StatefulWidget {
     required this.summary,
     required this.groups,
     this.currentGroupId,
-    this.allowUngroup = false,
+    this.showCurrentGroup = true,
   });
 
   final String summary;
   final List<ShelfGroup> groups;
   final String? currentGroupId;
-  final bool allowUngroup;
+  final bool showCurrentGroup;
 
   @override
   State<_BookGroupSheet> createState() => _BookGroupSheetState();
@@ -1977,7 +1980,7 @@ class _BookGroupSheetState extends State<_BookGroupSheet> {
   void _create() {
     final name = _controller.text.trim();
     if (name.isEmpty) return;
-    Navigator.of(context).pop((groupId: null, name: name, ungroup: false));
+    Navigator.of(context).pop((groupId: null, name: name));
   }
 
   Widget _createForm() => Column(
@@ -2017,28 +2020,27 @@ class _BookGroupSheetState extends State<_BookGroupSheet> {
   Widget _groupOptions() => Column(
     mainAxisSize: MainAxisSize.min,
     children: [
+      ListTile(
+        key: const ValueKey('bookshelf-book-group-default'),
+        contentPadding: EdgeInsets.zero,
+        leading: const AppIcon(AppGlyph.folder),
+        title: const Text('默认分组'),
+        subtitle: widget.showCurrentGroup && widget.currentGroupId == null
+            ? const Text('当前分组')
+            : null,
+        onTap: () => Navigator.of(context).pop((groupId: null, name: null)),
+      ),
       for (final group in widget.groups)
         ListTile(
           key: ValueKey('bookshelf-book-group-${group.id}'),
           contentPadding: EdgeInsets.zero,
           leading: const AppIcon(AppGlyph.folder),
           title: Text(group.name),
-          subtitle: group.id == widget.currentGroupId
+          subtitle: widget.showCurrentGroup && group.id == widget.currentGroupId
               ? const Text('当前分组')
               : null,
           onTap: () =>
-              Navigator.of(context)
-                  .pop((groupId: group.id, name: null, ungroup: false)),
-        ),
-      if (widget.allowUngroup)
-        ListTile(
-          key: const ValueKey('bookshelf-group-pick-none'),
-          contentPadding: EdgeInsets.zero,
-          leading: const AppIcon(AppGlyph.folderOff),
-          title: const Text('移出分组'),
-          onTap: () =>
-              Navigator.of(context)
-                  .pop((groupId: null, name: null, ungroup: true)),
+              Navigator.of(context).pop((groupId: group.id, name: null)),
         ),
       const Divider(),
       ListTile(
@@ -2088,15 +2090,13 @@ class _ShelfGroupBar extends StatelessWidget {
   const _ShelfGroupBar({
     required this.groups,
     required this.activeGroupId,
-    required this.onToggle,
-    required this.onShowAll,
+    required this.onSelect,
     required this.onManage,
   });
 
   final List<ShelfGroup> groups;
   final String? activeGroupId;
-  final ValueChanged<String> onToggle;
-  final VoidCallback onShowAll;
+  final ValueChanged<String?> onSelect;
   final ValueChanged<ShelfGroup> onManage;
 
   @override
@@ -2109,17 +2109,17 @@ class _ShelfGroupBar extends StatelessWidget {
         child: Row(
           children: <Widget>[
             _ShelfGroupTab(
-              key: const ValueKey<String>('bookshelf-group-all'),
-              label: '全部',
+              key: const ValueKey<String>('bookshelf-group-default'),
+              label: '默认分组',
               selected: activeGroupId == null,
-              onTap: onShowAll,
+              onTap: () => onSelect(null),
             ),
             for (final group in groups)
               _ShelfGroupTab(
                 key: ValueKey<String>('bookshelf-group-${group.id}'),
                 label: group.name,
                 selected: group.id == activeGroupId,
-                onTap: () => onToggle(group.id),
+                onTap: () => onSelect(group.id),
                 onLongPress: () => onManage(group),
               ),
           ],
@@ -2435,18 +2435,20 @@ class _NoMatchesPane extends StatelessWidget {
     title: query.isNotEmpty
         ? '没有找到相关书籍'
         : groupName == null
-        ? '没有符合筛选条件的书'
+        ? '默认分组还没有书'
         : '这个分组还没有书',
     subtitle: query.isNotEmpty
         ? '没有书名或作者包含“$query”'
         : groupName != null
-        ? '点击顶部多选，再移入「$groupName」'
-        : null,
-    action: OutlinedButton.icon(
-      onPressed: onReset,
-      icon: const AppIcon(AppGlyph.filterOff, size: 18),
-      label: Text(groupName == null ? '清除筛选' : '查看全部书籍'),
-    ),
+        ? '在其他分组中选择书籍，再移入「$groupName」'
+        : '新导入的书籍会放在这里，也可以从其他分组移回',
+    action: query.isEmpty
+        ? null
+        : OutlinedButton.icon(
+            onPressed: onReset,
+            icon: const AppIcon(AppGlyph.filterOff, size: 18),
+            label: const Text('清除筛选'),
+          ),
   );
 }
 
