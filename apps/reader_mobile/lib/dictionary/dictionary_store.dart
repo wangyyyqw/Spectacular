@@ -143,6 +143,13 @@ class DictionaryStore {
   final LibraryStore library;
   final LocalDictionaryStore locals;
   static const settingKey = 'dictionary.v1';
+  static const _removedBuiltInRuleIds = {
+    'builtin-baike',
+    'builtin-zdic-cidian',
+    'builtin-xinhua',
+    'builtin-hanyuguoxue',
+    'builtin-hao86',
+  };
   static final _queues = Expando<Future<void>>();
   Future<void> get _writes => _queues[library] ?? Future<void>.value();
 
@@ -158,6 +165,7 @@ class DictionaryStore {
     }
     final json = jsonDecode(raw) as Map<String, dynamic>;
     final settings = json['settings'] as Map<String, dynamic>? ?? {};
+    final sourceId = settings['sourceId'] as String? ?? '';
     return DictionaryState(
       apis: [
         for (final item in json['apis'] as List? ?? [])
@@ -181,7 +189,9 @@ class DictionaryStore {
         presetId: settings['presetId'] as String? ?? 'dictionary_short',
         disableThinking: settings['disableThinking'] != false,
         singleUsePreset: settings['singleUsePreset'] != false,
-        sourceId: settings['sourceId'] as String? ?? '',
+        sourceId: _removedBuiltInRuleIds.any((id) => sourceId == 'rule:$id')
+            ? ''
+            : sourceId,
       ),
     );
   }
@@ -192,7 +202,8 @@ class DictionaryStore {
       for (final rule in dictionaryBuiltInRules)
         rule.copyWith(enabled: byId[rule.id]?.enabled ?? rule.enabled),
       for (final rule in saved)
-        if (!dictionaryBuiltInRules.any((builtIn) => builtIn.id == rule.id))
+        if (!_removedBuiltInRuleIds.contains(rule.id) &&
+            !dictionaryBuiltInRules.any((builtIn) => builtIn.id == rule.id))
           rule,
     ];
   }

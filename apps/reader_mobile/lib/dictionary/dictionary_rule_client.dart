@@ -38,6 +38,7 @@ class DictionaryRuleClient {
     required DictionaryRule rule,
     required String word,
   }) async {
+    if (_closed) throw const DictionaryRuleException('查询已关闭');
     final query = word.trim();
     if (query.isEmpty) throw const DictionaryRuleException('查询词为空');
     final uri = Uri.tryParse(rule.buildUrl(query));
@@ -56,25 +57,19 @@ class DictionaryRuleClient {
       throw DictionaryRuleException(error.message);
     }
     http.StreamedResponse response;
+    List<int> bytes;
     try {
-      response = await _http.send(request).timeout(const Duration(seconds: 20));
+      (response, bytes) = await _fetch(request)
+          .timeout(const Duration(seconds: 20));
     } on TimeoutException {
+      close();
       throw const DictionaryRuleException('查询超时，请重试');
-    } on http.ClientException {
-      throw const DictionaryRuleException('连接失败，请检查网络和词典地址');
+    } on DictionaryRuleException {
+      rethrow;
     } on Object {
       throw const DictionaryRuleException('连接失败，请检查网络和词典地址');
     }
     if (_closed) throw const DictionaryRuleException('查询已关闭');
-    final bytes = await _readLimited(response);
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      final hint = switch (response.statusCode) {
-        401 || 403 => '，请检查请求头或访问权限',
-        404 => '，接口未返回结果',
-        _ => '',
-      };
-      throw DictionaryRuleException('请求失败（HTTP ${response.statusCode}）$hint');
-    }
     final source = _decode(bytes, response.headers, rule.encoding);
     var value = _extract(rule, source).trim();
     if (value.isEmpty) throw const DictionaryRuleException('未提取到词典内容');
@@ -95,9 +90,32 @@ class DictionaryRuleClient {
     );
   }
 
+  Future<(http.StreamedResponse, List<int>)> _fetch(
+    http.Request request,
+  ) async {
+    final response = await _http.send(request);
+    if (_closed) {
+      response.stream.listen(null).cancel().ignore();
+      throw const DictionaryRuleException('查询已关闭');
+    }
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      response.stream.listen(null).cancel().ignore();
+      final hint = switch (response.statusCode) {
+        401 || 403 => '，请检查请求头或访问权限',
+        404 => '，接口未返回结果',
+        429 => '，查询过于频繁，请稍后重试',
+        >= 500 => '，词典服务暂不可用，请稍后重试或切换词典',
+        _ => '',
+      };
+      throw DictionaryRuleException('请求失败（HTTP ${response.statusCode}）$hint');
+    }
+    return (response, await _readLimited(response));
+  }
+
   Future<List<int>> _readLimited(http.StreamedResponse response) async {
     final length = response.contentLength;
     if (length != null && length > maxResponseBytes) {
+      response.stream.listen(null).cancel().ignore();
       throw const DictionaryRuleException('词典响应过大');
     }
     final builder = BytesBuilder(copy: false);
@@ -255,6 +273,7 @@ class DictionaryRuleClient {
   }
 
   void close() {
+    if (_closed) return;
     _closed = true;
     _http.close();
   }

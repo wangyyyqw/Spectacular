@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:charset/charset.dart';
@@ -20,21 +21,11 @@ const _jsonRule = DictionaryRule(
 );
 
 void main() {
-  test('内置规则来自导出文件、唯一且始终合并，不能删除或改写', () async {
-    expect(dictionaryBuiltInRules, hasLength(9));
+  test('保留四个内置词典、唯一且始终合并，不能删除或改写', () async {
+    expect(dictionaryBuiltInRules, hasLength(4));
     expect(
       dictionaryBuiltInRules.map((rule) => rule.name),
-      containsAll([
-        '海词中文',
-        '百度百科',
-        '汉典',
-        '汉语词典',
-        '新华字典',
-        '漢語字典',
-        '漢語词典',
-        '漢典',
-        '必应中英',
-      ]),
+      orderedEquals(['海词中文', '汉典', '漢典', '必应中英']),
     );
     expect(
       dictionaryBuiltInRules.map((rule) => rule.id).toSet(),
@@ -47,7 +38,7 @@ void main() {
     final store = DictionaryStore(LibraryStore.memory());
     expect(
       (await store.load()).rules.where((rule) => rule.builtIn),
-      hasLength(9),
+      hasLength(4),
     );
     await expectLater(
       store.removeRule('builtin-haici-zh'),
@@ -66,6 +57,62 @@ void main() {
           .enabled,
       isFalse,
     );
+  });
+
+  test('升级后移除旧配置中的五个内置词典，保留自定义词典与其他设置', () async {
+    const removedIds = [
+      'builtin-baike',
+      'builtin-zdic-cidian',
+      'builtin-xinhua',
+      'builtin-hanyuguoxue',
+      'builtin-hao86',
+    ];
+    final library = LibraryStore.memory();
+    final store = DictionaryStore(library);
+    for (final sourceId in removedIds) {
+      await library.setSetting(
+        DictionaryStore.settingKey,
+        jsonEncode({
+          'rules': [
+            for (final id in removedIds)
+              DictionaryRule(
+                id: id,
+                name: '已移除词典',
+                url: 'https://e.test/?q={{word}}',
+              ).toJson(),
+            dictionaryBuiltInRules.first.copyWith(enabled: false).toJson(),
+            _jsonRule.toJson(),
+          ],
+          'settings': {
+            'sourceId': 'rule:$sourceId',
+            'disableThinking': false,
+            'presetId': 'dictionary_classical',
+          },
+        }),
+      );
+      final state = await store.load();
+      expect(state.rules, hasLength(5));
+      expect(
+        state.rules.where((rule) => removedIds.contains(rule.id)),
+        isEmpty,
+      );
+      expect(state.rules.first.enabled, isFalse);
+      expect(state.rules.last.toJson(), _jsonRule.toJson());
+      expect(state.settings.sourceId, isEmpty);
+      expect(state.settings.disableThinking, isFalse);
+      expect(state.settings.presetId, 'dictionary_classical');
+    }
+    await store.changeSettings(
+      (settings) => settings.copyWith(sourceId: _jsonRule.sourceId),
+    );
+    expect(
+      (await DictionaryStore(library).load()).settings.sourceId,
+      _jsonRule.sourceId,
+    );
+    final saved = jsonDecode(
+      (await library.getSetting(DictionaryStore.settingKey))!,
+    ) as Map;
+    expect(saved['rules'], hasLength(5));
   });
 
   test('规则校验地址占位符、请求头、正则和同名限制', () async {
@@ -168,6 +215,95 @@ void main() {
     final result = await client.lookup(rule: _jsonRule, word: ' 词典 ');
     expect(result.value, '收集词语并解释含义的工具。');
     expect(result.html, isFalse);
+  });
+
+  testWidgets('二十秒超时覆盖连接和正文下载的总时长，超时后关闭连接', (tester) async {
+    final headers = Completer<http.StreamedResponse>();
+    final body = StreamController<List<int>>();
+    final client = DictionaryRuleClient(
+      client: MockClient.streaming((_, _) => headers.future),
+    );
+    addTearDown(client.close);
+    var finished = false;
+    final result = expectLater(
+      client.lookup(rule: _jsonRule, word: '词典'),
+      throwsA(
+        isA<DictionaryRuleException>().having(
+          (error) => error.message,
+          '消息',
+          '查询超时，请重试',
+        ),
+      ),
+    ).then((_) => finished = true);
+    await tester.pump(const Duration(seconds: 12));
+    headers.complete(http.StreamedResponse(body.stream, 200));
+    await tester.pump();
+    body.add(utf8.encode('{"data":'));
+    await tester.pump(const Duration(seconds: 7));
+    expect(finished, isFalse);
+    await tester.pump(const Duration(seconds: 1));
+    await result;
+    await expectLater(
+      client.lookup(rule: _jsonRule, word: '重试'),
+      throwsA(
+        isA<DictionaryRuleException>().having(
+          (error) => error.message,
+          '消息',
+          '查询已关闭',
+        ),
+      ),
+    );
+    await body.close();
+    await tester.pump();
+  });
+
+  for (final (status, hint) in [
+    (403, '请求头或访问权限'),
+    (429, '查询过于频繁'),
+    (503, '切换词典'),
+  ]) {
+    test('HTTP $status 无需等待错误正文即可提示并释放响应流', () async {
+      var canceled = false;
+      final body = StreamController<List<int>>(onCancel: () => canceled = true);
+      final client = DictionaryRuleClient(
+        client: MockClient.streaming(
+          (_, _) async => http.StreamedResponse(body.stream, status),
+        ),
+      );
+      addTearDown(client.close);
+      addTearDown(body.close);
+      await expectLater(
+        client.lookup(rule: _jsonRule, word: '词典'),
+        throwsA(
+          isA<DictionaryRuleException>()
+              .having((error) => error.message, '状态码', contains('HTTP $status'))
+              .having((error) => error.message, '提示', contains(hint)),
+        ),
+      );
+      expect(canceled, isTrue);
+    });
+  }
+
+  test('正文下载中断显示可重试的网络提示，不暴露底层错误', () async {
+    final client = DictionaryRuleClient(
+      client: MockClient.streaming(
+        (_, _) async => http.StreamedResponse(
+          Stream<List<int>>.error(StateError('private-response-detail')),
+          200,
+        ),
+      ),
+    );
+    addTearDown(client.close);
+    await expectLater(
+      client.lookup(rule: _jsonRule, word: '词典'),
+      throwsA(
+        isA<DictionaryRuleException>().having(
+          (error) => error.message,
+          '消息',
+          '连接失败，请检查网络和词典地址',
+        ),
+      ),
+    );
   });
 
   test('POST 请求体、正则提取和错误状态不泄露请求头', () async {

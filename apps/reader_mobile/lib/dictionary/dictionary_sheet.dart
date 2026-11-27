@@ -2,8 +2,9 @@ import 'dart:async';
 
 import 'package:reader_ui/theme/reader_dropdown.dart';
 import 'package:flutter/material.dart';
+import 'package:reader_ui/panels/reader_settings_sheet.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
-import 'package:reader_ui/theme/reader_sheet_form.dart';
+import 'package:reader_ui/theme/reader_section_slider.dart';
 
 import 'dictionary_client.dart';
 import 'dictionary_rule.dart';
@@ -18,10 +19,22 @@ Future<void> showDictionary(
   BuildContext context,
   DictionaryStore store,
   String text,
-) => showReaderDrawer<void>(
+) => showReaderBottomSheet<void>(
   context: context,
+  isScrollControlled: true,
+  useSafeArea: true,
   builder: (_) => DictionarySheet(store: store, text: text),
 );
+
+enum _DictionarySection {
+  web('rule:', '网页'),
+  local('local:', '本地'),
+  ai('ai:', 'AI');
+
+  const _DictionarySection(this.prefix, this.label);
+  final String prefix;
+  final String label;
+}
 
 class DictionarySheet extends StatefulWidget {
   const DictionarySheet({
@@ -46,7 +59,12 @@ class _DictionarySheetState extends State<DictionarySheet> {
   List<LocalDictionaryEntry> _locals = [];
   LocalDictionarySession? _session;
   DictionaryRuleClient? _ruleClient;
+  final _ruleResults = <(DictionaryRule, String), DictionaryRuleResult>{};
+  (String?, String?, String)? _activeQuery;
+  String? _queriedText;
   String? _sourceId;
+  _DictionarySection _section = _DictionarySection.web;
+  final _sectionSources = <_DictionarySection, String>{};
   List<String> _suggestions = [];
   bool _localMiss = false;
   bool _resultHtml = false;
@@ -89,6 +107,15 @@ class _DictionarySheetState extends State<DictionarySheet> {
 
   Future<void> _load() async {
     final generation = ++_generation;
+    _ruleClient?.close();
+    _ruleClient = null;
+    _activeQuery = null;
+    _ruleResults.clear();
+    _sectionSources.clear();
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     try {
       final state = await widget.store.load();
       final locals = (await widget.store.locals.load())
@@ -113,6 +140,20 @@ class _DictionarySheetState extends State<DictionarySheet> {
             ? 'ai:${state.api!.id}'
             : null;
         _presetId = state.preset.id;
+        if (locals.isNotEmpty) {
+          _sectionSources[_DictionarySection.local] =
+              'local:${locals.first.id}';
+        }
+        if (state.api != null) {
+          _sectionSources[_DictionarySection.ai] = 'ai:${state.api!.id}';
+        }
+        _section = _DictionarySection.web;
+        if (_sourceId != null) {
+          _section = _DictionarySection.values.firstWhere(
+            (section) => _sourceId!.startsWith(section.prefix),
+          );
+          _sectionSources[_section] = _sourceId!;
+        }
       });
       await _query();
     } catch (_) {
@@ -136,32 +177,58 @@ class _DictionarySheetState extends State<DictionarySheet> {
       .where((rule) => rule.enabled && rule.sourceId == _sourceId)
       .firstOrNull;
 
-  List<(String, String)> get _sources {
+  List<(String, String)> get _sources => _sourcesFor(_section);
+
+  List<(String, String)> _sourcesFor(_DictionarySection section) {
     final state = _state;
     if (state == null) return const [];
-    return [
-      for (final entry in _locals) ('local:${entry.id}', '本地 · ${entry.name}'),
-      for (final api in state.apis.where((api) => api.enabled))
-        ('ai:${api.id}', 'AI · ${api.label}'),
-      for (final rule in state.rules.where((rule) => rule.enabled))
-        (rule.sourceId, '在线 · ${rule.name}'),
-    ];
+    return switch (section) {
+      _DictionarySection.web => [
+        for (final rule in state.rules.where((rule) => rule.enabled))
+          (rule.sourceId, rule.name),
+      ],
+      _DictionarySection.local => [
+        for (final entry in _locals) ('local:${entry.id}', entry.name),
+      ],
+      _DictionarySection.ai => [
+        for (final api in state.apis.where((api) => api.enabled))
+          ('ai:${api.id}', api.label),
+      ],
+    };
   }
 
-  Future<void> _query() async {
+  Future<void> _selectSection(int index) async {
+    final section = _DictionarySection.values[index];
+    if (section == _section || _state == null) return;
+    final sources = _sourcesFor(section);
+    final id =
+        sources
+            .where((source) => source.$1 == _sectionSources[section])
+            .firstOrNull
+            ?.$1 ??
+        sources.firstOrNull?.$1;
+    setState(() => _section = section);
+    await _selectSource(id);
+  }
+
+  Future<void> _query({bool refresh = false}) async {
     final state = _state;
     if (state == null) return;
-    final generation = ++_generation;
     final api = _api;
     final local = _local;
     final rule = _rule;
     final text = _text.text.trim();
+    final query = (_sourceId, api != null ? _presetId : null, text);
+    if (_loading && query == _activeQuery) return;
+    final generation = ++_generation;
     final oldSession = _session;
     final oldRuleClient = _ruleClient;
     setState(() {
       _session = null;
       _ruleClient = null;
       _loading = api != null || local != null || rule != null;
+      _activeQuery = _loading ? query : null;
+      _queriedText = text;
       _result = null;
       _resultHtml = false;
       _resultBaseUrl = null;
@@ -190,10 +257,21 @@ class _DictionarySheetState extends State<DictionarySheet> {
           await session.close();
         }
       } else if (rule != null) {
-        ruleClient = (widget.ruleClientFactory ?? DictionaryRuleClient.new)();
-        _ruleClient = ruleClient;
-        final result = await ruleClient.lookup(rule: rule, word: text);
+        final cacheKey = (rule, text);
+        final cached = _ruleResults.remove(cacheKey);
+        final DictionaryRuleResult result;
+        if (!refresh && cached != null) {
+          result = cached;
+        } else {
+          ruleClient = (widget.ruleClientFactory ?? DictionaryRuleClient.new)();
+          _ruleClient = ruleClient;
+          result = await ruleClient.lookup(rule: rule, word: text);
+        }
         if (mounted && generation == _generation) {
+          _ruleResults[cacheKey] = result;
+          if (_ruleResults.length > 8) {
+            _ruleResults.remove(_ruleResults.keys.first);
+          }
           setState(() {
             _result = result.value;
             _resultHtml = result.html;
@@ -229,6 +307,7 @@ class _DictionarySheetState extends State<DictionarySheet> {
       if (mounted && generation == _generation) {
         setState(() {
           _loading = false;
+          _activeQuery = null;
           if (identical(_ruleClient, ruleClient)) _ruleClient = null;
         });
       }
@@ -241,15 +320,22 @@ class _DictionarySheetState extends State<DictionarySheet> {
   }
 
   Future<void> _selectSource(String? id) async {
-    if (id == null || id == _sourceId) return;
-    setState(() => _sourceId = id);
+    if (id == _sourceId) return;
+    setState(() {
+      _sourceId = id;
+      if (id != null) _sectionSources[_section] = id;
+    });
     final query = _query();
+    if (id == null) return query;
+    final generation = _generation;
     try {
       await widget.store.changeSettings(
         (settings) => settings.copyWith(sourceId: id),
       );
     } catch (_) {
-      if (mounted) setState(() => _error = '默认词典保存失败，本次查询仍可使用');
+      if (mounted && generation == _generation) {
+        setState(() => _error = '默认词典保存失败，本次查询仍可使用');
+      }
     }
     await query;
   }
@@ -258,11 +344,14 @@ class _DictionarySheetState extends State<DictionarySheet> {
     if (id == null || id == _presetId || _state == null) return;
     setState(() => _presetId = id);
     final query = _query();
+    final generation = _generation;
     if (!_state!.settings.singleUsePreset) {
       try {
         await widget.store.changeSettings((s) => s.copyWith(presetId: id));
       } catch (_) {
-        if (mounted) setState(() => _error = '默认预设保存失败，本次查询仍可使用');
+        if (mounted && generation == _generation) {
+          setState(() => _error = '默认预设保存失败，本次查询仍可使用');
+        }
       }
     }
     await query;
@@ -290,112 +379,172 @@ class _DictionarySheetState extends State<DictionarySheet> {
   }
 
   @override
-  Widget build(BuildContext context) => ReaderSheetForm(
-    key: const ValueKey('dictionary-sheet'),
-    title: const Text('词典'),
-    content: Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        TextField(
-          key: const ValueKey('dictionary-query-text'),
-          controller: _text,
-          decoration: const InputDecoration(labelText: '查询词语'),
-          onSubmitted: (_) => _query(),
+  Widget build(BuildContext context) => AnimatedPadding(
+    duration: const Duration(milliseconds: 180),
+    padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
+    child: ReaderSettingsSheet(
+      key: const ValueKey('dictionary-sheet'),
+      header: _header(),
+      footer: _footer(),
+      child: _content(context),
+    ),
+  );
+
+  Widget _header() => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      TextField(
+        key: const ValueKey('dictionary-query-text'),
+        controller: _text,
+        decoration: const InputDecoration(labelText: '查询词语'),
+        textInputAction: TextInputAction.search,
+        onChanged: (_) => setState(() {}),
+        onSubmitted: (_) => _query(refresh: true),
+      ),
+      const SizedBox(height: 8),
+      ReaderSectionSlider(
+        key: const ValueKey('dictionary-section-tabs'),
+        sections: [
+          for (final section in _DictionarySection.values)
+            (key: section.name, label: section.label),
+        ],
+        itemKeyBuilder: (item) => ValueKey('dictionary-${item.key}'),
+        index: _section.index,
+        onSelected: _selectSection,
+      ),
+    ],
+  );
+
+  String get _emptyMessage => _sources.isNotEmpty
+      ? '请选择上方词典来源后查询。'
+      : switch (_section) {
+          _DictionarySection.web => '暂无可用的网页词典，请前往词典设置启用或添加。',
+          _DictionarySection.local => '尚未导入或启用本地词典，请前往词典设置导入。',
+          _DictionarySection.ai => '尚未配置或启用 AI 释义服务，请前往词典设置添加。',
+        };
+
+  Widget _content(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      if (_sources.isNotEmpty) ...[
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final (id, label) in _sources)
+              ChoiceChip(
+                key: ValueKey('dictionary-source-$id'),
+                label: Text(label),
+                selected: id == _sourceId,
+                onSelected: (_) => _selectSource(id),
+              ),
+          ],
         ),
         const SizedBox(height: 16),
-        if (_sources.isNotEmpty) ...[
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: [
-                for (final (id, label) in _sources)
-                  Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: ChoiceChip(
-                      key: ValueKey('dictionary-source-$id'),
-                      label: Text(label),
-                      selected: id == _sourceId,
-                      onSelected: (_) => _selectSource(id),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 16),
-        ],
-        if (_api != null)
-          ReaderDropdownButtonFormField<String>(
-            key: const ValueKey('dictionary-query-preset'),
-            initialValue: _presetId,
-            isExpanded: true,
-            decoration: const InputDecoration(labelText: '释义预设'),
-            items: [
-              for (final p in _state!.presets)
-                DropdownMenuItem(value: p.id, child: Text(p.name)),
-            ],
-            onChanged: _selectPreset,
-          ),
-        const SizedBox(height: 16),
-        if (_sourceId == null && !_loading && _error == null)
-          Text(_sources.isEmpty ? '请先配置释义服务、本地词典或在线词典规则。' : '请选择上方词典来源后查询。'),
-        if (_localMiss) ...[
-          const Text('本地词典未找到该词条。可修改词语、切换词典，或手动选择 AI 释义。'),
-          if (_suggestions.isNotEmpty)
-            Wrap(
-              spacing: 8,
-              children: [
-                for (final word in _suggestions)
-                  ActionChip(
-                    label: Text(word),
-                    onPressed: () => _selectWord(word),
-                  ),
-              ],
-            ),
-        ],
-        if (_loading)
-          const Padding(
-            padding: EdgeInsets.all(24),
-            child: Center(child: CircularProgressIndicator()),
-          ),
-        if (_result != null)
-          _session != null
-              ? LocalDictionaryView(
-                  key: ObjectKey(_session),
-                  session: _session!,
-                  definition: _result!,
-                  onLookup: _selectWord,
-                )
-              : _resultHtml
-              ? DictionaryRuleView(
-                  key: ObjectKey((_result, _resultBaseUrl)),
-                  html: _result!,
-                  baseUrl: _resultBaseUrl ?? 'about:blank',
-                )
-              : SelectableText(
-                  _result!,
-                  key: const ValueKey('dictionary-result'),
+      ],
+      if (_api != null)
+        ReaderDropdownButtonFormField<String>(
+          key: const ValueKey('dictionary-query-preset'),
+          initialValue: _presetId,
+          isExpanded: true,
+          decoration: const InputDecoration(labelText: '释义预设'),
+          items: [
+            for (final p in _state!.presets)
+              DropdownMenuItem(value: p.id, child: Text(p.name)),
+          ],
+          onChanged: _selectPreset,
+        ),
+      const SizedBox(height: 16),
+      if (_sourceId == null && !_loading && _error == null) Text(_emptyMessage),
+      if (_localMiss) ...[
+        const Text('本地词典未找到该词条。可修改词语、切换词典，或手动选择 AI 释义。'),
+        if (_suggestions.isNotEmpty)
+          Wrap(
+            spacing: 8,
+            children: [
+              for (final word in _suggestions)
+                ActionChip(
+                  label: Text(word),
+                  onPressed: () => _selectWord(word),
                 ),
-        if (_error != null)
-          Text(
-            _error!,
-            style: TextStyle(color: Theme.of(context).colorScheme.error),
-          ),
-        if (_api != null)
-          Padding(
-            padding: const EdgeInsets.only(top: 16),
-            child: Text(
-              '模型：${_api!.model}',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
+            ],
           ),
       ],
-    ),
-    actions: [
-      TextButton(onPressed: _configure, child: const Text('词典设置')),
-      FilledButton(
-        key: const ValueKey('dictionary-query-retry'),
-        onPressed: _loading || _sourceId == null ? null : _query,
-        child: const Text('重新查询'),
+      if (_loading)
+        Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            children: [
+              const CircularProgressIndicator(),
+              const SizedBox(height: 12),
+              Text(_state == null ? '正在读取词典设置…' : '正在查询「$_queriedText」…'),
+            ],
+          ),
+        ),
+      if (_result != null)
+        _session != null
+            ? LocalDictionaryView(
+                key: ObjectKey(_session),
+                session: _session!,
+                definition: _result!,
+                onLookup: _selectWord,
+              )
+            : _resultHtml
+            ? DictionaryRuleView(
+                key: ValueKey((_result, _resultBaseUrl)),
+                html: _result!,
+                baseUrl: _resultBaseUrl ?? 'about:blank',
+              )
+            : SelectableText(
+                _result!,
+                key: const ValueKey('dictionary-result'),
+              ),
+      if (_error != null)
+        Text(
+          _error!,
+          style: TextStyle(color: Theme.of(context).colorScheme.error),
+        ),
+      if (_api != null)
+        Padding(
+          padding: const EdgeInsets.only(top: 16),
+          child: Text(
+            '模型：${_api!.model}',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ),
+    ],
+  );
+
+  Widget _footer() => Row(
+    children: [
+      Expanded(
+        child: TextButton(
+          key: const ValueKey('dictionary-settings'),
+          onPressed: _configure,
+          child: const Text('词典设置'),
+        ),
+      ),
+      const SizedBox(width: 12),
+      Expanded(
+        child: FilledButton(
+          key: const ValueKey('dictionary-query-retry'),
+          onPressed: _state == null
+              ? (!_loading && _error != null ? _load : null)
+              : _sourceId == null ||
+                    _text.text.trim().isEmpty ||
+                    (_loading && _text.text.trim() == _queriedText)
+              ? null
+              : () => _query(refresh: true),
+          child: Text(
+            _error != null
+                ? '重试'
+                : _text.text.trim() != _queriedText
+                ? '查询'
+                : _loading
+                ? '查询中…'
+                : '重新查询',
+          ),
+        ),
       ),
     ],
   );
