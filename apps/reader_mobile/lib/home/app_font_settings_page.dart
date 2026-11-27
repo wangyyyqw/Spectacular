@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:reader_ui/theme/reader_ui_components.dart';
 import 'package:reader_ui/theme/reader_font_preview.dart';
@@ -13,6 +15,7 @@ class AppFontSettingsPage extends StatefulWidget {
     super.key,
     required this.fonts,
     required this.selectedFamily,
+    this.loadFont,
     required this.onSelect,
     required this.onImport,
     required this.onRemove,
@@ -20,6 +23,7 @@ class AppFontSettingsPage extends StatefulWidget {
 
   final List<ReaderFontEntry> fonts;
   final String selectedFamily;
+  final Future<void> Function(String family)? loadFont;
   final Future<void> Function(String family) onSelect;
   final Future<ReaderFontEntry?> Function() onImport;
   final Future<void> Function(String family) onRemove;
@@ -33,6 +37,25 @@ class _AppFontSettingsPageState extends State<AppFontSettingsPage> {
   late String _selected = widget.selectedFamily;
   String? _error;
   bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_loadFontNames());
+  }
+
+  Future<void> _loadFontNames() async {
+    final load = widget.loadFont;
+    if (load == null) return;
+    for (final font in widget.fonts) {
+      if (!mounted) return;
+      try {
+        await load(font.family);
+      } on Exception {
+        continue;
+      }
+    }
+  }
 
   Future<void> _select(String family) async {
     if (_busy) return;
@@ -142,7 +165,10 @@ class _AppFontSettingsPageState extends State<AppFontSettingsPage> {
         key: const ValueKey('app-font-default'),
         enabled: !_busy,
         selected: _selected == AppFonts.defaultFamily,
-        title: const Text('思源宋体'),
+        title: const Text(
+          '思源宋体',
+          style: TextStyle(fontFamily: AppFonts.defaultFamily),
+        ),
         trailing: _selected == AppFonts.defaultFamily
             ? const AppIcon(AppGlyph.check, size: 20)
             : null,
@@ -164,7 +190,13 @@ class _AppFontSettingsPageState extends State<AppFontSettingsPage> {
     key: ValueKey('app-font-${font.family}'),
     enabled: !_busy,
     selected: _selected == font.family,
-    title: Text(font.displayName),
+    title: Text(
+      font.displayName,
+      style: TextStyle(
+        fontFamily: font.family,
+        fontFamilyFallback: AppFonts.fallback,
+      ),
+    ),
     trailing: Row(
       mainAxisSize: MainAxisSize.min,
       children: [

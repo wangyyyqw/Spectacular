@@ -15,6 +15,32 @@ import 'package:reader_ui/reader_session.dart';
 import '../support/reader_pump.dart';
 
 void main() {
+  testWidgets('进入字体页会加载未选字体供名称预览，单个文件缺失不影响其他字体或当前设置', (tester) async {
+    final loaded = <String>[];
+    final selected = <String>[];
+    await tester.pumpWidget(MaterialApp(home: AppFontSettingsPage(
+      selectedFamily: AppFonts.defaultFamily,
+      fonts: const [
+        ReaderFontEntry(family: 'user_missing', filePath: '/缺失', displayName: '缺失字体'),
+        ReaderFontEntry(family: 'user_sans', filePath: '/黑体', displayName: '自选黑体'),
+      ],
+      loadFont: (family) async {
+        loaded.add(family);
+        if (family == 'user_missing') throw const FormatException('字体文件已丢失');
+      },
+      onSelect: (family) async => selected.add(family),
+      onImport: () async => null,
+      onRemove: (_) async {},
+    )));
+    await tester.pumpAndSettle();
+    expect(loaded, ['user_missing', 'user_sans']);
+    expect(selected, isEmpty);
+    expect(tester.widget<Text>(find.text('自选黑体')).style?.fontFamily, 'user_sans');
+    expect(tester.widget<Text>(find.text('自选黑体')).style?.fontFamilyFallback, AppFonts.fallback);
+    expect(tester.widget<ListTile>(find.byKey(const ValueKey('app-font-default'))).selected, isTrue);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('应用字体设置页保存中阻止返回，失败后可以重试并正常退出', (tester) async {
     final pending = Completer<void>();
     var calls = 0;
@@ -129,6 +155,11 @@ void main() {
       find.byKey(ValueKey('app-font-${font.family}')),
     );
     final customFont = find.byKey(ValueKey('app-font-${font.family}'));
+    expect(tester.widget<Text>(find.text(font.displayName)).style?.fontFamily, font.family);
+    expect(tester.widget<Text>(find.descendant(
+      of: find.byKey(const ValueKey('app-font-default')),
+      matching: find.text('思源宋体'),
+    )).style?.fontFamily, AppFonts.defaultFamily);
     await tester.ensureVisible(customFont);
     await tester.pumpAndSettle();
     await tester.tap(customFont);

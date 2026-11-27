@@ -167,6 +167,7 @@ class _AppSettingsPageState extends State<AppSettingsPage> {
         builder: (_) => AppFontSettingsPage(
           fonts: _appFonts,
           selectedFamily: _appFontFamily,
+          loadFont: store.load,
           onSelect: _setAppFont,
           onImport: _importAppFont,
           onRemove: _removeAppFont,
