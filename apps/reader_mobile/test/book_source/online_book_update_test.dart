@@ -49,6 +49,7 @@ void main() {
           'name': r'$.name',
           'author': r'$.author',
           'tocUrl': r'$.toc',
+          'lastChapter': r'$.lastChapter',
         },
         'ruleToc': {
           'chapterList': r'$.chapters[*]',
@@ -120,6 +121,7 @@ void main() {
       ),
     );
     var count = 2;
+    var datedCatalog = false;
     var fail = false;
     var bookInfoRequests = 0;
     final contentRequests = <String>[];
@@ -136,6 +138,7 @@ void main() {
                 'name': '在线书',
                 'author': '作者',
                 'toc': 'https://example.test/toc',
+                if (datedCatalog) 'lastChapter': '第一章',
               }),
               200,
               headers: {'content-type': 'application/json; charset=utf-8'},
@@ -150,6 +153,10 @@ void main() {
                       'title': index == 1 ? '第一章' : '第$index章',
                       'url': 'https://example.test/$index',
                       'volume_name': '正文',
+                      if (datedCatalog)
+                        'time': index == 1
+                            ? '2026-10-08T04:42:08.293Z'
+                            : '2026-11-25T01:41:07.215Z',
                     },
                   {
                     'title': '旧番外',
@@ -234,6 +241,24 @@ void main() {
     await controller.refreshShelfOnlineUpdates();
     expect((await record())['updated'], isFalse);
     expect((await record())['latestChapter'], '第2章');
+    datedCatalog = true;
+    await library.setSetting(
+      'bookshelf.onlineUpdates.v1',
+      jsonEncode({
+        entry.id: {
+          'chapterCount': 3,
+          'latestChapter': '第一章',
+          'updatedAt': DateTime.parse('2026-10-08T04:42:08.293Z').millisecondsSinceEpoch,
+          'updated': false,
+        },
+      }),
+    );
+    await controller.refreshShelfOnlineUpdates();
+    final corrected = await record();
+    expect(corrected['latestChapter'], '第2章');
+    expect(corrected['updatedAt'],
+        DateTime.parse('2026-11-25T01:41:07.215Z').millisecondsSinceEpoch);
+    expect(corrected['updated'], isFalse);
     await library.setSetting(
       'online_reading_progress:${entry.id}',
       '{"spine":1,"finished":true}',

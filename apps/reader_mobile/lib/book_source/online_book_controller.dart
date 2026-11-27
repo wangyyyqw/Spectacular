@@ -350,13 +350,19 @@ class OnlineBookController extends ChangeNotifier {
     }
     final hasObservedLatest =
         previous?['observedLatest'] == true && prior != null;
-    final latest = fresh.isNotEmpty
-        ? hinted ?? dated ?? fresh.last
-        : hasObservedLatest
-        ? prior
-        : hinted ?? dated ?? chapters.last;
+    final preferred = hasObservedLatest && fresh.isEmpty ? prior : hinted;
+    final preferredTime = preferred == null
+        ? null
+        : _parseSourceUpdateTime(preferred.updateTime);
+    final latest = maxTime != null &&
+            preferredTime != null &&
+            maxTime > preferredTime
+        ? dated!
+        : preferred ?? dated ?? candidates.last;
     final observedLatest = fresh.isNotEmpty || hasObservedLatest;
-    final title = !observedLatest && hint.isNotEmpty ? hint : latest.title;
+    final title = !observedLatest && hinted == null && hint.isNotEmpty
+        ? hint
+        : latest.title;
     final observedAt = DateTime.now().millisecondsSinceEpoch;
     final priorTime = previous?['updatedAt'] as int?;
     return {
