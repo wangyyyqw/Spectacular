@@ -1,25 +1,31 @@
-import 'dart:convert';
-
 import 'package:reader_ui/theme/reader_common_widgets.dart';
 import 'package:reader_ui/theme/reader_dropdown.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:html/parser.dart' as html;
 import 'package:reader_ui/icons/app_icon.dart';
+import 'package:reader_ui/panels/reader_settings_sheet.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
 import 'package:reader_ui/theme/reader_sheet_form.dart';
+import 'package:reader_ui/theme/reader_section_slider.dart';
 
 import 'dictionary_client.dart';
 import 'dictionary_rule.dart';
 import 'dictionary_rule_client.dart';
 import 'dictionary_store.dart';
 import 'dictionary_model_picker.dart';
+import 'builtin_dictionaries.dart';
+import 'local_dictionary_download.dart';
 import 'local_dictionary_store.dart';
 
 class DictionarySettingsPage extends StatefulWidget {
-  const DictionarySettingsPage({super.key, required this.store});
+  const DictionarySettingsPage({
+    super.key,
+    required this.store,
+    this.downloadFactory,
+  });
   final DictionaryStore store;
+  final LocalDictionaryDownload Function()? downloadFactory;
   @override
   State<DictionarySettingsPage> createState() => _DictionarySettingsPageState();
 }
@@ -29,10 +35,22 @@ class _DictionarySettingsPageState extends State<DictionarySettingsPage> {
   List<LocalDictionaryEntry> _locals = [];
   String? _error;
   bool _busy = false;
+  LocalDictionaryDownload? _download;
+  BuiltInDictionary? _downloading;
+  int _downloadBytes = 0;
+  bool _importing = false;
+  int _sectionIndex = 0;
+  final _contentKey = GlobalKey();
   @override
   void initState() {
     super.initState();
     _load();
+  }
+
+  @override
+  void dispose() {
+    _download?.cancel();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -89,6 +107,43 @@ class _DictionarySettingsPageState extends State<DictionarySettingsPage> {
     await widget.store.locals.importFiles(paths);
   });
 
+  Future<void> _downloadLocal(BuiltInDictionary source) => _operate(() async {
+    final download = (widget.downloadFactory ?? LocalDictionaryDownload.new)();
+    setState(() {
+      _download = download;
+      _downloading = source;
+      _downloadBytes = 0;
+      _importing = false;
+      _error = null;
+    });
+    try {
+      await download.install(
+        source,
+        widget.store.locals,
+        onProgress: (received) {
+          if (mounted &&
+              received * 100 ~/ source.size !=
+                  _downloadBytes * 100 ~/ source.size) {
+            setState(() => _downloadBytes = received);
+          }
+        },
+        onImport: () {
+          if (mounted) setState(() => _importing = true);
+        },
+      );
+    } on LocalDictionaryDownloadCancelled {
+      // 取消只回收未完成的下载，不作为保存错误展示。
+    } finally {
+      if (mounted) {
+        setState(() {
+          _download = null;
+          _downloading = null;
+          _importing = false;
+        });
+      }
+    }
+  });
+
   Future<void> _editRule([DictionaryRule? rule]) async {
     final next = await showReaderDrawer<DictionaryRule>(
       context: context,
@@ -96,38 +151,6 @@ class _DictionarySettingsPageState extends State<DictionarySettingsPage> {
     );
     if (next != null && mounted) {
       await _operate(() => widget.store.saveRule(next));
-    }
-  }
-
-  Future<void> _importRules() => _operate(() async {
-    final data = await Clipboard.getData(Clipboard.kTextPlain);
-    final text = data?.text?.trim() ?? '';
-    if (text.isEmpty) throw const FormatException('剪贴板没有规则 JSON');
-    final rules = decodeDictionaryRules(text);
-    await widget.store.saveRules(rules);
-    if (mounted) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('已导入 ${rules.length} 条规则')));
-    }
-  });
-
-  Future<void> _exportRules() async {
-    final rules = _state?.rules ?? const <DictionaryRule>[];
-    if (rules.isEmpty) {
-      setState(() => _error = '还没有可导出的在线词典规则');
-      return;
-    }
-    await Clipboard.setData(
-      ClipboardData(
-        text: const JsonEncoder.withIndent('  ').convert({
-          'version': 1,
-          'rules': rules.map((rule) => rule.toJson()).toList(),
-        }),
-      ),
-    );
-    if (mounted) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('已复制 ${rules.length} 条规则')));
     }
   }
 
@@ -170,418 +193,493 @@ class _DictionarySettingsPageState extends State<DictionarySettingsPage> {
     confirmLabel: '删除',
     destructive: true,
   );
+
+  void _selectSection(int index) {
+    if (index == _sectionIndex) return;
+    final contentContext = _contentKey.currentContext;
+    if (contentContext != null) {
+      Scrollable.of(contentContext).position.jumpTo(0);
+    }
+    setState(() => _sectionIndex = index);
+  }
+
+  // 排序表单就地声明，拖动只修改草稿，确认后再保存；取消不写入。
+  Future<void> _sortDictionaries({required bool local}) async {
+    final items = local
+        ? [for (final entry in _locals) (entry.id, entry.displayName)]
+        : [for (final rule in _state!.rules) (rule.id, rule.name)];
+    final ids = await showReaderDrawer<List<String>>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) => ReaderSheetForm(
+          title: Text(local ? '本地词典排序' : '在线词典排序'),
+          scrollContent: false,
+          content: SizedBox(
+            height: MediaQuery.sizeOf(context).height * 0.5,
+            child: ReorderableListView.builder(
+              buildDefaultDragHandles: false,
+              itemCount: items.length,
+              onReorderItem: (oldIndex, newIndex) => setState(() {
+                items.insert(newIndex, items.removeAt(oldIndex));
+              }),
+              itemBuilder: (context, index) => ListTile(
+                key: ValueKey('dictionary-order-${items[index].$1}'),
+                leading: ReorderableDragStartListener(
+                  key: ValueKey('dictionary-drag-${items[index].$1}'),
+                  index: index,
+                  child: const Tooltip(
+                    message: '拖动排序',
+                    child: SizedBox.square(
+                      dimension: 44,
+                      child: AppIcon(AppGlyph.dragHandle),
+                    ),
+                  ),
+                ),
+                title: Text(items[index].$2),
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              key: const ValueKey('dictionary-order-save'),
+              onPressed: () =>
+                  Navigator.pop(context, items.map((item) => item.$1).toList()),
+              child: const Text('保存顺序'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (ids != null && mounted) {
+      await _operate(
+        () => local
+            ? widget.store.locals.reorder(ids)
+            : widget.store.reorderRules(ids),
+      );
+    }
+  }
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => ReaderSettingsSheet(
+    key: const ValueKey('dictionary-settings-sheet'),
+    header: ReaderSectionSlider(
+      key: const ValueKey('dictionary-settings-tabs'),
+      sections: const [
+        (key: 'ai', label: 'AI 查词'),
+        (key: 'online', label: '在线词典'),
+        (key: 'local', label: '本地词典'),
+      ],
+      itemKeyBuilder: (item) => ValueKey('dictionary-settings-${item.key}'),
+      index: _sectionIndex,
+      onSelected: _selectSection,
+    ),
+    child: _content(),
+  );
+
+  Widget _content() {
     final state = _state;
-    return Scaffold(
-      appBar: AppBar(title: const Text('词典设置')),
-      body: state == null
-          ? Center(
-              child: _error == null
-                  ? const CircularProgressIndicator()
-                  : TextButton(onPressed: _load, child: Text(_error!)),
-            )
-          : Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 680),
-                child: ListView(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-                  children: [
-                    if (_busy) ...[
-                      const LinearProgressIndicator(),
-                      const SizedBox(height: 12),
-                    ],
-                    if (_error != null) ...[
-                      ReaderNoticeBanner(message: _error!),
-                      const SizedBox(height: 16),
-                    ],
-                    ReaderSectionCard(
-                      title: '释义服务',
-                      trailing: TextButton.icon(
-                        key: const ValueKey('dictionary-api-add'),
-                        onPressed: _busy ? null : _editApi,
-                        icon: const AppIcon(AppGlyph.add, size: 18),
-                        label: const Text('添加释义服务'),
-                      ),
-                      children: [
-                        Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: ReaderDropdownButtonFormField<String>(
-                            key: const ValueKey('dictionary-api-select'),
-                            initialValue:
-                                state.apis.any(
-                                  (a) => a.id == state.settings.apiId,
-                                )
-                                ? state.settings.apiId
-                                : '',
-                            isExpanded: true,
-                            decoration: const InputDecoration(
-                              labelText: '当前服务',
-                            ),
-                            items: [
-                              const DropdownMenuItem(
-                                value: '',
-                                child: Text('自动选择已启用服务'),
-                              ),
-                              for (final api in state.apis)
-                                DropdownMenuItem(
-                                  value: api.id,
-                                  enabled: api.enabled,
-                                  child: Text(
-                                    '${api.label}${api.enabled ? '' : '（已停用）'}',
-                                  ),
-                                ),
-                            ],
-                            onChanged: _busy
-                                ? null
-                                : (id) => _operate(
-                                    () => widget.store.changeSettings(
-                                      (s) => s.copyWith(
-                                        apiId: id,
-                                        sourceId: s.sourceId.startsWith('ai:')
-                                            ? (id == null || id.isEmpty
-                                                  ? ''
-                                                  : 'ai:$id')
-                                            : s.sourceId,
-                                      ),
-                                    ),
-                                  ),
-                          ),
-                        ),
-                        for (final api in state.apis)
-                          ListTile(
-                            title: Text(api.label),
-                            subtitle: Text('${api.model}\n${api.baseUrl}'),
-                            isThreeLine: true,
-                            onTap: _busy ? null : () => _editApi(api),
-                            trailing: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Switch(
-                                  value: api.enabled,
-                                  onChanged: _busy
-                                      ? null
-                                      : (value) => _operate(
-                                          () => widget.store.saveApi(
-                                            DictionaryApi(
-                                              id: api.id,
-                                              name: api.name,
-                                              baseUrl: api.baseUrl,
-                                              apiKey: api.apiKey,
-                                              model: api.model,
-                                              enabled: value,
-                                            ),
-                                          ),
-                                        ),
-                                ),
-                                IconButton(
-                                  tooltip: '删除服务',
-                                  icon: const AppIcon(AppGlyph.delete),
-                                  onPressed: _busy
-                                      ? null
-                                      : () async {
-                                          if (await _confirm(api.label) &&
-                                              mounted) {
-                                            await _operate(
-                                              () => widget.store.removeApi(
-                                                api.id,
-                                              ),
-                                            );
-                                          }
-                                        },
-                                ),
-                              ],
-                            ),
-                          ),
-                      ],
+    if (state == null) {
+      return Center(
+        child: _error == null
+            ? const CircularProgressIndicator()
+            : TextButton(onPressed: _load, child: Text(_error!)),
+      );
+    }
+    return Column(
+      key: _contentKey,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (_busy && _downloading == null) ...[
+          const LinearProgressIndicator(),
+          const SizedBox(height: 12),
+        ],
+        if (_error != null) ...[
+          ReaderNoticeBanner(message: _error!),
+          const SizedBox(height: 16),
+        ],
+        if (_sectionIndex == 0) ...[
+          _apiSettings(state),
+          const SizedBox(height: 20),
+          _presetSettings(state),
+        ] else if (_sectionIndex == 1)
+          _onlineSettings(state)
+        else
+          _localSettings(),
+      ],
+    );
+  }
+
+  // 分区内保留原有声明式表单与操作回调，避免拆散同一设置的展示和保存逻辑。
+  Widget _apiSettings(DictionaryState state) => ReaderSectionCard(
+    title: '释义服务',
+    trailing: TextButton.icon(
+      key: const ValueKey('dictionary-api-add'),
+      onPressed: _busy ? null : _editApi,
+      icon: const AppIcon(AppGlyph.add, size: 18),
+      label: const Text('添加释义服务'),
+    ),
+    children: [
+      Padding(
+        padding: const EdgeInsets.all(16),
+        child: ReaderDropdownButtonFormField<String>(
+          key: const ValueKey('dictionary-api-select'),
+          initialValue: state.apis.any((a) => a.id == state.settings.apiId)
+              ? state.settings.apiId
+              : '',
+          isExpanded: true,
+          decoration: const InputDecoration(labelText: '当前服务'),
+          items: [
+            const DropdownMenuItem(value: '', child: Text('自动选择已启用服务')),
+            for (final api in state.apis)
+              DropdownMenuItem(
+                value: api.id,
+                enabled: api.enabled,
+                child: Text('${api.label}${api.enabled ? '' : '（已停用）'}'),
+              ),
+          ],
+          onChanged: _busy
+              ? null
+              : (id) => _operate(
+                  () => widget.store.changeSettings(
+                    (s) => s.copyWith(
+                      apiId: id,
+                      sourceId: s.sourceId.startsWith('ai:')
+                          ? (id == null || id.isEmpty ? '' : 'ai:$id')
+                          : s.sourceId,
                     ),
-                    const SizedBox(height: 20),
-                    ReaderSectionCard(
-                      title: '本地词典',
-                      trailing: TextButton.icon(
-                        key: const ValueKey('dictionary-local-import'),
-                        onPressed: _busy || !widget.store.locals.canImport
-                            ? null
-                            : _importLocal,
-                        icon: const AppIcon(AppGlyph.add, size: 18),
-                        label: const Text('导入 MDX/MDD'),
+                  ),
+                ),
+        ),
+      ),
+      for (final api in state.apis)
+        ListTile(
+          title: Text(api.label),
+          subtitle: Text('${api.model}\n${api.baseUrl}'),
+          isThreeLine: true,
+          onTap: _busy ? null : () => _editApi(api),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Switch(
+                value: api.enabled,
+                onChanged: _busy
+                    ? null
+                    : (value) => _operate(
+                        () => widget.store.saveApi(
+                          DictionaryApi(
+                            id: api.id,
+                            name: api.name,
+                            baseUrl: api.baseUrl,
+                            apiKey: api.apiKey,
+                            model: api.model,
+                            enabled: value,
+                          ),
+                        ),
                       ),
-                      children: [
-                        Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: Text(
-                            widget.store.locals.canImport
-                                ? '每次选择一个 MDX，可同时选择同名 MDD 分卷和 CSS。优先离线查词，未命中不会自动请求 AI。\n支持 1.x / 2.x 的未压缩或 zlib 词库，不支持 LZO、3.0、记录块加密和词库脚本。'
-                                : '当前为临时模式，无法持久保存本地词典。',
-                          ),
-                        ),
-                        if (_locals.isEmpty)
-                          const ListTile(title: Text('尚未导入本地词典')),
-                        for (final entry in _locals)
-                          ListTile(
-                            title: Text(entry.name),
-                            subtitle: Text(
-                              '${entry.wordCount} 个词条 · ${entry.mddFiles.length} 个资源包',
-                            ),
-                            trailing: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Switch(
-                                  value: entry.enabled,
-                                  onChanged: _busy
-                                      ? null
-                                      : (value) => _operate(
-                                          () => widget.store.locals.setEnabled(
-                                            entry.id,
-                                            value,
-                                          ),
-                                        ),
-                                ),
-                                IconButton(
-                                  tooltip: '移除本地词典',
-                                  icon: const AppIcon(AppGlyph.delete),
-                                  onPressed: _busy
-                                      ? null
-                                      : () async {
-                                          final confirmed =
-                                              await showReaderConfirmDialog(
-                                                context: context,
-                                                title: '移除“${entry.name}”？',
-                                                message: '仅删除应用内的词库副本和索引，不影响原始文件、书籍或笔记。',
-                                                confirmLabel: '移除',
-                                                destructive: true,
-                                              );
-                                          if (confirmed && mounted) {
-                                            await _operate(
-                                              () => widget.store.locals.remove(
-                                                entry.id,
-                                              ),
-                                            );
-                                          }
-                                        },
-                                ),
-                              ],
-                            ),
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 20),
-                    ReaderSectionCard(
-                      title: '在线词典规则',
-                      trailing: TextButton.icon(
-                        key: const ValueKey('dictionary-rule-add'),
-                        onPressed: _busy ? null : () => _editRule(),
-                        icon: const AppIcon(AppGlyph.add, size: 18),
-                        label: const Text('添加在线词典'),
-                      ),
-                      children: [
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-                          child: Text(
-                            '用 URL 模板和提取规则查询网页或接口，{{word}} 代入查询词。内置规则可停用或复制修改，不能删除；站点改版或要求验证时可能失效。',
-                          ),
-                        ),
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 16),
-                          child: Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            children: [
-                              OutlinedButton(
-                                key: const ValueKey('dictionary-rule-import'),
-                                onPressed: _busy ? null : _importRules,
-                                child: const Text('从剪贴板导入'),
-                              ),
-                              OutlinedButton(
-                                key: const ValueKey('dictionary-rule-export'),
-                                onPressed: _busy ? null : _exportRules,
-                                child: const Text('复制全部规则'),
-                              ),
-                            ],
-                          ),
-                        ),
-                        if (state.rules.isEmpty)
-                          const ListTile(title: Text('尚未添加在线词典规则')),
-                        for (final rule in state.rules)
-                          ListTile(
-                            key: ValueKey('dictionary-rule-${rule.id}'),
-                            title: Text(
-                              '${rule.name}${rule.builtIn ? ' · 内置' : ''}',
-                            ),
-                            subtitle: Text(
-                              [
-                                '${rule.method} · ${Uri.tryParse(rule.buildUrl('词'))?.host ?? ''} · ${rule.extract.label}',
-                                if (rule.note.isNotEmpty) rule.note,
-                              ].join('\n'),
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            isThreeLine: rule.note.isNotEmpty,
-                            onTap: _busy
-                                ? null
-                                : rule.builtIn
-                                ? () => _copyRule(rule)
-                                : () => _editRule(rule),
-                            trailing: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Switch(
-                                  value: rule.enabled,
-                                  onChanged: _busy
-                                      ? null
-                                      : (value) => _operate(
-                                          () => widget.store.setRuleEnabled(
-                                            rule.id,
-                                            value,
-                                          ),
-                                        ),
-                                ),
-                                if (rule.builtIn)
-                                  IconButton(
-                                    tooltip: '复制内置规则',
-                                    icon: const AppIcon(AppGlyph.copy),
-                                    onPressed: _busy
-                                        ? null
-                                        : () => _copyRule(rule),
-                                  )
-                                else
-                                  IconButton(
-                                    tooltip: '删除在线词典',
-                                    icon: const AppIcon(AppGlyph.delete),
-                                    onPressed: _busy
-                                        ? null
-                                        : () async {
-                                            final confirmed =
-                                                await showReaderConfirmDialog(
-                                                  context: context,
-                                                  title: '删除“${rule.name}”？',
-                                                  message: '只删除这条在线词典规则，不影响 AI 服务、本地词典和阅读数据。',
-                                                  confirmLabel: '删除',
-                                                  destructive: true,
-                                                );
-                                            if (confirmed && mounted) {
-                                              await _operate(
-                                                () => widget.store.removeRule(
-                                                  rule.id,
-                                                ),
-                                              );
-                                            }
-                                          },
-                                  ),
-                              ],
-                            ),
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 20),
-                    ReaderSectionCard(
-                      title: '释义预设',
-                      trailing: TextButton.icon(
-                        key: const ValueKey('dictionary-preset-add'),
-                        onPressed: _busy ? null : () => _editPreset(null),
-                        icon: const AppIcon(AppGlyph.add, size: 18),
-                        label: const Text('添加自定义预设'),
-                      ),
-                      children: [
-                        Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: ReaderDropdownButtonFormField<String>(
-                            key: ValueKey(
-                              'dictionary-default-preset-${state.preset.id}',
-                            ),
-                            initialValue: state.preset.id,
-                            isExpanded: true,
-                            decoration: const InputDecoration(
-                              labelText: '默认预设',
-                            ),
-                            items: [
-                              for (final p in state.presets)
-                                DropdownMenuItem(
-                                  value: p.id,
-                                  child: Text(p.name),
-                                ),
-                            ],
-                            onChanged: _busy
-                                ? null
-                                : (id) => _operate(
-                                    () => widget.store.changeSettings(
-                                      (s) => s.copyWith(presetId: id),
-                                    ),
-                                  ),
-                          ),
-                        ),
-                        SwitchListTile(
-                          key: const ValueKey('dictionary-disable-thinking'),
-                          title: const Text('关闭思考'),
-                          subtitle: const Text('请求服务直接返回释义'),
-                          value: state.settings.disableThinking,
-                          onChanged: _busy
-                              ? null
-                              : (value) => _operate(
-                                  () => widget.store.changeSettings(
-                                    (s) => s.copyWith(disableThinking: value),
-                                  ),
-                                ),
-                        ),
-                        SwitchListTile(
-                          key: const ValueKey('dictionary-single-use'),
-                          title: const Text('切换预设仅用于本次查询'),
-                          subtitle: const Text('关闭后，查询时切换的预设会成为下次默认值'),
-                          value: state.settings.singleUsePreset,
-                          onChanged: _busy
-                              ? null
-                              : (value) => _operate(
-                                  () => widget.store.changeSettings(
-                                    (s) => s.copyWith(singleUsePreset: value),
-                                  ),
-                                ),
-                        ),
-                        for (final p in state.presets)
-                          ListTile(
-                            title: Text(p.name),
-                            subtitle: Text(
-                              p.prompt,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            onTap: p.builtIn || _busy
-                                ? null
-                                : () => _editPreset(p),
-                            trailing: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                IconButton(
-                                  tooltip: '复制预设',
-                                  icon: const AppIcon(AppGlyph.copy),
-                                  onPressed: _busy
-                                      ? null
-                                      : () => _editPreset(p, copy: true),
-                                ),
-                                if (!p.builtIn)
-                                  IconButton(
-                                    tooltip: '删除预设',
-                                    icon: const AppIcon(AppGlyph.delete),
-                                    onPressed: _busy
-                                        ? null
-                                        : () async {
-                                            if (await _confirm(p.name) &&
-                                                mounted) {
-                                              await _operate(
-                                                () => widget.store.removePreset(
-                                                  p.id,
-                                                ),
-                                              );
-                                            }
-                                          },
-                                  ),
-                              ],
-                            ),
-                          ),
-                      ],
-                    ),
-                  ],
+              ),
+              IconButton(
+                tooltip: '删除服务',
+                icon: const AppIcon(AppGlyph.delete),
+                onPressed: _busy
+                    ? null
+                    : () async {
+                        if (await _confirm(api.label) && mounted) {
+                          await _operate(() => widget.store.removeApi(api.id));
+                        }
+                      },
+              ),
+            ],
+          ),
+        ),
+    ],
+  );
+
+  Widget _presetSettings(DictionaryState state) => ReaderSectionCard(
+    title: '释义预设',
+    trailing: TextButton.icon(
+      key: const ValueKey('dictionary-preset-add'),
+      onPressed: _busy ? null : () => _editPreset(null),
+      icon: const AppIcon(AppGlyph.add, size: 18),
+      label: const Text('添加自定义预设'),
+    ),
+    children: [
+      Padding(
+        padding: const EdgeInsets.all(16),
+        child: ReaderDropdownButtonFormField<String>(
+          key: ValueKey('dictionary-default-preset-${state.preset.id}'),
+          initialValue: state.preset.id,
+          isExpanded: true,
+          decoration: const InputDecoration(labelText: '默认预设'),
+          items: [
+            for (final p in state.presets)
+              DropdownMenuItem(value: p.id, child: Text(p.name)),
+          ],
+          onChanged: _busy
+              ? null
+              : (id) => _operate(
+                  () => widget.store.changeSettings(
+                    (s) => s.copyWith(presetId: id),
+                  ),
+                ),
+        ),
+      ),
+      SwitchListTile(
+        key: const ValueKey('dictionary-disable-thinking'),
+        title: const Text('关闭思考'),
+        subtitle: const Text('请求服务直接返回释义'),
+        value: state.settings.disableThinking,
+        onChanged: _busy
+            ? null
+            : (value) => _operate(
+                () => widget.store.changeSettings(
+                  (s) => s.copyWith(disableThinking: value),
                 ),
               ),
+      ),
+      SwitchListTile(
+        key: const ValueKey('dictionary-single-use'),
+        title: const Text('切换预设仅用于本次查询'),
+        subtitle: const Text('关闭后，查询时切换的预设会成为下次默认值'),
+        value: state.settings.singleUsePreset,
+        onChanged: _busy
+            ? null
+            : (value) => _operate(
+                () => widget.store.changeSettings(
+                  (s) => s.copyWith(singleUsePreset: value),
+                ),
+              ),
+      ),
+      for (final p in state.presets)
+        ListTile(
+          title: Text(p.name),
+          subtitle: Text(
+            p.prompt,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+          onTap: p.builtIn || _busy ? null : () => _editPreset(p),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton(
+                tooltip: '复制预设',
+                icon: const AppIcon(AppGlyph.copy),
+                onPressed: _busy ? null : () => _editPreset(p, copy: true),
+              ),
+              if (!p.builtIn)
+                IconButton(
+                  tooltip: '删除预设',
+                  icon: const AppIcon(AppGlyph.delete),
+                  onPressed: _busy
+                      ? null
+                      : () async {
+                          if (await _confirm(p.name) && mounted) {
+                            await _operate(
+                              () => widget.store.removePreset(p.id),
+                            );
+                          }
+                        },
+                ),
+            ],
+          ),
+        ),
+    ],
+  );
+
+  Widget _onlineSettings(DictionaryState state) => ReaderSectionCard(
+    title: '在线词典规则',
+    trailing: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        IconButton(
+          key: const ValueKey('dictionary-online-sort'),
+          tooltip: '在线词典排序',
+          onPressed: _busy || state.rules.length < 2
+              ? null
+              : () => _sortDictionaries(local: false),
+          icon: const AppIcon(AppGlyph.sort),
+        ),
+        TextButton.icon(
+          key: const ValueKey('dictionary-rule-add'),
+          onPressed: _busy ? null : () => _editRule(),
+          icon: const AppIcon(AppGlyph.add, size: 18),
+          label: const Text('添加在线词典'),
+        ),
+      ],
+    ),
+    children: [
+      if (state.rules.isEmpty) const ListTile(title: Text('尚未添加在线词典规则')),
+      for (final rule in state.rules)
+        ListTile(
+          key: ValueKey('dictionary-rule-${rule.id}'),
+          title: Text('${rule.name}${rule.builtIn ? ' · 内置' : ''}'),
+          subtitle: Text(
+            [
+              '${rule.method} · ${Uri.tryParse(rule.buildUrl('词'))?.host ?? ''} · ${rule.extract.label}',
+              if (rule.note.isNotEmpty) rule.note,
+            ].join('\n'),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+          isThreeLine: rule.note.isNotEmpty,
+          onTap: _busy
+              ? null
+              : rule.builtIn
+              ? () => _copyRule(rule)
+              : () => _editRule(rule),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Switch(
+                value: rule.enabled,
+                onChanged: _busy
+                    ? null
+                    : (value) => _operate(
+                        () => widget.store.setRuleEnabled(rule.id, value),
+                      ),
+              ),
+              if (rule.builtIn)
+                IconButton(
+                  tooltip: '复制内置规则',
+                  icon: const AppIcon(AppGlyph.copy),
+                  onPressed: _busy ? null : () => _copyRule(rule),
+                )
+              else
+                IconButton(
+                  tooltip: '删除在线词典',
+                  icon: const AppIcon(AppGlyph.delete),
+                  onPressed: _busy
+                      ? null
+                      : () async {
+                          final confirmed = await showReaderConfirmDialog(
+                            context: context,
+                            title: '删除“${rule.name}”？',
+                            message: '只删除这条在线词典规则，不影响 AI 服务、本地词典和阅读数据。',
+                            confirmLabel: '删除',
+                            destructive: true,
+                          );
+                          if (confirmed && mounted) {
+                            await _operate(
+                              () => widget.store.removeRule(rule.id),
+                            );
+                          }
+                        },
+                ),
+            ],
+          ),
+        ),
+    ],
+  );
+
+  Widget _localSettings() => ReaderSectionCard(
+    title: '本地词典',
+    trailing: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        IconButton(
+          key: const ValueKey('dictionary-local-sort'),
+          tooltip: '本地词典排序',
+          onPressed: _busy || _locals.length < 2
+              ? null
+              : () => _sortDictionaries(local: true),
+          icon: const AppIcon(AppGlyph.sort),
+        ),
+        TextButton.icon(
+          key: const ValueKey('dictionary-local-import'),
+          onPressed: _busy || !widget.store.locals.canImport
+              ? null
+              : _importLocal,
+          icon: const AppIcon(AppGlyph.add, size: 18),
+          label: const Text('导入 MDX/MDD'),
+        ),
+      ],
+    ),
+    children: [
+      if (!widget.store.locals.canImport)
+        const Padding(
+          padding: EdgeInsets.all(16),
+          child: Text('当前为临时模式，无法持久保存本地词典。'),
+        ),
+      for (final source in builtInDictionaries)
+        if (!_locals.any((entry) => entry.digest == source.digest))
+          _downloadTile(source),
+      for (final entry in _locals)
+        ListTile(
+          title: Text(entry.displayName),
+          subtitle: Text(
+            '${entry.wordCount} 个词条 · ${entry.mddFiles.length} 个资源包',
+          ),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Switch(
+                value: entry.enabled,
+                onChanged: _busy
+                    ? null
+                    : (value) => _operate(
+                        () => widget.store.locals.setEnabled(entry.id, value),
+                      ),
+              ),
+              IconButton(
+                tooltip: '移除本地词典',
+                icon: const AppIcon(AppGlyph.delete),
+                onPressed: _busy
+                    ? null
+                    : () async {
+                        final confirmed = await showReaderConfirmDialog(
+                          context: context,
+                          title: '移除“${entry.displayName}”？',
+                          message: '仅删除应用内的词库副本和索引，不影响原始文件、书籍或笔记。',
+                          confirmLabel: '移除',
+                          destructive: true,
+                        );
+                        if (confirmed && mounted) {
+                          await _operate(
+                            () => widget.store.locals.remove(entry.id),
+                          );
+                        }
+                      },
+              ),
+            ],
+          ),
+        ),
+    ],
+  );
+
+  Widget _downloadTile(BuiltInDictionary source) {
+    final active = _downloading?.id == source.id;
+    final progress = _downloadBytes / source.size;
+    return ListTile(
+      key: ValueKey('dictionary-download-${source.id}'),
+      title: Text(source.name),
+      subtitle: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            active
+                ? _importing
+                      ? '正在导入…'
+                      : '正在下载 ${(progress * 100).floor()}%'
+                : '${(source.size / 1024 / 1024).toStringAsFixed(1)} MB',
+          ),
+          if (active)
+            LinearProgressIndicator(value: _importing ? null : progress),
+        ],
+      ),
+      trailing: active
+          ? TextButton(
+              onPressed: _importing ? null : _download?.cancel,
+              child: const Text('取消'),
+            )
+          : FilledButton(
+              onPressed: _busy || !widget.store.locals.canImport
+                  ? null
+                  : () => _downloadLocal(source),
+              child: const Text('下载词典'),
             ),
     );
   }

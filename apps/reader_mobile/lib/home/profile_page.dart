@@ -354,11 +354,12 @@ class _ProfilePageState extends State<ProfilePage> {
                     glyph: AppGlyph.bookshelf,
                     title: '词典设置',
                     subtitle: '释义服务、模型与查询预设',
-                    onTap: () => Navigator.of(context).push<void>(
-                      MaterialPageRoute(
-                        builder: (_) => DictionarySettingsPage(
-                          store: DictionaryStore(widget.library),
-                        ),
+                    onTap: () => showReaderBottomSheet<void>(
+                      context: context,
+                      useSafeArea: true,
+                      isScrollControlled: true,
+                      builder: (_) => DictionarySettingsPage(
+                        store: DictionaryStore(widget.library),
                       ),
                     ),
                   ),

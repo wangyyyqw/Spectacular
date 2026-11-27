@@ -183,7 +183,7 @@ class DictionaryStore {
       rules: _mergeBuiltInRules([
         for (final item in json['rules'] as List? ?? [])
           DictionaryRule.fromJson(Map<String, dynamic>.from(item as Map)),
-      ]),
+      ], (json['ruleOrder'] as List? ?? []).cast<String>()),
       settings: DictionarySettings(
         apiId: settings['apiId'] as String? ?? '',
         presetId: settings['presetId'] as String? ?? 'dictionary_short',
@@ -196,16 +196,20 @@ class DictionaryStore {
     );
   }
 
-  static List<DictionaryRule> _mergeBuiltInRules(List<DictionaryRule> saved) {
+  static List<DictionaryRule> _mergeBuiltInRules(
+    List<DictionaryRule> saved, [
+    List<String> order = const [],
+  ]) {
     final byId = {for (final rule in saved) rule.id: rule};
-    return [
+    final merged = {
       for (final rule in dictionaryBuiltInRules)
-        rule.copyWith(enabled: byId[rule.id]?.enabled ?? rule.enabled),
+        rule.id: rule.copyWith(enabled: byId[rule.id]?.enabled ?? rule.enabled),
       for (final rule in saved)
         if (!_removedBuiltInRuleIds.contains(rule.id) &&
             !dictionaryBuiltInRules.any((builtIn) => builtIn.id == rule.id))
-          rule,
-    ];
+          rule.id: rule,
+    };
+    return [for (final id in order) ?merged.remove(id), ...merged.values];
   }
 
   Future<void> _update(DictionaryState Function(DictionaryState) change) {
@@ -218,6 +222,7 @@ class DictionaryStore {
           'apis': next.apis.map((a) => a.toJson()).toList(),
           'presets': next.customPresets.map((p) => p.toJson()).toList(),
           'rules': next.rules.map((r) => r.toJson()).toList(),
+          'ruleOrder': next.rules.map((rule) => rule.id).toList(),
           'settings': next.settings.toJson(),
         }),
       );
@@ -269,9 +274,8 @@ class DictionaryStore {
       }
       return s.copyWith(
         rules: [
-          for (final r in s.rules)
-            if (r.id != rule.id) r,
-          rule,
+          for (final r in s.rules) r.id == rule.id ? rule : r,
+          if (!s.rules.any((r) => r.id == rule.id)) rule,
         ],
       );
     });
@@ -312,6 +316,13 @@ class DictionaryStore {
       ],
     ),
   );
+
+  Future<void> reorderRules(List<String> ids) => _update((state) {
+    final rules = {for (final rule in state.rules) rule.id: rule};
+    return state.copyWith(
+      rules: [for (final id in ids) ?rules.remove(id), ...rules.values],
+    );
+  });
 
   Future<void> removeRule(String id) async {
     if (dictionaryBuiltInRules.any((rule) => rule.id == id)) {

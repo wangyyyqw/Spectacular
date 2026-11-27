@@ -18,6 +18,7 @@ import 'package:reader_mobile/dictionary/local_dictionary_store.dart';
 import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/theme/app_theme.dart';
 import 'package:reader_ui/panels/reader_settings_sheet.dart';
+import 'package:reader_ui/theme/reader_frosted_popup.dart';
 import 'package:reader_ui/theme/reader_section_slider.dart';
 import 'package:reader_ui/theme/reader_ui_style.dart';
 
@@ -44,6 +45,32 @@ Future<DictionaryStore> configured({bool singleUse = true}) async {
   await store.saveApi(api);
   await store.changeSettings((s) => s.copyWith(singleUsePreset: singleUse));
   return store;
+}
+
+Future<void> showDictionarySettings(
+  WidgetTester tester,
+  DictionaryStore store,
+) async {
+  await tester.pumpWidget(
+    MaterialApp(
+      theme: buildAppTheme(),
+      home: Scaffold(
+        body: Builder(
+          builder: (context) => TextButton(
+            onPressed: () => showReaderBottomSheet<void>(
+              context: context,
+              useSafeArea: true,
+              isScrollControlled: true,
+              builder: (_) => DictionarySettingsPage(store: store),
+            ),
+            child: const Text('打开词典设置'),
+          ),
+        ),
+      ),
+    ),
+  );
+  await tester.tap(find.text('打开词典设置'));
+  await tester.pumpAndSettle();
 }
 
 const _onlineRule = DictionaryRule(
@@ -862,18 +889,9 @@ void main() {
 
   testWidgets('在线词典规则可新增并保存 URL 与提取配置', (tester) async {
     final store = DictionaryStore(LibraryStore.memory());
-    await tester.pumpWidget(
-      MaterialApp(
-        theme: buildAppTheme(),
-        home: DictionarySettingsPage(store: store),
-      ),
-    );
+    await showDictionarySettings(tester, store);
+    await tester.tap(find.byKey(const ValueKey('dictionary-settings-online')));
     await tester.pumpAndSettle();
-    await tester.scrollUntilVisible(
-      find.byKey(const ValueKey('dictionary-rule-add')),
-      250,
-      scrollable: find.byType(Scrollable).first,
-    );
     await tester.tap(find.byKey(const ValueKey('dictionary-rule-add')));
     await tester.pumpAndSettle();
     await tester.enterText(
@@ -892,6 +910,8 @@ void main() {
     expect(rule.name, '测试在线词典');
     expect(rule.url, contains('{{word}}'));
     expect(rule.enabled, isTrue);
+    expect(find.byKey(ValueKey('dictionary-rule-${rule.id}')), findsOneWidget);
+    expect(find.byKey(const ValueKey('dictionary-api-add')), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
@@ -899,13 +919,7 @@ void main() {
     '词典设置复用凝光抽屉，API 密钥隐藏且服务与预设可保存',
     (tester) async {
       final store = DictionaryStore(LibraryStore.memory());
-      await tester.pumpWidget(
-        MaterialApp(
-          theme: buildAppTheme(),
-          home: DictionarySettingsPage(store: store),
-        ),
-      );
-      await tester.pumpAndSettle();
+      await showDictionarySettings(tester, store);
       await tester.tap(find.byKey(const ValueKey('dictionary-api-add')));
       await tester.pumpAndSettle();
       await tester.enterText(
@@ -952,6 +966,24 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('dictionary-preset-save')));
       await tester.pumpAndSettle();
       expect((await store.load()).customPresets.single.name, '释义测试');
+      await tester.tap(find.byKey(const ValueKey('dictionary-settings-local')));
+      await tester.pumpAndSettle();
+      expect(find.text('新世纪汉英大词典'), findsOneWidget);
+      expect(find.text('大辞海'), findsOneWidget);
+      expect(find.byKey(const ValueKey('dictionary-api-add')), findsNothing);
+      await tester.tap(find.byKey(const ValueKey('dictionary-settings-ai')));
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('dictionary-api-add')).hitTestable(),
+        findsOneWidget,
+      );
+      expect(find.text('释义测试'), findsOneWidget);
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('打开词典设置'));
+      await tester.pumpAndSettle();
+      expect(find.text(api.model), findsWidgets);
+      expect(find.text('释义测试'), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
     variant: TargetPlatformVariant({

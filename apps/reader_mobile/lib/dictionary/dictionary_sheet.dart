@@ -187,7 +187,7 @@ class _DictionarySheetState extends State<DictionarySheet> {
           (rule.sourceId, rule.name),
       ],
       _DictionarySection.local => [
-        for (final entry in _locals) ('local:${entry.id}', entry.name),
+        for (final entry in _locals) ('local:${entry.id}', entry.displayName),
       ],
       _DictionarySection.ai => [
         for (final api in state.apis.where((api) => api.enabled))

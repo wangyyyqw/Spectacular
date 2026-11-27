@@ -34,6 +34,9 @@ class LocalDictionaryEntry {
   final List<String> mddFiles, cssFiles;
   final bool enabled;
 
+  String get displayName =>
+      name.replaceFirst(RegExp(r'\s*[（(]单文件版[）)]\s*$'), '').trimRight();
+
   LocalDictionaryEntry withEnabled(bool value) => LocalDictionaryEntry(
     id: id,
     name: name,
@@ -130,6 +133,11 @@ class LocalDictionaryStore {
       for (final entry in entries)
         entry.id == id ? entry.withEnabled(enabled) : entry,
     ]);
+  });
+
+  Future<void> reorder(List<String> ids) => _update(() async {
+    final entries = {for (final entry in await _read()) entry.id: entry};
+    await _save([for (final id in ids) ?entries.remove(id), ...entries.values]);
   });
 
   Future<void> remove(String id) => _update(() async {
