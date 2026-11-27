@@ -38,6 +38,7 @@ import 'book_detail_sheet.dart';
 import 'book_lists_view.dart';
 import 'bookshelf_sort.dart';
 import 'book_cover_image.dart';
+import 'book_collection_layout.dart';
 import 'book_search_bar.dart';
 import 'horizontal_page_switcher.dart';
 import 'reading_insights.dart';
@@ -70,15 +71,6 @@ typedef _OnlineStoredProgress = ({
   bool finished,
 });
 
-const _shelfMinColumns = 3;
-const _shelfTargetCardWidth = 192.0;
-const _desktopShelfCoverWidth = 160.0;
-const _desktopShelfListWidth = 920.0;
-const _shelfGridPadding = 16.0;
-const _shelfGridSpacing = 16.0;
-const _shelfCoverAspectRatio = 3 / 4;
-const _shelfTitleGap = 6.0;
-const _shelfTitleHeight = 20.0;
 const _shelfToolbarIconStroke = 1.3;
 const _pinnedCoverShadowOpacity = .42;
 final _bookPressOverlay = WidgetStateProperty.resolveWith<Color?>(
@@ -1095,9 +1087,15 @@ class _BookshelfPageState extends State<BookshelfPage> {
     final media = MediaQuery.of(context);
     final width = context.size?.width ?? media.size.width;
     final cardWidth = _grid
-        ? _shelfGridMetrics(width, media.textScaler).cardWidth
-        : 66.0;
-    final cardHeight = _grid ? cardWidth / _shelfCoverAspectRatio : 88.0;
+        ? BookCollectionLayout.grid(
+            context,
+            width,
+            showTitles: _gridShowTitles,
+          ).cardWidth
+        : BookCollectionLayout.rowCover.width;
+    final cardHeight = _grid
+        ? cardWidth / BookCollectionLayout.coverAspectRatio
+        : BookCollectionLayout.rowCover.height;
     final decodeWidth = coverDecodeWidth(cardWidth, media.devicePixelRatio);
     final decodeHeight = coverDecodeHeight(cardHeight, media.devicePixelRatio);
     await Future.wait([
@@ -1941,14 +1939,15 @@ class _BookshelfPageState extends State<BookshelfPage> {
         return GridView.builder(
           key: const ValueKey<String>('bookshelf-grid'),
           padding: EdgeInsets.fromLTRB(
-            _shelfGridPadding,
+            BookCollectionLayout.inset,
             4,
-            _shelfGridPadding,
+            BookCollectionLayout.inset,
             _selectionMode ? 160 : 96,
           ),
-          gridDelegate: _shelfGridMetrics(
+          gridDelegate: BookCollectionLayout.grid(
+            context,
             constraints.maxWidth,
-            MediaQuery.textScalerOf(context),
+            showTitles: _gridShowTitles,
           ).delegate,
           itemCount: books.length,
           itemBuilder: (context, index) {
@@ -1977,46 +1976,10 @@ class _BookshelfPageState extends State<BookshelfPage> {
     );
   }
 
-  ({SliverGridDelegateWithFixedCrossAxisCount delegate, double cardWidth})
-  _shelfGridMetrics(double width, TextScaler textScaler) {
-    final desktop = usesDesktopLayout(context);
-    if (desktop) width = math.min(width, desktopBookPageMaxWidth);
-    final available = width - _shelfGridPadding * 2;
-    // 桌面以封面上限增列，避免向下取整后把多余空间重新放大到封面。
-    final columns = desktop
-        ? math.max(
-            1,
-            ((available + _shelfGridSpacing) /
-                    (_desktopShelfCoverWidth + _shelfGridSpacing))
-                .ceil(),
-          )
-        : math.max(
-            _shelfMinColumns,
-            (available + _shelfGridSpacing) ~/
-                (_shelfTargetCardWidth + _shelfGridSpacing),
-          );
-    final cardWidth = (available - _shelfGridSpacing * (columns - 1)) / columns;
-    return (
-      delegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: columns,
-        mainAxisExtent:
-            cardWidth / _shelfCoverAspectRatio +
-            (_gridShowTitles
-                ? _shelfTitleGap + textScaler.scale(_shelfTitleHeight)
-                : 0),
-        mainAxisSpacing: 20,
-        crossAxisSpacing: _shelfGridSpacing,
-      ),
-      cardWidth: cardWidth,
-    );
-  }
-
   Widget _buildBookList(List<_ShelfItem> books) {
     return LayoutBuilder(
       builder: (_, bounds) {
-        final inset = usesDesktopLayout(context)
-            ? math.max(16.0, (bounds.maxWidth - _desktopShelfListWidth) / 2)
-            : 16.0;
+        final inset = BookCollectionLayout.listInset(context, bounds.maxWidth);
         return ListView.separated(
           key: const ValueKey<String>('bookshelf-list'),
           padding: EdgeInsets.fromLTRB(
@@ -2027,7 +1990,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
           ),
           itemCount: books.length,
           separatorBuilder: (_, _) => SizedBox(
-            height: 1,
+            height: BookCollectionLayout.rowSeparator,
             child: _listDividers ? const Divider(height: 1) : null,
           ),
           itemBuilder: (context, index) {
@@ -2672,8 +2635,8 @@ class _BookRow extends StatelessWidget {
       child: BookCoverImage(
         key: const ValueKey<String>('book-row-cover'),
         book: entry,
-        width: 66,
-        height: 88,
+        width: BookCollectionLayout.rowCover.width,
+        height: BookCollectionLayout.rowCover.height,
         showShadow: true,
         shadowOpacity: pinned ? _pinnedCoverShadowOpacity : .12,
       ),
@@ -2725,11 +2688,11 @@ class _BookRow extends StatelessWidget {
           color: selectionMode && selected
               ? theme.colorScheme.surfaceContainerLow
               : Colors.transparent,
-          padding: const EdgeInsets.symmetric(vertical: 8),
+          padding: BookCollectionLayout.rowPadding,
           child: Row(
             children: <Widget>[
               cover,
-              const SizedBox(width: 14),
+              const SizedBox(width: BookCollectionLayout.rowTextGap),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -3056,13 +3019,15 @@ class _BookCard extends StatelessWidget {
         children: [
           AspectRatio(
             key: const ValueKey<String>('book-card-cover'),
-            aspectRatio: _shelfCoverAspectRatio,
+            aspectRatio: BookCollectionLayout.coverAspectRatio,
             child: cover,
           ),
           if (showTitle) ...[
-            const SizedBox(height: _shelfTitleGap),
+            const SizedBox(height: BookCollectionLayout.titleGap),
             SizedBox(
-              height: MediaQuery.textScalerOf(context).scale(_shelfTitleHeight),
+              height: MediaQuery.textScalerOf(
+                context,
+              ).scale(BookCollectionLayout.titleHeight),
               child: Align(
                 alignment: Alignment.center,
                 child: Text(

@@ -12,6 +12,7 @@ import '../book_source/book_source_models.dart';
 import '../book_source/online_book_controller.dart';
 import '../book_source/online_book_detail_page.dart';
 import '../book_source/online_source_page.dart';
+import 'book_collection_layout.dart';
 import 'discover_choice_dialog.dart';
 import 'discover_filter_dialog.dart';
 import 'book_search_bar.dart';
@@ -501,14 +502,16 @@ class _DiscoverPageState extends State<DiscoverPage> {
         searchLabel: '在线搜索',
         onSearch: _search,
         onSubmitted: (_) => _search(),
-        clearButton: !_searchMode ? null : IconButton(
-          tooltip: '返回发现',
-          icon: const AppIcon(AppGlyph.close),
-          onPressed: () {
-            _query.clear();
-            unawaited(_search());
-          },
-        ),
+        clearButton: !_searchMode
+            ? null
+            : IconButton(
+                tooltip: '返回发现',
+                icon: const AppIcon(AppGlyph.close),
+                onPressed: () {
+                  _query.clear();
+                  unawaited(_search());
+                },
+              ),
         actionKey: const ValueKey('discover-source-menu'),
         actionLabel: '筛选管理',
         desktopAction: '筛选管理',
@@ -619,13 +622,13 @@ class _DiscoverPageState extends State<DiscoverPage> {
             },
           ),
           if (_loading) const LinearProgressIndicator(minHeight: 2),
-          Expanded(child: _buildList()),
+          Expanded(child: _buildList(bounds.maxWidth)),
         ],
       ),
     );
   }
 
-  Widget _buildList() {
+  Widget _buildList(double width) {
     if (_books.isEmpty) {
       return Center(
         child: Padding(
@@ -667,49 +670,36 @@ class _DiscoverPageState extends State<DiscoverPage> {
       );
     }
     final footer = !_searchMode && (_hasMore || _error != null);
+    final inset = BookCollectionLayout.listInset(context, width);
     return RefreshIndicator(
       onRefresh: () =>
           _searchMode ? _search() : _load(reset: true, force: true),
       child: _grid
-          ? LayoutBuilder(
-              builder: (context, constraints) {
-                final columns = (constraints.maxWidth / 150).floor().clamp(
-                  3,
-                  8,
-                );
-                final width =
-                    (constraints.maxWidth - 32 - 18 * (columns - 1)) / columns;
-                final titleStyle = Theme.of(context).textTheme.bodyMedium!;
-                final titleHeight =
-                    (titleStyle.fontSize ?? 14) *
-                    (titleStyle.height ?? 1.4) *
-                    MediaQuery.textScalerOf(context).scale(1) *
-                    2;
-                return GridView.builder(
-                  key: const ValueKey('discover-grid'),
-                  controller: _scroll,
-                  padding: const EdgeInsets.all(16),
-                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: columns,
-                    mainAxisExtent: width * 1.35 + 6 + titleHeight,
-                    mainAxisSpacing: 18,
-                    crossAxisSpacing: 18,
-                  ),
-                  itemCount: _books.length + (footer ? 1 : 0),
-                  itemBuilder: (_, index) => index == _books.length
-                      ? _footer()
-                      : _bookTile(
-                          _books[index].source,
-                          _books[index].book,
-                          grid: true,
-                        ),
-                );
-              },
+          ? GridView.builder(
+              key: const ValueKey('discover-grid'),
+              controller: _scroll,
+              padding: const EdgeInsets.fromLTRB(
+                BookCollectionLayout.inset,
+                4,
+                BookCollectionLayout.inset,
+                28,
+              ),
+              gridDelegate: BookCollectionLayout.grid(context, width).delegate,
+              itemCount: _books.length + (footer ? 1 : 0),
+              itemBuilder: (_, index) => index == _books.length
+                  ? _footer()
+                  : _bookTile(
+                      _books[index].source,
+                      _books[index].book,
+                      grid: true,
+                    ),
             )
-          : ListView.builder(
+          : ListView.separated(
               key: const ValueKey('discover-list'),
               controller: _scroll,
-              padding: const EdgeInsets.fromLTRB(16, 20, 16, 28),
+              padding: EdgeInsets.fromLTRB(inset, 8, inset, 28),
+              separatorBuilder: (_, _) =>
+                  const SizedBox(height: BookCollectionLayout.rowSeparator),
               itemCount: _books.length + (footer ? 1 : 0),
               itemBuilder: (_, index) => index == _books.length
                   ? _footer()
@@ -751,7 +741,7 @@ class _DiscoverPageState extends State<DiscoverPage> {
             Expanded(
               child: Text(
                 book.name,
-                maxLines: grid ? 2 : 1,
+                maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style:
                     (grid
@@ -826,13 +816,16 @@ class _DiscoverPageState extends State<DiscoverPage> {
       key: ValueKey('discover-book-${source.id}-${book.bookUrl}'),
       onTap: () => _open(source, book),
       child: Padding(
-        padding: EdgeInsets.only(bottom: grid ? 0 : 24),
+        padding: grid ? EdgeInsets.zero : BookCollectionLayout.rowPadding,
         child: grid
             ? Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  AspectRatio(aspectRatio: 1 / 1.35, child: cover),
-                  const SizedBox(height: 6),
+                  AspectRatio(
+                    aspectRatio: BookCollectionLayout.coverAspectRatio,
+                    child: cover,
+                  ),
+                  const SizedBox(height: BookCollectionLayout.titleGap),
                   Expanded(child: details),
                 ],
               )
@@ -840,7 +833,7 @@ class _DiscoverPageState extends State<DiscoverPage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   cover,
-                  const SizedBox(width: 16),
+                  const SizedBox(width: BookCollectionLayout.rowTextGap),
                   Expanded(child: details),
                 ],
               ),
@@ -907,13 +900,17 @@ class _DiscoverCoverState extends State<_DiscoverCover> {
       ),
     );
     return SizedBox(
-      width: widget.grid ? double.infinity : 64,
-      height: widget.grid ? double.infinity : 88,
+      width: widget.grid
+          ? double.infinity
+          : BookCollectionLayout.rowCover.width,
+      height: widget.grid
+          ? double.infinity
+          : BookCollectionLayout.rowCover.height,
       child: LayoutBuilder(
         builder: (context, constraints) {
           final logicalWidth = widget.grid
               ? (constraints.maxWidth.isFinite ? constraints.maxWidth : 150.0)
-              : 64.0;
+              : BookCollectionLayout.rowCover.width;
           final decodeWidth =
               (logicalWidth * MediaQuery.devicePixelRatioOf(context))
                   .ceil()

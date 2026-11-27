@@ -652,6 +652,18 @@ void main() {
     await pumpReaderUntil(tester, find.text('第一-1-0'));
     await tester.pumpAndSettle();
     expect(requested, hasLength(1));
+    Rect coverRect(int index) {
+      final tile = find.ancestor(
+        of: find.text('第一-1-$index').first,
+        matching: find.byType(InkWell),
+      ).first;
+      return tester.getRect(
+        find.descendant(of: tile, matching: find.byType(ClipRRect)),
+      );
+    }
+
+    expect(coverRect(0).size, const Size(66, 88));
+    expect(coverRect(1).top - coverRect(0).bottom, closeTo(17, 0.01));
 
     await tester.tap(find.byTooltip('网格视图'));
     await pumpReaderUntilComplete(
@@ -662,6 +674,10 @@ void main() {
       requested.map((url) => url.queryParameters['page']),
       containsAll(<String>['2', '3']),
     );
+    final firstCover = coverRect(0);
+    expect(firstCover.width / firstCover.height, closeTo(3 / 4, 0.001));
+    expect(coverRect(1).left - firstCover.right, closeTo(16, 0.01));
+    expect(coverRect(3).top - firstCover.bottom, closeTo(6 + 20 + 20, 0.01));
 
     await tester.tap(find.text('第二'));
     await pumpReaderUntil(tester, find.text('第二-1-0'));
