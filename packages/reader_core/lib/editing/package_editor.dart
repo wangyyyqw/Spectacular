@@ -224,20 +224,34 @@ class PackageEditor {
     }
   }
 
-  void renameResource(String oldPath, String newPath) {
-    _requireNewPath(newPath);
-    if (oldPath == opfPath || oldPath.startsWith('META-INF/')) {
-      throw StateError('包控制文件不能重命名');
-    }
-    final contents = _rewrittenResources(oldPath, newPath);
-    final bytes = session.readBytes(oldPath);
-    if (bytes == null) throw StateError('资源不存在：$oldPath');
-    session.transaction('重命名资源并更新引用', (tx) {
-      tx.writeBytes(newPath, bytes);
-      for (final entry in contents.entries) {
-        tx.writeText(entry.key == oldPath ? newPath : entry.key, entry.value);
+  void renameResource(String oldPath, String newPath) =>
+      renameResources({oldPath: newPath});
+
+  void renameResources(Map<String, String> moves) {
+    if (moves.isEmpty) return;
+    final paths = session.resources.map((resource) => resource.path).toSet();
+    final destinations = {...paths};
+    for (final entry in moves.entries) {
+      if (!paths.contains(entry.key)) throw StateError('资源不存在：${entry.key}');
+      if (entry.key == opfPath || entry.key.startsWith('META-INF/')) {
+        throw StateError('包控制文件不能重命名');
       }
-      tx.remove(oldPath);
+      _validatePath(entry.value);
+      if (!destinations.add(entry.value)) {
+        throw StateError('资源已存在：${entry.value}');
+      }
+    }
+    final contents = _rewrittenResources(moves);
+    session.transaction('重命名资源并更新引用', (tx) {
+      for (final entry in moves.entries) {
+        if (!contents.containsKey(entry.key)) {
+          tx.writeBytes(entry.value, session.readBytes(entry.key)!);
+        }
+        tx.remove(entry.key);
+      }
+      for (final entry in contents.entries) {
+        tx.writeText(moves[entry.key] ?? entry.key, entry.value);
+      }
     });
   }
 
@@ -311,6 +325,13 @@ class PackageEditor {
   );
 
   void _requireNewPath(String path) {
+    _validatePath(path);
+    if (session.resources.any((e) => e.path == path)) {
+      throw StateError('资源已存在：$path');
+    }
+  }
+
+  void _validatePath(String path) {
     if (path.isEmpty ||
         path.startsWith('/') ||
         path.contains('\\') ||
@@ -319,9 +340,6 @@ class PackageEditor {
         path.contains('#') ||
         path.contains('?')) {
       throw ArgumentError('请输入 EPUB 内的规范相对路径');
-    }
-    if (session.resources.any((e) => e.path == path)) {
-      throw StateError('资源已存在：$path');
     }
   }
 

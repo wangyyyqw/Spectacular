@@ -15,6 +15,7 @@ import 'package:reader_mobile/theme/app_theme.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
+import 'package:reader_ui/theme/reader_ui_style.dart';
 
 import '../support/test_epub.dart';
 import '../support/reader_pump.dart';
@@ -92,14 +93,13 @@ void main() {
     final deletePanel = find.byKey(
       const ValueKey('book-detail-delete-actions'),
     );
-    final scheme = Theme.of(
+    final theme = Theme.of(
       tester.element(find.byKey(const ValueKey('book-detail-open-page'))),
-    ).colorScheme;
+    );
+    final scheme = theme.colorScheme;
     for (final card in [panel, deletePanel]) {
       final material = tester.widget<Material>(card);
-      final shape = material.shape! as RoundedRectangleBorder;
-      expect(shape.borderRadius, BorderRadius.circular(20));
-      expect(shape.side.color, scheme.outlineVariant);
+      expect(material.shape, ReaderUiStyle.cardShapeOf(theme));
       expect(material.color, scheme.surface);
     }
     expect(
@@ -132,7 +132,10 @@ void main() {
       ),
     );
     expect(deleteText.style?.color, scheme.error);
-    expect(find.text('收藏'), findsOneWidget);
+    expect(
+      find.descendant(of: panel, matching: find.text('书单')),
+      findsOneWidget,
+    );
     expect(tester.takeException(), isNull);
   });
 
@@ -206,11 +209,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('多选'), findsNothing);
       await tester.tap(find.byKey(const ValueKey('book-detail-export')));
-      await tester.runAsync(() async {
-        for (var i = 0; i < 30 && !called; i++) {
-          await Future<void>.delayed(const Duration(milliseconds: 10));
-        }
-      });
+      await pumpReaderUntilComplete(tester, () => called);
       await tester.pumpAndSettle();
       expect(called, isTrue);
       expect(find.text(fail ? '导出失败：空间不足' : '已导出：原书_导出_测试.epub'), findsNothing);

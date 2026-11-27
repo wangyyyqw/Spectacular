@@ -1278,6 +1278,7 @@ class BookSourceService {
     onProgress?.call(0, 0, '正在读取目录');
     final List<OnlineChapter> toc =
         selectedChapters ??
+        chapterDirectory ??
         await wait<List<OnlineChapter>>(fetchToc(source, info));
     _checkCancelled(isCancelled);
     final directory = chapterDirectory ?? toc;
@@ -1708,6 +1709,8 @@ class BookSourceService {
           .trim()
           .ifBlank((image.attributes['data-original'] ?? '').trim())
           .ifBlank((image.attributes['src'] ?? '').trim());
+      image.attributes.remove('data-src');
+      image.attributes.remove('data-original');
       if (raw.isNotEmpty) {
         final request = onlineReviewImageRequest(raw);
         final resolved = rules.resolveUrl(pageUrl, request.url);
@@ -2007,7 +2010,7 @@ class BookSourceService {
       if (response.bytes.isEmpty || response.bytes.length > 8 * 1024 * 1024) {
         return null;
       }
-      return _imageType(response.bytes) == null ? null : response.bytes;
+      return OnlineEpubImage.fromBytes(response.bytes, 'cover')?.bytes;
     } on BookSourceException {
       return null;
     }
@@ -2021,13 +2024,7 @@ class BookSourceService {
     final coverUrl = book.coverUrl.trim();
     final bytes = await loadCover(source, coverUrl, referer: book.bookUrl);
     if (bytes == null) return null;
-    final type = _imageType(bytes);
-    if (type == null) return null;
-    return OnlineEpubImage(
-      path: 'images/cover.${type.extension}',
-      bytes: bytes,
-      mediaType: type.mediaType,
-    );
+    return OnlineEpubImage.fromBytes(bytes, 'cover');
   }
 
   Future<_PreparedContent> _prepareContentImages(
@@ -2053,8 +2050,8 @@ class BookSourceService {
           .ifBlank((image.attributes['data-original'] ?? '').trim())
           .ifBlank((image.attributes['src'] ?? '').trim());
       final absolute = rules.resolveUrl(pageUrl, raw);
-      if (absolute.isEmpty || absolute.startsWith('data:')) {
-        if (absolute.isEmpty) image.remove();
+      if (absolute.isEmpty) {
+        image.remove();
         continue;
       }
       image.attributes['src'] = absolute;
@@ -2071,35 +2068,25 @@ class BookSourceService {
       }
       downloads.add(absolute);
       try {
-        final response = await http.fetchBytes(
-          source,
-          absolute,
-          referer: pageUrl,
-        );
-        if (response.bytes.isEmpty ||
-            response.bytes.length > 8 * 1024 * 1024 ||
-            totalBytes + response.bytes.length > 32 * 1024 * 1024) {
+        final bytes = absolute.startsWith('data:')
+            ? decodeDataUrlImage(absolute)
+            : (await http.fetchBytes(source, absolute, referer: pageUrl)).bytes;
+        if (bytes == null ||
+            bytes.isEmpty ||
+            bytes.length > 8 * 1024 * 1024 ||
+            totalBytes + bytes.length > 32 * 1024 * 1024) {
           image.remove();
           continue;
         }
-        final type = _imageType(response.bytes);
-        if (type == null) {
+        final digest = sha256.convert(bytes).toString().substring(0, 16);
+        final asset = OnlineEpubImage.fromBytes(bytes, digest);
+        if (asset == null) {
           image.remove();
           continue;
         }
-        final digest = sha256
-            .convert(response.bytes)
-            .toString()
-            .substring(0, 16);
-        final path = 'images/$digest.${type.extension}';
-        final asset = OnlineEpubImage(
-          path: path,
-          bytes: response.bytes,
-          mediaType: type.mediaType,
-        );
         images[absolute] = asset;
-        totalBytes += response.bytes.length;
-        image.attributes['src'] = '../$path';
+        totalBytes += bytes.length;
+        image.attributes['src'] = '../${asset.path}';
       } on Object {
         image.remove();
       }
@@ -2347,40 +2334,6 @@ class BookSourceService {
         (uri.scheme == 'http' || uri.scheme == 'https') &&
         uri.hasAuthority;
   }
-
-  _ImageType? _imageType(Uint8List bytes) {
-    if (bytes.length >= 3 &&
-        bytes[0] == 0xff &&
-        bytes[1] == 0xd8 &&
-        bytes[2] == 0xff) {
-      return const _ImageType('jpg', 'image/jpeg');
-    }
-    if (bytes.length >= 8 &&
-        bytes[0] == 0x89 &&
-        bytes[1] == 0x50 &&
-        bytes[2] == 0x4e &&
-        bytes[3] == 0x47) {
-      return const _ImageType('png', 'image/png');
-    }
-    if (bytes.length >= 12 &&
-        bytes[0] == 0x52 &&
-        bytes[1] == 0x49 &&
-        bytes[2] == 0x46 &&
-        bytes[3] == 0x46 &&
-        bytes[8] == 0x57 &&
-        bytes[9] == 0x45 &&
-        bytes[10] == 0x42 &&
-        bytes[11] == 0x50) {
-      return const _ImageType('webp', 'image/webp');
-    }
-    if (bytes.length >= 6 &&
-        bytes[0] == 0x47 &&
-        bytes[1] == 0x49 &&
-        bytes[2] == 0x46) {
-      return const _ImageType('gif', 'image/gif');
-    }
-    return null;
-  }
 }
 
 class _PreparedContent {
@@ -2388,13 +2341,6 @@ class _PreparedContent {
 
   final String html;
   final int totalBytes;
-}
-
-class _ImageType {
-  const _ImageType(this.extension, this.mediaType);
-
-  final String extension;
-  final String mediaType;
 }
 
 extension _BlankString on String {

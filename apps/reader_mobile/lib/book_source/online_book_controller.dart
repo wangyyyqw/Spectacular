@@ -1036,7 +1036,6 @@ class OnlineBookController extends ChangeNotifier {
         source,
         catalog.book,
         preparedBook: catalog.book,
-        selectedChapters: catalog.chapters,
         chapterDirectory: catalog.chapters,
         onProgress: onProgress,
         isCancelled: isCancelled,

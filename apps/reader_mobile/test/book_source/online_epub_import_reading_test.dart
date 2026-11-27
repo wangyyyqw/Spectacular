@@ -10,6 +10,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:reader_core/epub/epub_chapter_source.dart';
+import 'package:reader_core/epub/epub_document.dart';
 import 'package:reader_core/source/chapter_source.dart'
     show ChapterLoadCancelled;
 import 'package:reader_mobile/book_source/book_source_cookie_store.dart';
@@ -21,6 +22,7 @@ import 'package:reader_mobile/book_source/online_book_controller.dart';
 import 'package:reader_mobile/book_source/online_chapter_content_store.dart';
 import 'package:reader_mobile/book_source/online_chapter_request.dart';
 import 'package:reader_mobile/book_source/online_epub_metadata.dart';
+import 'package:reader_mobile/book_source/online_epub_export.dart';
 import 'package:reader_mobile/home/bookshelf_page.dart';
 import 'package:reader_mobile/book_source/online_epub_builder.dart';
 import 'package:reader_mobile/book_source/online_reading_book.dart';
@@ -84,6 +86,17 @@ void main() {
     expect(patched.contentRevision, old.contentRevision);
     expect(patched.coverPath, isNotNull);
     expect(patched.description, book.intro);
+    final original = await File(patched.filePath).readAsBytes();
+    final output = File('${f.directory.path}/export.epub');
+    await OnlineEpubExport.write(patched, output);
+    final exported = (await openEpubFile(output)).document!;
+    addTearDown(exported.archive.close);
+    expect(
+      exported.readCoverBytes(),
+      await File(patched.coverPath!).readAsBytes(),
+    );
+    expect(exported.chapterXhtml(0), contains('src="Images/cover.png"'));
+    expect(await File(patched.filePath).readAsBytes(), original);
   });
 
   test('逐章书手动下载全本后保留书架身份并按正文迁移在线续读', () async {
@@ -705,6 +718,7 @@ void main() {
       tester,
       f.library.setSetting('bookshelf.grid', 'false'),
     );
+    await pumpReaderTask(tester, f.controller.registerImportedBooks());
 
     await tester.pumpWidget(
       MaterialApp(

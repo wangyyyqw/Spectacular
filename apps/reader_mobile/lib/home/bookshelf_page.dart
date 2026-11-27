@@ -18,6 +18,7 @@ import '../book_source/book_source_models.dart';
 import '../book_source/online_book_controller.dart';
 import '../book_source/online_book_detail_page.dart';
 import '../book_source/online_chapter_request.dart';
+import '../book_source/online_epub_export.dart';
 import '../book_source/online_epub_metadata.dart';
 import '../library/library_store.dart';
 import '../rea_micro/rea_micro_controller.dart';
@@ -27,7 +28,6 @@ import '../reader/book_opener.dart';
 import '../reader/reader_text_warmup.dart';
 import '../editing/book_edit_repository.dart';
 import '../editing/book_editor_route.dart';
-import '../editing/epub_export.dart';
 import '../txt/txt_book_service.dart';
 import '../txt/txt_chapter_rule_page.dart';
 import '../txt/txt_encoding_dialog.dart';
@@ -1423,10 +1423,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
     final name = String.fromCharCodes(title.runes.take(64));
     final fileName = '${name.isEmpty ? '未命名书籍' : name}.epub';
     try {
-      final saved = await EpubExport.saveToDownloads(
-        File(entry.filePath),
-        fileName: fileName,
-      );
+      final saved = await OnlineEpubExport.save(entry, fileName);
       if (mounted) {
         recordAppEvent(
           saved ? 'book_export_completed' : 'book_export_cancelled',

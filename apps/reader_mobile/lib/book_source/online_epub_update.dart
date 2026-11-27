@@ -291,9 +291,18 @@ class OnlineEpubUpdate {
       'version': 1,
       'chapters': upgraded,
     });
-    final output = Archive();
+    final output = Archive()
+      ..addFile(
+        ArchiveFile.noCompress(
+          'mimetype',
+          20,
+          ascii.encode('application/epub+zip'),
+        ),
+      );
     for (final file in original.files) {
-      if (replacements.containsKey(file.name)) continue;
+      if (file.name == 'mimetype' || replacements.containsKey(file.name)) {
+        continue;
+      }
       output.addFile(ArchiveFile(file.name, file.size, file.content));
     }
     for (final entry in replacements.entries) {

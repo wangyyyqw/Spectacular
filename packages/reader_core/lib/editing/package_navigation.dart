@@ -339,7 +339,7 @@ extension PackageNavigationCommands on PackageEditor {
         .firstWhere((item) => _itemPath(item) == secondPath)
         .getAttribute('id')!;
     final first = _mergedDocument(firstPath, secondPath);
-    final references = _rewrittenResources(secondPath, firstPath)
+    final references = _rewrittenResources({secondPath: firstPath})
       ..remove(secondPath);
     final doc = XmlDocument.parse(
       references.remove(opfPath) ?? session.readText(opfPath),

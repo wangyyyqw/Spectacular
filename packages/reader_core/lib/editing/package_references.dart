@@ -94,19 +94,21 @@ extension PackageReferenceCommands on PackageEditor {
     return result;
   }
 
-  Map<String, String> _rewrittenResources(String oldPath, String newPath) {
+  Map<String, String> _rewrittenResources(Map<String, String> moves) {
     final result = <String, String>{};
     for (final resource in session.resources.where(_textResource)) {
       final text = session.readText(resource.path);
-      final movedSource = resource.path == oldPath ? newPath : resource.path;
+      final movedSource = moves[resource.path] ?? resource.path;
       final next = _rewriteDocument(resource.path, text, (href) {
         final uri = Uri.tryParse(href);
         if (uri == null || uri.hasScheme || uri.hasAuthority) return href;
         final (target, suffix) = resolveEditReference(resource.path, href);
-        if (target != oldPath && movedSource == resource.path) return href;
+        if (!moves.containsKey(target) && movedSource == resource.path) {
+          return href;
+        }
         return relativeEditReference(
           movedSource,
-          target == oldPath ? newPath : target,
+          moves[target] ?? target,
           suffix,
         );
       });

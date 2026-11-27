@@ -507,7 +507,7 @@ void main() {
     final result = await service.download(
       _source(),
       _book,
-      preparedBook: _book,
+      preparedBook: _book.copyWith(coverUrl: 'https://example.test/cover.png'),
       selectedChapters: [chapters[0], chapters[2]],
       chapterDirectory: chapters,
     );
@@ -523,6 +523,46 @@ void main() {
     expect(first, contains('第1章独立'));
     expect(first, isNot(contains('第2章独立')));
     expect(second, contains('第3章独立'));
+  });
+
+  test('整本转换复用目录并嵌入封面、远程插图和内嵌图，不重复请求目录', () async {
+    const png =
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==';
+    final requests = <String>[];
+    final service = _service(directory, (request) async {
+      requests.add(request.url.path);
+      return request.url.path.endsWith('.png')
+          ? http.Response.bytes(base64Decode(png), 200)
+          : _json({
+              'content':
+                    '<p>一段正文和两幅插图。</p><img src="/inline.png"/><img data-original="data:image/png;base64,$png"/>',
+            });
+    });
+    final result = await service.download(
+      _source(),
+      _book,
+      preparedBook: _book.copyWith(coverUrl: 'https://example.test/cover.png'),
+      chapterDirectory: [_chapter(0, '/1')],
+    );
+    expect(requests, ['/cover.png', '/1', '/inline.png']);
+    final archive = ZipDecoder().decodeBytes(result.bytes);
+    expect(
+      archive.findFile('OEBPS/Images/cover.png')!.content,
+      base64Decode(png),
+    );
+    final illustration = archive.files.singleWhere(
+      (entry) =>
+          entry.name.startsWith('OEBPS/Images/') &&
+          !entry.name.endsWith('/cover.png'),
+    );
+    final html = utf8.decode(
+      archive.findFile('OEBPS/text/chapter_0001.xhtml')!.content,
+    );
+    expect(
+      '../${illustration.name.substring(6)}'.allMatches(html),
+      hasLength(2),
+    );
+    expect(html, isNot(contains('data:image')));
   });
 }
 

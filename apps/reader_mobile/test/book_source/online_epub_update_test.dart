@@ -57,7 +57,7 @@ void main() {
     for (final path in [
       'OEBPS/text/chapter_0001.xhtml',
       'OEBPS/text/chapter_0002.xhtml',
-      'OEBPS/style.css',
+      'OEBPS/Styles/style.css',
     ]) {
       expect(newZip.findFile(path)!.content, oldZip.findFile(path)!.content);
     }

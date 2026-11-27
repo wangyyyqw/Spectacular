@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/api.dart' show BookMeta;
 import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/epub/epub_chapter_source.dart';
+import 'package:reader_core/epub/epub_document.dart';
 import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_mobile/book_source/online_epub_builder.dart';
 
@@ -151,8 +152,7 @@ void main() {
     final body = page.slices[1].block;
     expect(
       heading.style!.fontSize,
-      // 标题与正文沿用相同的用户字号缩放，基础 16px 时标题缩小 2px。
-      closeTo(body.style!.fontSize * (22 / 16), .01),
+      closeTo(body.style!.fontSize * (20 / 16), .01),
     );
     final subtitle = page.slices
         .map((slice) => slice.block)
@@ -249,7 +249,10 @@ void main() {
 
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('生成 EPUB 3 目录、章节、封面与图片', () {
+  test('生成 EPUB 3 目录、章节、封面与图片', () async {
+    final png = base64Decode(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==',
+    );
     final bytes = const OnlineEpubBuilder().build(
       OnlineEpubInput(
         title: '测试 & 书名',
@@ -257,20 +260,13 @@ void main() {
         intro: '<p>简介</p>',
         sourceName: '示例源',
         bookUrl: 'https://example.com/book/1',
-        cover: OnlineEpubImage(
-          path: 'images/cover.png',
-          bytes: Uint8List.fromList(<int>[1, 2, 3]),
-          mediaType: 'image/png',
-        ),
-        images: <OnlineEpubImage>[
-          OnlineEpubImage(
-            path: 'images/a.png',
-            bytes: Uint8List.fromList(<int>[4, 5, 6]),
-            mediaType: 'image/png',
-          ),
-        ],
+        cover: OnlineEpubImage.fromBytes(png, 'cover'),
+        images: [OnlineEpubImage.fromBytes(png, 'a')!],
         chapters: const <OnlineEpubChapter>[
-          OnlineEpubChapter(title: '第一章', html: '<p>正文一</p>'),
+          OnlineEpubChapter(
+            title: '第一章',
+            html: '<p>正文一</p><img src="../Images/a.png"/>',
+          ),
           OnlineEpubChapter(title: '第二章', html: '<p>正文二</p>'),
         ],
       ),
@@ -287,7 +283,19 @@ void main() {
     expect(opf, contains('chapter_0001.xhtml'));
     expect(opf, contains('chapter_0002.xhtml'));
     expect(opf, contains('properties="cover-image"'));
-    expect(opf, contains('images/a.png'));
+    expect(opf, contains('Images/a.png'));
+    expect(opf, contains('href="Styles/style.css"'));
+    expect(text('OEBPS/Styles/style.css'), OnlineEpubBuilder.chapterStylesheet);
+    expect(
+      text('OEBPS/text/chapter_0001.xhtml'),
+      contains('../Styles/style.css'),
+    );
+    expect(text('OEBPS/text/chapter_0001.xhtml'), contains('../Images/a.png'));
+    expect(text('OEBPS/cover.xhtml'), contains('src="Images/cover.png"'));
+    expect(text('OEBPS/cover.xhtml'), contains('href="Styles/style.css"'));
+    final document = (await openEpub(bytes)).document!;
+    addTearDown(document.archive.close);
+    expect(document.readCoverBytes(), png);
 
     final nav = text('OEBPS/nav.xhtml');
     expect(nav, contains('第一章'));
@@ -296,7 +304,7 @@ void main() {
 
     expect(text('OEBPS/text/chapter_0001.xhtml'), contains('正文一'));
     expect(text('OEBPS/text/chapter_0002.xhtml'), contains('正文二'));
-    expect(archive.findFile('OEBPS/images/a.png'), isNotNull);
+    expect(archive.findFile('OEBPS/Images/a.png')!.content, png);
     expect(archive.findFile('OEBPS/cover.xhtml'), isNotNull);
   });
 
@@ -413,7 +421,9 @@ Future<EpubChapterSource> _openChapter(
     ),
     chapterTitles: [chapter.title],
     resources: {
-      'style.css': utf8.encode(OnlineEpubBuilder.chapterStylesheet),
+      OnlineEpubBuilder.stylesheetPath: utf8.encode(
+        OnlineEpubBuilder.chapterStylesheet,
+      ),
       ...resources,
     },
     loadChapterXhtml: (_) async =>

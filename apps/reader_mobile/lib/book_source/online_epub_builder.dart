@@ -29,10 +29,34 @@ class OnlineEpubImage {
     required this.mediaType,
   });
 
-  /// 相对于 `OEBPS` 的路径，例如 `images/cover.jpg`。
+  /// 相对于 `OEBPS` 的路径，例如 `Images/cover.jpg`。
   final String path;
   final Uint8List bytes;
   final String mediaType;
+
+  static const directory = 'Images';
+
+  static OnlineEpubImage? fromBytes(Uint8List bytes, String name) {
+    bool starts(List<int> signature, [int offset = 0]) =>
+        bytes.length >= offset + signature.length &&
+        signature.indexed.every((part) => bytes[offset + part.$1] == part.$2);
+    final extension = switch (bytes) {
+      _ when starts([0xff, 0xd8, 0xff]) => 'jpg',
+      _ when starts([137, 80, 78, 71, 13, 10, 26, 10]) => 'png',
+      _ when starts(ascii.encode('GIF87a')) || starts(ascii.encode('GIF89a')) =>
+        'gif',
+      _ when starts(ascii.encode('RIFF')) && starts(ascii.encode('WEBP'), 8) =>
+        'webp',
+      _ => null,
+    };
+    return extension == null
+        ? null
+        : OnlineEpubImage(
+            path: '$directory/$name.$extension',
+            bytes: bytes,
+            mediaType: extension == 'jpg' ? 'image/jpeg' : 'image/$extension',
+          );
+  }
 }
 
 /// 在线书籍元信息与正文。
@@ -66,6 +90,8 @@ class OnlineEpubInput {
 class OnlineEpubBuilder {
   const OnlineEpubBuilder();
 
+  static const stylesheetPath = 'Styles/style.css';
+
   Uint8List build(OnlineEpubInput input) {
     if (input.chapters.isEmpty) {
       throw const FormatException('没有可写入的章节');
@@ -85,14 +111,20 @@ class OnlineEpubBuilder {
     void addText(String path, String text) =>
         add(path, Uint8List.fromList(utf8.encode(text)));
 
-    addText('mimetype', 'application/epub+zip');
+    archive.addFile(
+      ArchiveFile.noCompress(
+        'mimetype',
+        20,
+        ascii.encode('application/epub+zip'),
+      ),
+    );
     addText('META-INF/container.xml', _containerXml);
-    addText('OEBPS/style.css', chapterStylesheet);
+    addText('OEBPS/$stylesheetPath', chapterStylesheet);
 
     final manifest = <String>[
       '<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>',
       '<item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>',
-      '<item id="style" href="style.css" media-type="text/css"/>',
+      '<item id="style" href="$stylesheetPath" media-type="text/css"/>',
       '<item id="online-index" href="online_chapters.json" media-type="application/json"/>',
     ];
     final spine = <String>[];
@@ -125,21 +157,12 @@ class OnlineEpubBuilder {
         '<item id="cover-image" href="${cover.path}" '
         'media-type="${cover.mediaType}" properties="cover-image"/>',
       );
-      addText(
-        'OEBPS/cover.xhtml',
-        _chapterDocument(
-          title: input.title,
-          body:
-              '<div class="cover"><img src="${cover.path}" '
-              'alt="${_escapeXml(input.title)}"/></div>',
-          stylesheet: 'style.css',
-        ),
-      );
+      addText('OEBPS/cover.xhtml', buildCoverDocument(input.title, cover.path));
       manifest.add(
         '<item id="cover-page" href="cover.xhtml" '
         'media-type="application/xhtml+xml"/>',
       );
-      spine.insert(0, '<itemref idref="cover-page" properties="cover-image"/>');
+      spine.insert(0, '<itemref idref="cover-page"/>');
       coverHref = cover.path;
     }
 
@@ -221,7 +244,19 @@ class OnlineEpubBuilder {
   String buildChapterDocument(OnlineEpubChapter chapter) => _chapterDocument(
     title: chapter.title,
     body: _chapterBody(chapter),
-    stylesheet: '../style.css',
+    stylesheet: '../$stylesheetPath',
+  );
+
+  String buildCoverDocument(
+    String title,
+    String image, {
+    String? stylesheet = stylesheetPath,
+  }) => _chapterDocument(
+    title: title,
+    body:
+        '<div class="cover"><img src="${_escapeXml(image)}" '
+        'alt="${_escapeXml(title)}"/></div>',
+    stylesheet: stylesheet,
   );
 
   String _chapterBody(OnlineEpubChapter chapter) {
@@ -496,7 +531,7 @@ class OnlineEpubBuilder {
   String _chapterDocument({
     required String title,
     required String body,
-    required String stylesheet,
+    required String? stylesheet,
   }) {
     return '<?xml version="1.0" encoding="utf-8"?>\n'
         '<!DOCTYPE html>\n'
@@ -504,7 +539,7 @@ class OnlineEpubBuilder {
         'xmlns:epub="http://www.idpf.org/2007/ops" lang="zh-CN">\n'
         '<head><meta charset="utf-8"/>'
         '<title>${_escapeXml(title)}</title>'
-        '<link rel="stylesheet" type="text/css" href="$stylesheet"/></head>\n'
+        '${stylesheet == null ? '' : '<link rel="stylesheet" type="text/css" href="${_escapeXml(stylesheet)}"/>'}</head>\n'
         '<body>$body</body>\n'
         '</html>';
   }
@@ -572,7 +607,8 @@ class OnlineEpubBuilder {
         '</package>';
   }
 
-  String _escapeXml(String value) => const HtmlEscape().convert(value);
+  String _escapeXml(String value) =>
+      const HtmlEscape(HtmlEscapeMode.attribute).convert(value);
 
   String _uuidFromHash(String hash) {
     final value = hash.padRight(32, '0').substring(0, 32).split('');
@@ -597,7 +633,7 @@ class OnlineEpubBuilder {
       'body { margin: 0; line-height: 1.75; word-wrap: break-word; }\n'
       'p { margin: 0 0 .8em; text-indent: 2em; }\n'
       'h1, h2, h3 { text-indent: 0; font-weight: bold; }\n'
-      '.chapter-title { font-size: calc(1.5em - 2px); margin: 0 0 1.2em; text-align: center; }\n'
+      '.chapter-title { font-size: calc(1.5em - 4px); margin: 0 0 1.2em; text-align: center; }\n'
       '.chapter-number { font-size: calc(1em - 2px); }\n'
       'img { max-width: 100%; height: auto; }\n'
       '.cover { margin: 0; padding: 0; text-align: center; }\n'
