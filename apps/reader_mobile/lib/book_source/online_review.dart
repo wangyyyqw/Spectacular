@@ -151,9 +151,9 @@ String prepareOnlineReviewHtml(String html) {
       ..attributes['href'] = OnlineReviewAction(src: src, script: script).href
       ..attributes['data-reader-action'] = 'true'
       ..attributes['style'] =
-          'font-size:0.75em;text-indent:0;color:inherit;'
-          'text-decoration:none;'
-      ..text = count.isEmpty ? '〔段评〕' : '〔$count〕';
+          'font-size:0.75em;vertical-align:super;color:#2878c8;'
+          'text-indent:0;text-decoration:none;'
+      ..text = '[${count.isEmpty ? '段评' : count}]';
     image.replaceWith(badge);
   }
   return changed ? fragment.outerHtml : html;

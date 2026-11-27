@@ -51,7 +51,7 @@ void main() {
         '第一章\n第一段<img src="data:image/svg+xml;base64,$svg,'
         '{"style":"TEXT","click":"showCmt(1,2,0)","extra":"<p>内层 HTML</p>"}" alt="段评">\n第二段';
     final prepared = prepareOnlineReviewHtml(raw);
-    expect(prepared, contains('〔123〕'));
+    expect(prepared, contains('[123]'));
     final fragment = html_parser.parseFragment(prepared);
     final href = fragment.querySelector('a')!.attributes['href']!;
     expect(OnlineReviewAction.fromHref(href)!.script, 'showCmt(1,2,0)');
@@ -241,6 +241,14 @@ java.showBrowser('https://example.test/comment',
     final note = box.slice.block.footnotes.firstWhere(
       (note) => note.actionHref != null,
     );
+    final block = box.slice.block;
+    expect(block.layout.text.substring(note.start, note.end), '[12]');
+    final badge = block.layout.runs.firstWhere(
+      (run) => run.start <= note.start && run.end >= note.end,
+    );
+    expect(badge.style.color, const Color(0xff2878c8));
+    expect(badge.style.fontSize, closeTo(block.style!.fontSize * .75, .01));
+    expect(badge.baselineShift, lessThan(0));
     final rects = TextHitTester.selectionRects(
       box,
       note.start - box.blockTextOffset,
@@ -304,6 +312,6 @@ java.showBrowser('https://example.test/comment',
       '<p><img src="$svg,${jsonEncode({'pclick': '', 'click': 'java.showBrowser(baseUrl)'}).replaceAll('"', '&quot;')}"/></p>',
     );
     expect(prepared, contains('data-reader-action="true"'));
-    expect(prepared, contains('〔段评〕'));
+    expect(prepared, contains('[段评]'));
   });
 }
