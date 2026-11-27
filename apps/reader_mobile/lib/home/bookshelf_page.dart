@@ -2143,9 +2143,10 @@ class _BookshelfPageState extends State<BookshelfPage> {
             _selectionMode ? 160 : 96,
           ),
           itemCount: books.length,
-          separatorBuilder: (_, _) => _listDividers
-              ? const Divider(height: 1)
-              : const SizedBox(height: 8),
+          separatorBuilder: (_, _) => SizedBox(
+            height: 1,
+            child: _listDividers ? const Divider(height: 1) : null,
+          ),
           itemBuilder: (context, index) {
             final item = books[index];
             return _desktopBook(

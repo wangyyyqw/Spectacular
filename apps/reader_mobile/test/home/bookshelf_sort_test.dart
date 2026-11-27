@@ -31,6 +31,43 @@ List<String> _listTitles(WidgetTester tester) => <String>[
 ];
 
 void main() {
+  testWidgets('列表分割线只改变可见性，切换前后相邻图书位置不变', (tester) async {
+    final library = LibraryStore.memory();
+    final books = (await tester.runAsync(
+      () async => [
+        for (final name in ['第一本', '第二本', '第三本'])
+          await library.importBytes(buildTestEpub(title: name)),
+      ],
+    ))!;
+    await library.setSetting('bookshelf.grid', 'false');
+    final progress = MemoryReaderProgressStore();
+    List<Rect>? initial;
+    for (final (index, show) in [true, false, true].indexed) {
+      await library.setSetting(bookshelfListDividersKey, '$show');
+      await tester.pumpWidget(
+        MaterialApp(
+          home: BookshelfPage(
+            library: library,
+            progressStore: progress,
+            refreshToken: index,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final list = find.byKey(const ValueKey('bookshelf-list'));
+      expect(
+        find.descendant(of: list, matching: find.byType(Divider)),
+        findsNWidgets(show ? books.length - 1 : 0),
+      );
+      final positions = [
+        for (final book in books)
+          tester.getRect(find.byKey(ValueKey('book-row-${book.id}'))),
+      ];
+      initial ??= positions;
+      expect(positions, initial);
+    }
+  });
+
   testWidgets('遗留书名排序设置不再改变最近打开顺序', (tester) async {
     final library = LibraryStore.memory();
     late BookEntry first;
