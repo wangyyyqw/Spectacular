@@ -67,8 +67,8 @@ class _ReviewsPageState extends State<ReviewsPage>
   late final TabController _tabs;
   int _section = 0;
   double _dragDx = 0;
-  List<BookEntry>? _books;
-  final _loadedSections = <int>{};
+  final _sectionBooks = <int, List<BookEntry>>{};
+  List<BookEntry>? get _books => _sectionBooks[_section];
   Map<String, BookNoteCounts> _counts = const {};
   Map<String, Duration> _durations = const {};
   Map<String, int> _readDays = const {};
@@ -90,7 +90,7 @@ class _ReviewsPageState extends State<ReviewsPage>
   int _reloadToken = 0;
   int _editToken = 0;
   String? _error;
-  String? _cloudError;
+  final _cloudErrors = <int, String?>{};
   bool _signedIn = false;
   Map<String, ({int cloudBookId, int bookId})> _cloudMarkBooks = const {};
 
@@ -132,8 +132,6 @@ class _ReviewsPageState extends State<ReviewsPage>
     if (libraryChanged) {
       oldWidget.library.removeListener(_onLibraryChanged);
       widget.library.addListener(_onLibraryChanged);
-      _books = null;
-      _loadedSections.clear();
     }
     if (controllerChanged) {
       oldWidget.reaMicro?.removeListener(_onReaMicroChanged);
@@ -142,6 +140,10 @@ class _ReviewsPageState extends State<ReviewsPage>
       widget.reaMicro?.pageRefresh.addListener(_onLibraryChanged);
       _signedIn = widget.reaMicro?.signedIn ?? false;
       _cloudMarkBooks = const {};
+    }
+    if (libraryChanged || controllerChanged) {
+      _sectionBooks.clear();
+      _cloudErrors.clear();
     }
     if (oldWidget.active != widget.active ||
         libraryChanged ||
@@ -195,6 +197,8 @@ class _ReviewsPageState extends State<ReviewsPage>
     final signedIn = widget.reaMicro?.signedIn ?? false;
     if (signedIn == _signedIn) return;
     _signedIn = signedIn;
+    _sectionBooks.clear();
+    _cloudErrors.clear();
     if (widget.active) {
       _reload();
     } else {
@@ -440,8 +444,7 @@ class _ReviewsPageState extends State<ReviewsPage>
           token == _reloadToken &&
           section == _section) {
         setState(() {
-          _loadedSections.add(section);
-          _books = visibleBooks;
+          _sectionBooks[section] = visibleBooks;
           _finishedBooks = finished;
           _counts = notes ? visibleCounts : _counts;
           _reviews = notes ? _reviews : visibleReviews;
@@ -450,8 +453,8 @@ class _ReviewsPageState extends State<ReviewsPage>
           _cloudReviewTargets = notes ? _cloudReviewTargets : targets;
           _cloudFinishedBooks = notes ? _cloudFinishedBooks : cloudFinished;
           _cloudReviewRatings = notes ? _cloudReviewRatings : cloudRatings;
-          _cloudMarkBooks = markBooks;
-          _cloudError = cloudError;
+          if (notes) _cloudMarkBooks = markBooks;
+          _cloudErrors[section] = cloudError;
           _error = null;
         });
       }
@@ -463,7 +466,7 @@ class _ReviewsPageState extends State<ReviewsPage>
         return;
       }
       final label = notes ? '笔记' : '书评';
-      if (!_loadedSections.contains(section)) {
+      if (!_sectionBooks.containsKey(section)) {
         setState(() => _error = '$label加载失败，请重试');
       } else {
         recordAppError('reviews_reload_failed', error, stackTrace: stackTrace);
@@ -938,7 +941,7 @@ class _ReviewsPageState extends State<ReviewsPage>
       );
     }
     final books = _books;
-    if (books == null || !_loadedSections.contains(_section)) {
+    if (books == null) {
       return _error == null
           ? const Center(child: CircularProgressIndicator())
           : _ReviewLoadError(message: _error!, onRetry: _reload);
@@ -974,7 +977,7 @@ class _ReviewsPageState extends State<ReviewsPage>
         ),
       );
     }
-    final cloudError = _cloudError;
+    final cloudError = _cloudErrors[_section];
     if (cloudError == null) return body;
     return Column(
       children: [

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/home/book_cover_image.dart';
@@ -14,6 +16,7 @@ class _CloudNotesLibrary extends LibraryStore {
 
   final BookEntry? book;
   ReaderAnnotation? annotation;
+  Completer<void>? pendingList;
 
   @override
   Future<void> removeBookAnnotation(String bookId, String annotationId) async {
@@ -21,7 +24,10 @@ class _CloudNotesLibrary extends LibraryStore {
   }
 
   @override
-  Future<List<BookEntry>> list() async => [?book];
+  Future<List<BookEntry>> list() async {
+    await pendingList?.future;
+    return [?book];
+  }
 
   @override
   Future<BookEntry?> bookById(String id) async => book;
@@ -336,6 +342,18 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('想法 1'), findsOneWidget);
+      if (!imported) {
+        await tester.tap(find.byKey(const ValueKey('reviews-tab')));
+        await tester.pumpAndSettle();
+        library.pendingList = Completer<void>();
+        await tester.tap(find.byKey(const ValueKey('notes-tab')));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 300));
+        expect(find.text('还没有笔记'), findsNothing);
+        expect(find.text('仅云端笔记'), findsOneWidget);
+        library.pendingList!.complete();
+        await tester.pumpAndSettle();
+      }
       expect(
         find.byWidgetPredicate(
           (widget) => widget is BookCoverImage
