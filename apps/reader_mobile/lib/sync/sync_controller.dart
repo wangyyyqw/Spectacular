@@ -40,6 +40,7 @@ class SyncController extends ChangeNotifier {
   bool _disposed = false;
   bool _foreground = true;
   bool _configuring = false;
+  bool _automaticPending = false;
   Timer? _debounce;
   Timer? _periodic;
   Future<SyncOutcome?>? _task;
@@ -48,6 +49,8 @@ class SyncController extends ChangeNotifier {
   StreamSubscription<void>? _databaseChanges;
   bool get syncing => _task != null || _configuring;
   bool get available => repository.available;
+  bool get _automaticAllowed =>
+      !_disposed && available && profile?.automatic == true && _foreground;
 
   static SyncStorage _defaultStorage(
     SyncProfile profile,
@@ -179,6 +182,8 @@ class SyncController extends ChangeNotifier {
   Future<SyncOutcome?> synchronize() {
     if (_configuring || _disposed) return Future<SyncOutcome?>.value(null);
     if (_task case final pending?) return pending;
+    _debounce?.cancel();
+    _automaticPending = false;
     final task = _task = Future<SyncOutcome?>.microtask(_run);
     _notify();
     return task;
@@ -206,6 +211,7 @@ class SyncController extends ChangeNotifier {
     } finally {
       storage?.close();
       _task = null;
+      if (_automaticPending) _changed();
       _notify();
     }
   }
@@ -289,6 +295,7 @@ class SyncController extends ChangeNotifier {
       return await action();
     } finally {
       _configuring = false;
+      if (_automaticPending) _changed();
       _notify();
     }
   }
@@ -301,29 +308,37 @@ class SyncController extends ChangeNotifier {
 
   void paused() {
     _foreground = false;
+    _automaticPending = false;
     _periodic?.cancel();
     _debounce?.cancel();
   }
 
   void _startAutomatic() {
     _periodic?.cancel();
-    if (!available || profile?.automatic != true || !_foreground) return;
+    _debounce?.cancel();
+    _automaticPending = false;
+    if (!_automaticAllowed) return;
     _periodic = Timer.periodic(
       const Duration(minutes: 2),
-      (_) => unawaited(synchronize()),
+      (_) => _syncAutomatically(),
     );
     _changed();
   }
 
   void _changed() {
-    if (_disposed || !available || profile?.automatic != true || !_foreground) {
+    if (!_automaticAllowed) return;
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(seconds: 3), _syncAutomatically);
+  }
+
+  void _syncAutomatically() {
+    if (!_automaticAllowed) return;
+    if (syncing) {
+      // 慢速传输期间合并请求，结束后补收集本轮快照之后的本地修改。
+      _automaticPending = true;
       return;
     }
-    _debounce?.cancel();
-    _debounce = Timer(
-      const Duration(seconds: 3),
-      () => unawaited(synchronize()),
-    );
+    unawaited(synchronize());
   }
 
   void _notify() {

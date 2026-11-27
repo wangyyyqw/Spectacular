@@ -31,6 +31,8 @@ const _profile = SyncProfile(
 
 class _Cloud implements SyncStorage {
   final objects = <String, Uint8List>{};
+  final uploads = <String, int>{};
+  void Function(String)? beforeUpload;
   bool failLog = false;
   String? failPath;
   int logWrites = 0;
@@ -39,6 +41,8 @@ class _Cloud implements SyncStorage {
   Future<Uint8List?> read(String key) async => objects[key];
   @override
   Future<void> upload(String key, File file, {bool createOnly = false}) async {
+    uploads.update(key, (count) => count + 1, ifAbsent: () => 1);
+    beforeUpload?.call(key);
     if (createOnly && objects.containsKey(key)) throw StateError('对象已存在');
     if (failPath != null && key.startsWith(failPath!)) {
       throw const HttpException('模拟分类数据上传失败');
@@ -240,8 +244,12 @@ void main() {
     await a.engine().create(encrypted: false);
     cloud.failLog = true;
     await expectLater(a.engine().sync(), throwsA(isA<HttpException>()));
+    final epubPath = cloud.objects.keys.singleWhere(
+      (key) => key.endsWith('.epub'),
+    );
     cloud.failLog = false;
     expect((await a.engine().sync()).uploaded, 1);
+    expect(cloud.uploads[epubPath], 1);
     await b.engine().sync();
     await b.engine().sync();
     final sessions = await b.library.readingSessionStore()!.list();
@@ -266,12 +274,49 @@ void main() {
     expect(cloud.logWrites, 0);
     expect((await b.engine().sync()).downloaded, 0);
     expect(await b.library.list(), isEmpty);
+    final epubPath = cloud.objects.keys.singleWhere(
+      (key) => key.endsWith('.epub'),
+    );
     cloud.failPath = null;
     expect((await a.engine().sync()).uploaded, 1);
+    expect(cloud.uploads[epubPath], 1);
     expect((await b.engine().sync()).downloaded, 1);
     expect(await b.library.list(), hasLength(1));
     expect(await b.library.readingSessionStore()!.list(), hasLength(1));
     expect((await b.engine().sync()).uploaded, 0);
+  });
+
+  test('同批第二本 EPUB 上传失败后保留首本进展，新引擎只补传未完成对象', () async {
+    final cloud = _Cloud();
+    final a = await _device(cloud);
+    final b = await _device(cloud);
+    await a.library.importBytes(buildTestEpub(title: '先传的书'));
+    await a.library.importBytes(buildTestEpub(title: '后传的书'));
+    await a.engine().create(encrypted: false);
+    var epubUploads = 0;
+    cloud.beforeUpload = (key) {
+      if (key.endsWith('.epub') && ++epubUploads == 2) {
+        throw const HttpException('模拟第二本 EPUB 上传中断');
+      }
+    };
+    await expectLater(a.engine().sync(), throwsA(isA<HttpException>()));
+    final completedPath = cloud.objects.keys.singleWhere(
+      (key) => key.endsWith('.epub'),
+    );
+    expect(cloud.logWrites, 0);
+    expect((await b.engine().sync()).downloaded, 0);
+    expect(await b.library.list(), isEmpty);
+
+    cloud.beforeUpload = null;
+    expect((await a.engine().sync()).uploaded, 1);
+    expect(cloud.uploads[completedPath], 1);
+    expect(cloud.logWrites, 1);
+    expect((await b.engine().sync()).downloaded, 1);
+    expect(
+      (await b.library.list()).map((book) => book.title),
+      unorderedEquals(['先传的书', '后传的书']),
+    );
+    expect((await a.engine().sync()).uploaded, 0);
   });
 
   for (final tampered in [false, true]) {

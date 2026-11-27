@@ -174,7 +174,19 @@ class SyncEngine {
     while (state.pending.isNotEmpty) {
       final batch = state.pending.first;
       onStatus?.call('发送本机变更 ${batch['sequence']}…');
-      for (final raw in batch['records'] as List) {
+      await _pushAssets(batch['records'] as List);
+      await journal.publish(batch);
+      state.pending.removeAt(0);
+      await repository.save(collection, state);
+      count++;
+    }
+    return count;
+  }
+
+  Future<void> _pushAssets(List<dynamic> records) async {
+    final previousCount = state.objects.length;
+    try {
+      for (final raw in records) {
         final record = SyncRecord.fromJson(raw as Map<String, dynamic>);
         if (record.deleted && record.type != 'book') continue;
         final refs = assets.references(
@@ -188,12 +200,12 @@ class SyncEngine {
           }
         }
       }
-      await journal.publish(batch);
-      state.pending.removeAt(0);
-      await repository.save(collection, state);
-      count++;
+    } finally {
+      // 后续对象或日志失败时复用已成功传输的文件，整批日志仍留待重试。
+      if (state.objects.length != previousCount) {
+        await repository.save(collection, state);
+      }
     }
-    return count;
   }
 
   Future<int> _pull() async {

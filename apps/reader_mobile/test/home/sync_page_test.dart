@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -15,6 +16,7 @@ import 'package:reader_mobile/sync/sync_storage.dart';
 import 'package:reader_mobile/sync/sync_engine.dart';
 
 import '../support/test_epub.dart';
+import '../support/reader_pump.dart';
 
 class _Secrets implements SyncSecretStore {
   final values = <String, SyncCredentials>{};
@@ -30,23 +32,39 @@ class _Secrets implements SyncSecretStore {
 
 class _Storage implements SyncStorage {
   final files = <String, Uint8List>{};
+  Future<void> Function(String)? beforeUpload;
+  int connections = 0;
   bool fail = false;
   @override
   Future<Uint8List?> read(String key) async {
+    if (key == 'library.json') connections++;
     if (fail) throw const HttpException('模拟网络失败');
     return files[key];
   }
 
   @override
   Future<void> upload(String key, File file, {bool createOnly = false}) async {
+    await beforeUpload?.call(key);
     files[key] = await file.readAsBytes();
   }
 
   @override
-  Future<List<String>> list(String directory) async => [];
+  Future<List<String>> list(String directory) async =>
+      files.keys
+          .where((key) => key.startsWith('$directory/'))
+          .map(
+            (key) =>
+                '$directory/${key.substring(directory.length + 1).split('/').first}',
+          )
+          .toSet()
+          .toList()
+        ..sort();
   @override
-  Future<void> download(String key, File file) async =>
-      file.writeAsBytes(files[key]!);
+  Future<void> download(String key, File file) async {
+    await file.parent.create(recursive: true);
+    await file.writeAsBytes(files[key]!);
+  }
+
   @override
   Future<void> delete(String key) async {
     files.remove(key);
@@ -60,6 +78,11 @@ const _profile = SyncProfile(
   provider: SyncProvider.webdav,
   endpoint: 'http://localhost',
   automatic: false,
+);
+
+const _automaticProfile = SyncProfile(
+  provider: SyncProvider.webdav,
+  endpoint: 'http://localhost',
 );
 
 /// 界面测试只替换 I/O，真实创建、凭证保护和协议行为由下方控制器测试覆盖。
@@ -91,11 +114,13 @@ class _WidgetController extends SyncController {
   }
 }
 
-Future<(SyncController, _Secrets, _Storage)> _controller() async {
+Future<(SyncController, _Secrets, _Storage)> _controller({
+  _Storage? cloud,
+}) async {
   final root = await Directory.systemTemp.createTemp('sync-controller-');
   final db = AppDatabase(NativeDatabase.memory());
   final secrets = _Secrets();
-  final storage = _Storage();
+  final storage = cloud ?? _Storage();
   final library = LibraryStore(
     database: db,
     directoryProvider: () async => root,
@@ -207,6 +232,103 @@ void main() {
     expect(await controller.synchronize(), isNull);
     expect(controller.message, contains('同步失败'));
     expect(controller.lastSync, isNull);
+  });
+
+  for (final pauseBeforeCompletion in [false, true]) {
+    testWidgets(
+      '慢速上传期间多次修改${pauseBeforeCompletion ? '在前台恢复后补发' : '合并为后续同步'}，另一台设备收到最终版本',
+      (tester) async {
+        final (controller, _, storage) = await pumpReaderTask(
+          tester,
+          _controller(),
+        );
+        final book = await pumpReaderTask(
+          tester,
+          controller.library.importBytes(buildTestEpub(title: '原始版本')),
+        );
+        await pumpReaderTask(
+          tester,
+          controller.createLibrary(
+            _automaticProfile,
+            const SyncCredentials(),
+            encrypted: false,
+          ),
+        );
+        final started = Completer<void>();
+        final release = Completer<void>();
+        storage.beforeUpload = (key) async {
+          if (key.startsWith('personal/_sync/logs/') && !started.isCompleted) {
+            started.complete();
+            await release.future;
+          }
+        };
+        final connections = storage.connections;
+        final pending = controller.synchronize();
+        await pumpReaderTask(tester, started.future);
+        for (final title in ['中间版本', '最终版本']) {
+          await pumpReaderTask(
+            tester,
+            controller.library.updateBookMetadata(
+              book.id,
+              title: title,
+              author: '测试作者',
+              description: '同步中的修改',
+            ),
+          );
+        }
+        await tester.pump(const Duration(seconds: 4));
+        expect(controller.synchronize(), same(pending));
+        if (pauseBeforeCompletion) controller.paused();
+        release.complete();
+        await pumpReaderTask(tester, pending);
+        await tester.pump(const Duration(seconds: 4));
+        if (pauseBeforeCompletion) {
+          expect(storage.connections, connections + 1);
+          controller.resumed();
+          await tester.pump(const Duration(seconds: 4));
+        }
+        await pumpReaderUntilComplete(tester, () => !controller.syncing);
+        expect(storage.connections, connections + 2);
+        await tester.pump(const Duration(seconds: 4));
+        expect(storage.connections, connections + 2);
+
+        controller.paused();
+
+        // 接收包含两版 EPUB 的导入与换版，在真实异步区等待文件和 isolate 完成。
+        await tester.runAsync(() async {
+          final (receiver, _, _) = await _controller(cloud: storage);
+          await receiver.join(_profile, const SyncCredentials());
+          expect((await receiver.synchronize())!.downloaded, 2);
+          final received = await receiver.library.list();
+          expect(received.single.title, '最终版本');
+        });
+      },
+    );
+  }
+
+  testWidgets('关闭自动同步取消尚未触发的同步，手动同步仍然可用', (tester) async {
+    final (controller, _, storage) = await pumpReaderTask(
+      tester,
+      _controller(),
+    );
+    await pumpReaderTask(
+      tester,
+      controller.createLibrary(
+        _automaticProfile,
+        const SyncCredentials(),
+        encrypted: false,
+      ),
+    );
+    final connections = storage.connections;
+    await pumpReaderTask(
+      tester,
+      controller.saveProfile(_profile, const SyncCredentials()),
+    );
+    await tester.pump(const Duration(seconds: 4));
+    await pumpReaderUntilComplete(tester, () => !controller.syncing);
+    expect(storage.connections, connections);
+    expect(await pumpReaderTask(tester, controller.synchronize()), isNotNull);
+    expect(storage.connections, connections + 1);
   });
 
   testWidgets('临时模式禁用创建、连接测试与同步', (tester) async {
