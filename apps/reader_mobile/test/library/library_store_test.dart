@@ -576,9 +576,15 @@ void main() {
     expect((await second.listTags()).single.name, '科幻');
     expect(await second.bookTags(secondBook.id), hasLength(1));
 
+    expect(await second.bookTagAssignments(), {
+      first.id: {tag.id},
+      secondBook.id: {tag.id},
+    });
+
     await second.removeBookTag(first.id, tag.id);
     expect(await second.bookTags(first.id), isEmpty);
     expect(await second.bookTags(secondBook.id), hasLength(1));
+    expect(await second.bookTagAssignments(), {secondBook.id: {tag.id}});
   });
 
   test('同数据库跨实例并发创建同名标签，返回唯一已持久化标签', () async {

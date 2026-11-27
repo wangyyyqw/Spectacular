@@ -660,6 +660,22 @@ class LibraryStore {
     ];
   }
 
+  /// 批量读取书籍的标签关联，书架加载不逐书查询。
+  Future<Map<String, Set<String>>> bookTagAssignments() async {
+    if (_isMemory) {
+      return {
+        for (final entry in _memoryBookTags.entries)
+          entry.key: Set<String>.of(entry.value),
+      };
+    }
+    final links = await _db!.select(_db.bookTagLinks).get();
+    final result = <String, Set<String>>{};
+    for (final link in links) {
+      result.putIfAbsent(link.bookUuid, () => {}).add(link.tagId);
+    }
+    return result;
+  }
+
   /// 新建标签；名称去首尾空白，同名标签直接复用。
   Future<BookTag> createTag(String name) async {
     final normalized = name.trim();

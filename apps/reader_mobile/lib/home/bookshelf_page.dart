@@ -33,6 +33,10 @@ import 'book_detail_sheet.dart';
 import 'book_lists_view.dart';
 import 'bookshelf_sort.dart';
 import 'book_cover_image.dart';
+import 'book_cover_stack.dart';
+import 'book_stack_tile.dart';
+import 'bookshelf_stacks.dart';
+import 'tag_stack_settings_sheet.dart';
 import 'horizontal_page_switcher.dart';
 import '../storage/import_queue.dart';
 import '../storage/reading_session_store.dart';
@@ -146,6 +150,10 @@ class _BookshelfPageState extends State<BookshelfPage> {
   List<String> _pinnedIds = const <String>[];
   List<ShelfGroup> _groups = const <ShelfGroup>[];
   Map<String, String> _bookGroups = const <String, String>{};
+  List<BookTag> _tags = const [];
+  Map<String, Set<String>> _bookTags = const {};
+  Map<String, List<String>> _stackTags = const {};
+  BookTag? _expandedStack;
   String? _activeGroupId;
   bool _grid = true;
   bool _showTitles = true;
@@ -244,6 +252,12 @@ class _BookshelfPageState extends State<BookshelfPage> {
       if (_selectionMode || _searching)
         const SingleActivator(LogicalKeyboardKey.escape, includeRepeats: false):
             _selectionMode ? _exitSelectionMode : _toggleSearch,
+      if (!_selectionMode && !_searching && _expandedStack != null)
+        const SingleActivator(
+          LogicalKeyboardKey.escape,
+          includeRepeats: false,
+        ): () =>
+            setState(() => _expandedStack = null),
     };
     for (final binding in bindings.entries) {
       if (!binding.key.accepts(event, HardwareKeyboard.instance)) continue;
@@ -267,6 +281,12 @@ class _BookshelfPageState extends State<BookshelfPage> {
     final grid = await widget.library.getSetting(_viewKey);
     final pinned = await widget.library.getSetting(_pinnedKey);
     final showTitles = await widget.library.getSetting(bookshelfShowTitlesKey);
+    final stackTags = await widget.library.getSetting(bookshelfTagStacksKey);
+    final nextStackTags = stackTags == null
+        ? <String, List<String>>{}
+        : (jsonDecode(stackTags) as Map<String, dynamic>).map(
+            (key, value) => MapEntry(key, (value as List).cast<String>()),
+          );
     if (!mounted) {
       return;
     }
@@ -281,6 +301,10 @@ class _BookshelfPageState extends State<BookshelfPage> {
         _newBooksFirst == nextNewBooksFirst &&
         _grid == nextGrid &&
         _showTitles == nextShowTitles &&
+        _stackTags.length == nextStackTags.length &&
+        nextStackTags.entries.every(
+          (entry) => listEquals(_stackTags[entry.key], entry.value),
+        ) &&
         listEquals(_pinnedIds, nextPinned)) {
       return;
     }
@@ -290,6 +314,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
       _grid = nextGrid;
       _showTitles = nextShowTitles;
       _pinnedIds = nextPinned;
+      _stackTags = nextStackTags;
     });
   }
 
@@ -308,7 +333,50 @@ class _BookshelfPageState extends State<BookshelfPage> {
 
   void _selectGroup(String? id) => setState(() {
     _activeGroupId = id;
+    _expandedStack = null;
   });
+
+  Future<void> _configureTagStacks() async {
+    final groupId = _activeGroupId;
+    final groupName =
+        _groups.where((group) => group.id == groupId).firstOrNull?.name ??
+        '默认分组';
+    final counts = <String, int>{};
+    for (final item in _items ?? <_ShelfItem>[]) {
+      if (_bookGroups[item.entry.id] != groupId) continue;
+      for (final tag in _bookTags[item.entry.id] ?? <String>{}) {
+        counts.update(tag, (count) => count + 1, ifAbsent: () => 1);
+      }
+    }
+    final selected = _stackTags[groupId ?? 'default'] ?? const <String>[];
+    final tags = _tags
+        .where((tag) => counts.containsKey(tag.id) || selected.contains(tag.id))
+        .toList();
+    await showReaderDrawer<void>(
+      context: context,
+      builder: (_) => TagStackSettingsSheet(
+        groupName: groupName,
+        tags: tags,
+        counts: counts,
+        selected: selected
+            .where((id) => tags.any((tag) => tag.id == id))
+            .toList(),
+        onSave: (ids) async {
+          final next = {..._stackTags, groupId ?? 'default': ids};
+          await widget.library.setSetting(
+            bookshelfTagStacksKey,
+            jsonEncode(next),
+          );
+          if (mounted) {
+            setState(() {
+              _stackTags = next;
+              _expandedStack = null;
+            });
+          }
+        },
+      ),
+    );
+  }
 
   int _groupBookCount(ShelfGroup group) => (_items ?? const <_ShelfItem>[])
       .where((item) => _bookGroups[item.entry.id] == group.id)
@@ -328,6 +396,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
       if (mounted) {
         setState(() {
           _activeGroupId = group.id;
+          _expandedStack = null;
           _query = '';
           _searchController.clear();
           _selectionMode = false;
@@ -383,6 +452,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
       if (mounted) {
         setState(() {
           _activeGroupId = groupId;
+          _expandedStack = null;
           _query = '';
           _searchController.clear();
         });
@@ -642,7 +712,36 @@ class _BookshelfPageState extends State<BookshelfPage> {
       return item.entry.title.toLowerCase().contains(query) ||
           item.entry.author.toLowerCase().contains(query);
     });
-    return _sorted(filtered.toList());
+    final sorted = _sorted(filtered.toList());
+    final expanded = _expandedStack;
+    if (expanded == null || groupId != _activeGroupId) return sorted;
+    final stacks = _tagStacks(sorted, groupId);
+    return [
+      for (final stack in stacks)
+        if (stack.tag?.id == expanded.id ||
+            (stack.tag == null &&
+                (_bookTags[stack.books.single.entry.id]?.contains(
+                      expanded.id,
+                    ) ??
+                    false)))
+          ...stack.books,
+    ];
+  }
+
+  List<ShelfStack<_ShelfItem>> _tagStacks(
+    List<_ShelfItem> books,
+    String? groupId,
+  ) {
+    final byId = {for (final tag in _tags) tag.id: tag};
+    return stackBooksByTags(
+      books: books,
+      bookId: (book) => book.entry.id,
+      bookTags: _bookTags,
+      tags: [
+        for (final id in _stackTags[groupId ?? 'default'] ?? <String>[])
+          ?byId[id],
+      ],
+    );
   }
 
   @override
@@ -692,6 +791,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
       )) {
         setState(() {
           _activeGroupId = null;
+          _expandedStack = null;
           _query = '';
           _searchController.clear();
         });
@@ -774,11 +874,13 @@ class _BookshelfPageState extends State<BookshelfPage> {
       }
     }
     // 并发读取后一次更新书架快照。
-    final (books, groups, bookGroups, progress) = await (
+    final (books, groups, bookGroups, progress, tags, bookTags) = await (
       widget.library.list(),
       widget.library.listGroups(),
       widget.library.groupAssignments(),
       widget.progressStore.snapshot(),
+      widget.library.listTags(),
+      widget.library.bookTagAssignments(),
     ).wait;
     final (weights, chapterTitles) = await (
       widget.library.progressWeightsForBooks(books.map((book) => book.id)),
@@ -819,9 +921,12 @@ class _BookshelfPageState extends State<BookshelfPage> {
         _items = items;
         _groups = groups;
         _bookGroups = bookGroups;
+        _tags = tags;
+        _bookTags = bookTags;
         if (_activeGroupId != null &&
             !groups.any((group) => group.id == _activeGroupId)) {
           _activeGroupId = null;
+          _expandedStack = null;
         }
         _selectedIds.removeWhere((id) => !validIds.contains(id));
         if (items.isEmpty) {
@@ -831,7 +936,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
     }
   }
 
-  /// 首屏前 12 本并发准备完成才允许开屏淡出；其他封面随列表按需加载。
+  /// 首屏最多 12 张封面并发准备完成才允许开屏淡出，堆叠按实际缩放预解码。
   Future<void> _preloadCovers() async {
     final items = _items;
     if (items == null || !mounted) return;
@@ -843,12 +948,26 @@ class _BookshelfPageState extends State<BookshelfPage> {
         ? _shelfGridMetrics(width, media.textScaler).cardWidth
         : 66.0;
     final cardHeight = _grid ? cardWidth / _shelfCoverAspectRatio : 88.0;
-    final decodeWidth = coverDecodeWidth(cardWidth, media.devicePixelRatio);
-    final decodeHeight = coverDecodeHeight(cardHeight, media.devicePixelRatio);
+    final covers = [
+      for (final stack in _tagStacks(ordered, null))
+        for (final (index, item) in stack.books.take(3).indexed)
+          if (item.entry.coverPath case final path?)
+            (
+              path: path,
+              scale: stack.tag == null
+                  ? 1.0
+                  : index == 0
+                  ? bookStackFrontScale
+                  : bookStackBackScale,
+            ),
+    ];
     await Future.wait([
-      for (final item in ordered.take(12))
-        if (item.entry.coverPath case final path?)
-          _precacheCover(path, decodeWidth, decodeHeight),
+      for (final cover in covers.take(12))
+        _precacheCover(
+          cover.path,
+          coverDecodeWidth(cardWidth * cover.scale, media.devicePixelRatio),
+          coverDecodeHeight(cardHeight * cover.scale, media.devicePixelRatio),
+        ),
     ]);
     // 图像解码成功后还需让占位组件完成替换，不能只在 Future 完成时揭开书架。
     await WidgetsBinding.instance.endOfFrame;
@@ -1231,6 +1350,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
       }
       setState(() {
         _activeGroupId = groupId;
+        _expandedStack = null;
         _query = '';
         _searchController.clear();
         _selectionMode = false;
@@ -1291,31 +1411,39 @@ class _BookshelfPageState extends State<BookshelfPage> {
     final visible = items == null
         ? null
         : _visible(items, groupId: _activeGroupId);
-    return ExcludeFocus(
-      excluding: !widget.active,
-      child: Focus(
-        focusNode: _keyboardFocus,
-        autofocus: widget.active,
-        onKeyEvent: _handleShelfKey,
-        child: Align(
-          alignment: Alignment.topCenter,
-          child: ConstrainedBox(
-            constraints: BoxConstraints(
-              maxWidth: usesDesktopLayout(context)
-                  ? _desktopShelfMaxWidth
-                  : double.infinity,
-            ),
-            child: LayoutBuilder(
-              builder: (_, bounds) => Scaffold(
-                appBar: _buildAppBar(
-                  visible,
-                  busy || _pickingFiles,
-                  bounds.maxWidth,
+    return PopScope(
+      canPop: !widget.active || _expandedStack == null,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop && widget.active && _expandedStack != null) {
+          setState(() => _expandedStack = null);
+        }
+      },
+      child: ExcludeFocus(
+        excluding: !widget.active,
+        child: Focus(
+          focusNode: _keyboardFocus,
+          autofocus: widget.active,
+          onKeyEvent: _handleShelfKey,
+          child: Align(
+            alignment: Alignment.topCenter,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: usesDesktopLayout(context)
+                    ? _desktopShelfMaxWidth
+                    : double.infinity,
+              ),
+              child: LayoutBuilder(
+                builder: (_, bounds) => Scaffold(
+                  appBar: _buildAppBar(
+                    visible,
+                    busy || _pickingFiles,
+                    bounds.maxWidth,
+                  ),
+                  bottomNavigationBar: _selectionMode
+                      ? _buildSelectionBar()
+                      : null,
+                  body: _buildBody(items, visible, busy),
                 ),
-                bottomNavigationBar: _selectionMode
-                    ? _buildSelectionBar()
-                    : null,
-                body: _buildBody(items, visible, busy),
               ),
             ),
           ),
@@ -1445,7 +1573,10 @@ class _BookshelfPageState extends State<BookshelfPage> {
     focusNode: _searchFocus,
     hintText: '搜索书名或作者',
     onTap: _focusSearch,
-    onChanged: (value) => setState(() => _query = value),
+    onChanged: (value) => setState(() {
+      _query = value;
+      if (value.trim().isNotEmpty) _expandedStack = null;
+    }),
     prefixIcon: IconButton(
       tooltip: '搜索书架',
       onPressed: _focusSearch,
@@ -1480,6 +1611,18 @@ class _BookshelfPageState extends State<BookshelfPage> {
             activeGroupId: _activeGroupId,
             onSelect: _selectGroup,
             onManage: _manageGroup,
+          ),
+        ),
+        IconButton(
+          key: const ValueKey('bookshelf-tag-stacks'),
+          tooltip: '标签堆叠',
+          color: colors.onSurfaceVariant,
+          constraints: const BoxConstraints.tightFor(width: 44, height: 44),
+          padding: EdgeInsets.zero,
+          onPressed: _selectionMode ? null : _configureTagStacks,
+          icon: const AppIcon(
+            AppGlyph.bookshelf,
+            strokeWidth: _shelfToolbarIconStroke,
           ),
         ),
         Theme(
@@ -1531,6 +1674,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
   ) {
     final canSwipe =
         !_selectionMode &&
+        _expandedStack == null &&
         _error == null &&
         items != null &&
         _groups.isNotEmpty;
@@ -1547,6 +1691,26 @@ class _BookshelfPageState extends State<BookshelfPage> {
             },
           ),
         if (_error == null && items != null) _buildShelfControls(items),
+        if (_expandedStack case final tag?)
+          Row(
+            children: [
+              IconButton(
+                key: const ValueKey('bookshelf-stack-back'),
+                tooltip: '收起堆叠',
+                onPressed: () => setState(() => _expandedStack = null),
+                icon: const AppIcon(AppGlyph.chevronLeft),
+              ),
+              Expanded(
+                child: Text(
+                  '${tag.name} · ${visible?.length ?? 0} 本',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.titleSmall,
+                ),
+              ),
+              const SizedBox(width: 16),
+            ],
+          ),
         Expanded(
           child: HorizontalPageSwitcher<String?>(
             gestureKey: const ValueKey('bookshelf-group-pages'),
@@ -1599,6 +1763,16 @@ class _BookshelfPageState extends State<BookshelfPage> {
     }
     final books = visible!;
     if (books.isEmpty) {
+      if (_expandedStack != null) {
+        return ReaderEmptyState(
+          icon: AppGlyph.bookshelf,
+          title: '这个堆叠已没有书籍',
+          action: TextButton(
+            onPressed: () => setState(() => _expandedStack = null),
+            child: const Text('返回书架'),
+          ),
+        );
+      }
       return _NoMatchesPane(
         query: _query.trim(),
         groupName: groupId != null
@@ -1607,13 +1781,24 @@ class _BookshelfPageState extends State<BookshelfPage> {
         onReset: _resetFilters,
       );
     }
+    final stacks =
+        _selectionMode || _query.trim().isNotEmpty || _expandedStack != null
+        ? [
+            for (final book in books) ShelfStack(books: [book]),
+          ]
+        : _tagStacks(books, groupId);
     return RefreshIndicator(
       onRefresh: () async => _reload(),
-      child: _grid ? _buildBookGrid(books) : _buildBookList(books),
+      child: _grid
+          ? _buildBookGrid(books, stacks)
+          : _buildBookList(books, stacks),
     );
   }
 
-  Widget _buildBookGrid(List<_ShelfItem> books) {
+  Widget _buildBookGrid(
+    List<_ShelfItem> books,
+    List<ShelfStack<_ShelfItem>> stacks,
+  ) {
     return LayoutBuilder(
       builder: (context, constraints) {
         return GridView.builder(
@@ -1628,9 +1813,11 @@ class _BookshelfPageState extends State<BookshelfPage> {
             constraints.maxWidth,
             MediaQuery.textScalerOf(context),
           ).delegate,
-          itemCount: books.length,
+          itemCount: stacks.length,
           itemBuilder: (context, index) {
-            final item = books[index];
+            final stack = stacks[index];
+            if (stack.tag != null) return _buildTagStack(stack);
+            final item = stack.books.single;
             final pinned = _pinnedIds.contains(item.entry.id);
             return _desktopBook(
               _BookCard(
@@ -1653,6 +1840,14 @@ class _BookshelfPageState extends State<BookshelfPage> {
       },
     );
   }
+
+  Widget _buildTagStack(ShelfStack<_ShelfItem> stack) => BookStackTile(
+    tag: stack.tag!,
+    books: [for (final item in stack.books) item.entry],
+    grid: _grid,
+    showTitle: _showTitles,
+    onOpen: () => setState(() => _expandedStack = stack.tag),
+  );
 
   ({SliverGridDelegateWithFixedCrossAxisCount delegate, double cardWidth})
   _shelfGridMetrics(double width, TextScaler textScaler) {
@@ -1688,7 +1883,10 @@ class _BookshelfPageState extends State<BookshelfPage> {
     );
   }
 
-  Widget _buildBookList(List<_ShelfItem> books) {
+  Widget _buildBookList(
+    List<_ShelfItem> books,
+    List<ShelfStack<_ShelfItem>> stacks,
+  ) {
     return LayoutBuilder(
       builder: (_, bounds) {
         final inset = usesDesktopLayout(context)
@@ -1702,7 +1900,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
             inset,
             _selectionMode ? 160 : 96,
           ),
-          itemCount: books.length,
+          itemCount: stacks.length,
           separatorBuilder: (_, _) => Padding(
             padding: const EdgeInsets.only(left: 96, right: 4),
             child: SizedBox(
@@ -1719,7 +1917,9 @@ class _BookshelfPageState extends State<BookshelfPage> {
             ),
           ),
           itemBuilder: (context, index) {
-            final item = books[index];
+            final stack = stacks[index];
+            if (stack.tag != null) return _buildTagStack(stack);
+            final item = stack.books.single;
             return _desktopBook(
               _BookRow(
                 item: item,
