@@ -92,6 +92,21 @@ void main() {
 
       await showShelf();
       expect(_titles(tester), ['A书', 'B书', 'C书']);
+      final search = find.byKey(const ValueKey('bookshelf-search-field'));
+      await tester.tap(search);
+      await tester.enterText(search, 'B书');
+      await tester.pumpAndSettle();
+      expect(_titles(tester), ['B书']);
+      await tester.enterText(search, 'C书');
+      await tester.pumpAndSettle();
+      expect(_titles(tester), ['C书']);
+      await tester.tap(find.byTooltip('关闭搜索'));
+      await tester.pumpAndSettle();
+      expect(_titles(tester), ['A书', 'B书', 'C书']);
+      expect(jsonDecode((await library.getSetting('bookshelf.pinned'))!), [
+        books[1].id,
+        books[0].id,
+      ]);
       await tester.tap(find.text('置顶分组'));
       await tester.pumpAndSettle();
       expect(_titles(tester), ['A书', 'B书']);

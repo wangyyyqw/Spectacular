@@ -614,10 +614,11 @@ class _BookshelfPageState extends State<BookshelfPage> {
         sorted.sort((a, b) => a.entry.title.compareTo(b.entry.title));
     }
     final byId = {for (final item in sorted) item.entry.id: item};
+    final pinnedIds = _pinnedIds.toSet();
     return [
       for (final id in _pinnedIds) ?byId[id],
       for (final item in sorted)
-        if (!_pinnedIds.contains(item.entry.id)) item,
+        if (!pinnedIds.contains(item.entry.id)) item,
     ];
   }
 
