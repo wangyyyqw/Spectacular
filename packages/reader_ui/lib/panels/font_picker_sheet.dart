@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 
-import '../theme/reader_sheet_form.dart';
-import '../theme/reader_ui_components.dart';
-import '../theme/reader_ui_style.dart';
-
 import 'package:reader_core/css/font_face.dart';
 
+import '../annotations/text_value_dialog.dart';
 import '../icons/app_icon.dart';
+import '../theme/reader_font_preview.dart';
 import '../theme/reader_frosted_popup.dart';
+import '../theme/reader_sheet_form.dart';
+import '../theme/reader_ui_components.dart';
 
 /// 宿主保存的字体标识与名称，UI 不读取字体文件。
 class ReaderFontOption {
@@ -130,7 +130,7 @@ class _ReaderFontPickerSheetState extends State<ReaderFontPickerSheet> {
   Widget build(BuildContext context) => ReaderSheetForm(
     title: const Text('选择字体'),
     showCloseButton: true,
-    onClose: _busy ? null : () => Navigator.of(context).pop(),
+    closeEnabled: !_busy,
     contentPadding: EdgeInsets.zero,
     scrollContent: false,
     content: ConstrainedBox(
@@ -142,7 +142,14 @@ class _ReaderFontPickerSheetState extends State<ReaderFontPickerSheet> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           const SizedBox(height: 12),
-          _previewBox(context),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+            child: ReaderFontPreview(
+              textKey: const ValueKey('font-preview-text'),
+              sample: '清风翻过书页，阅读从这里开始。\nAa Bb 0123456789',
+              family: _preview,
+            ),
+          ),
           if (_busy) const LinearProgressIndicator(minHeight: 2),
           if (_error != null) _errorBanner(context),
           Flexible(child: _fontList()),
@@ -177,27 +184,6 @@ class _ReaderFontPickerSheetState extends State<ReaderFontPickerSheet> {
           font: font,
         ),
     ],
-  );
-
-  Widget _previewBox(BuildContext context) => Container(
-    margin: const EdgeInsets.fromLTRB(20, 0, 20, 12),
-    padding: const EdgeInsets.all(14),
-    decoration: BoxDecoration(
-      color: Theme.of(context).colorScheme.surfaceContainerLow,
-      borderRadius: ReaderUiStyle.controlRadiusOf(Theme.of(context)),
-      border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
-    ),
-    child: Text(
-      '清风翻过书页，阅读从这里开始。\nAa Bb 0123456789',
-      key: const ValueKey('font-preview-text'),
-      style: TextStyle(
-        fontFamily: _preview == null
-            ? null
-            : FontFamilyAliases.resolve(_preview!) ?? _preview,
-        fontSize: 18,
-        height: 1.6,
-      ),
-    ),
   );
 
   Widget _tile({
@@ -249,50 +235,15 @@ class _ReaderFontPickerSheetState extends State<ReaderFontPickerSheet> {
 Future<String?> _renamePrompt(BuildContext context, String initial) =>
     showReaderDialog<String>(
       context: context,
-      builder: (_) => _FontRenameDialog(initial: initial),
+      builder: (_) => ReaderTextValueDialog(
+        title: '字体名称',
+        label: '名称',
+        initialValue: initial,
+        inputKey: const ValueKey('font-rename-input'),
+        saveKey: const ValueKey('font-rename-confirm'),
+        confirmLabel: '保存名称',
+        maxLength: 60,
+        disableWhenEmpty: true,
+        validate: (value) => value.isEmpty ? '请输入名称' : null,
+      ),
     );
-
-class _FontRenameDialog extends StatefulWidget {
-  const _FontRenameDialog({required this.initial});
-
-  final String initial;
-
-  @override
-  State<_FontRenameDialog> createState() => _FontRenameDialogState();
-}
-
-class _FontRenameDialogState extends State<_FontRenameDialog> {
-  late final _controller = TextEditingController(text: widget.initial);
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) => ReaderFrostedAlertDialog(
-    title: const Text('字体名称'),
-    content: TextField(
-      key: const ValueKey('font-rename-input'),
-      controller: _controller,
-      autofocus: true,
-      maxLength: 60,
-      decoration: const InputDecoration(labelText: '名称'),
-      onChanged: (_) => setState(() {}),
-    ),
-    actions: [
-      TextButton(
-        onPressed: () => Navigator.of(context).pop(),
-        child: const Text('取消'),
-      ),
-      FilledButton(
-        key: const ValueKey('font-rename-confirm'),
-        onPressed: _controller.text.trim().isEmpty
-            ? null
-            : () => Navigator.of(context).pop(_controller.text.trim()),
-        child: const Text('保存名称'),
-      ),
-    ],
-  );
-}

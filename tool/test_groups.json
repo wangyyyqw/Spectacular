@@ -14,6 +14,9 @@
   "test_rules": [
     {"group": "ui", "paths": ["apps/reader_mobile/test/cloud/cloud_page_test.dart"]},
     {"group": "integration", "paths": ["apps/reader_mobile/test/cloud/*_test.dart"]},
+    {"group": "ui", "paths": ["apps/reader_mobile/test/ye_she/ye_she_page_test.dart", "apps/reader_mobile/test/ye_she/ye_she_visuals_test.dart"]},
+    {"group": "resources", "paths": ["apps/reader_mobile/test/ye_she/ye_she_assets_test.dart"]},
+    {"group": "integration", "paths": ["apps/reader_mobile/test/ye_she/*_test.dart"]},
     {
       "group": "tooling",
       "paths": ["tests/tool/*_test.py"]
@@ -68,6 +71,7 @@
         "apps/reader_mobile/test/storage/*_test.dart",
         "apps/reader_mobile/test/library/library*_test.dart",
         "apps/reader_mobile/test/library/book_edit_repository_test.dart",
+        "apps/reader_mobile/test/library/import_conflict_test.dart",
         "apps/reader_mobile/test/book_source/*_test.dart",
         "apps/reader_mobile/test/rea_micro/*_test.dart",
         "apps/reader_mobile/test/library/book_list_store_test.dart",
@@ -145,7 +149,8 @@
         "apps/reader_mobile/test/reader/reader_tts_flow_test.dart",
         "apps/reader_mobile/test/reader/reader_tts_player_test.dart",
         "apps/reader_mobile/test/reader/reader_tts_text_test.dart",
-        "apps/reader_mobile/test/reader/multi_book_smoke_test.dart"
+        "apps/reader_mobile/test/reader/multi_book_smoke_test.dart",
+        "apps/reader_mobile/test/reader/chinese_conversion_test.dart"
       ]
     },
     {

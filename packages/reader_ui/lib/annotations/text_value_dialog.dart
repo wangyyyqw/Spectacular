@@ -15,6 +15,9 @@ class ReaderTextValueDialog extends StatefulWidget {
     this.inputKey,
     this.saveKey,
     this.maxLength,
+    this.hintText,
+    this.disableWhenEmpty = false,
+    this.submitOnEnter = false,
   });
 
   /// 弹窗标题。
@@ -40,6 +43,14 @@ class ReaderTextValueDialog extends StatefulWidget {
 
   /// 可选最大长度。
   final int? maxLength;
+
+  final String? hintText;
+
+  /// 名称输入为空时禁用保存；其他输入仍在提交时显示校验错误。
+  final bool disableWhenEmpty;
+
+  /// 名称表单可通过键盘完成键提交。
+  final bool submitOnEnter;
   @override
   State<ReaderTextValueDialog> createState() => _ReaderTextValueDialogState();
 }
@@ -57,6 +68,7 @@ class _ReaderTextValueDialogState extends State<ReaderTextValueDialog> {
   void _save() {
     if (_closing) return;
     final value = _controller.text.trim();
+    if (widget.disableWhenEmpty && value.isEmpty) return;
     final error = widget.validate(value);
     if (error != null) {
       setState(() => _error = error);
@@ -74,10 +86,18 @@ class _ReaderTextValueDialogState extends State<ReaderTextValueDialog> {
       controller: _controller,
       autofocus: true,
       maxLength: widget.maxLength,
+      textInputAction: widget.submitOnEnter ? TextInputAction.done : null,
+      onSubmitted: widget.submitOnEnter ? (_) => _save() : null,
       onChanged: (_) {
-        if (_error != null) setState(() => _error = null);
+        if (_error != null || widget.disableWhenEmpty) {
+          setState(() => _error = null);
+        }
       },
-      decoration: InputDecoration(labelText: widget.label, errorText: _error),
+      decoration: InputDecoration(
+        labelText: widget.label,
+        hintText: widget.hintText,
+        errorText: _error,
+      ),
     ),
     actions: [
       TextButton(
@@ -86,7 +106,9 @@ class _ReaderTextValueDialogState extends State<ReaderTextValueDialog> {
       ),
       FilledButton(
         key: widget.saveKey,
-        onPressed: _save,
+        onPressed: widget.disableWhenEmpty && _controller.text.trim().isEmpty
+            ? null
+            : _save,
         child: Text(widget.confirmLabel),
       ),
     ],

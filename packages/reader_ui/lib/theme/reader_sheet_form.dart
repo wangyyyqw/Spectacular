@@ -11,6 +11,7 @@ class ReaderSheetForm extends StatefulWidget {
     this.actions = const [],
     this.headerActions = const [],
     this.onClose,
+    this.closeEnabled = true,
     this.showCloseButton = false,
     this.contentPadding = const EdgeInsets.all(16),
     this.scrollContent = true,
@@ -21,6 +22,7 @@ class ReaderSheetForm extends StatefulWidget {
   final List<Widget> actions;
   final List<Widget> headerActions;
   final VoidCallback? onClose;
+  final bool closeEnabled;
   final bool showCloseButton;
   final EdgeInsetsGeometry contentPadding;
 
@@ -100,7 +102,9 @@ class _ReaderSheetFormState extends State<ReaderSheetForm> {
           IconButton(
             tooltip: '关闭',
             constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
-            onPressed: widget.onClose ?? () => Navigator.maybePop(context),
+            onPressed: widget.closeEnabled
+                ? widget.onClose ?? () => Navigator.maybePop(context)
+                : null,
             icon: const AppIcon(AppGlyph.close),
           ),
       ],

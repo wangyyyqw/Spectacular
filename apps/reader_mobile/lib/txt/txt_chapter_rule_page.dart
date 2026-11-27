@@ -289,24 +289,14 @@ class _TxtChapterRulePageState extends State<TxtChapterRulePage> {
 
   Future<void> _restore() async {
     if (_busy) return;
-    final confirmed = await showReaderDialog<bool>(
+    final confirmed = await showReaderConfirmDialog(
       context: context,
-      builder: (context) => ReaderFrostedAlertDialog(
-        title: const Text('恢复上一保存版本？'),
-        content: const Text('书籍内容将恢复到上一次保存前。阅读进度和已有笔记会重新定位，记录不会删除。'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('恢复'),
-          ),
-        ],
-      ),
+      title: '恢复上一保存版本？',
+      message: '书籍内容将恢复到上一次保存前。阅读进度和已有笔记会重新定位，记录不会删除。',
+      confirmLabel: '恢复',
+      destructive: true,
     );
-    if (confirmed != true || !mounted) return;
+    if (!confirmed || !mounted) return;
     setState(() {
       _applying = true;
       _restoring = true;

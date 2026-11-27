@@ -63,6 +63,19 @@ void main() {
           .color,
       0xFFA5D6A7,
     );
+    final defaultColor = find.byKey(const ValueKey('bookmark-color-default'));
+    expect(tester.getSize(defaultColor), const Size(44, 44));
+    await tester.tap(defaultColor);
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<ReaderBookmarkRibbon>(find.byType(ReaderBookmarkRibbon).first)
+          .style
+          .color,
+      isNull,
+    );
+    await tester.tap(find.byTooltip('绿色'));
+    await tester.pumpAndSettle();
 
     await tester.tap(find.byKey(const ValueKey('size-tab')));
     await tester.pumpAndSettle();

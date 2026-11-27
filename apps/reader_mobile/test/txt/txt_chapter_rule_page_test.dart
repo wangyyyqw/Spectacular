@@ -224,7 +224,8 @@ void main() {
     await tester.tap(find.byType(ReaderSwitch));
     await _finishWork(tester);
     expect((await store.load()).single.autoEnabled, isTrue);
-    await tester.tap(find.byTooltip('关闭'));
+    expect(find.byTooltip('关闭'), findsNothing);
+    await tester.tap(find.widgetWithText(TextButton, '完成'));
     await pumpReaderUntilComplete(
       tester,
       () => find.byType(ReaderSheetForm).evaluate().isEmpty,
@@ -273,7 +274,8 @@ void main() {
     expect(find.byType(ReaderSheetForm), findsNothing);
     await tester.tap(find.text('选择编码'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byTooltip('关闭'));
+    expect(find.byTooltip('关闭'), findsNothing);
+    await tester.tap(find.widgetWithText(TextButton, '取消'));
     await tester.pumpAndSettle();
     expect(selected, isNull);
     expect(find.byType(ReaderSheetForm), findsNothing);

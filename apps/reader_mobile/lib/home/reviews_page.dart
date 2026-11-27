@@ -20,6 +20,7 @@ import '../storage/book_review_store.dart';
 import 'book_cover_image.dart';
 import 'book_lists_view.dart';
 import 'book_notes_list.dart';
+import 'book_review_field.dart';
 import 'desktop_layout.dart';
 import 'horizontal_page_switcher.dart';
 import 'review_ticket.dart';
@@ -1565,26 +1566,14 @@ class _ReviewEditorSheetState extends State<_ReviewEditorSheet> {
   }
 
   Future<void> _delete() async {
-    final confirmed = await showReaderDialog<bool>(
+    final confirmed = await showReaderConfirmDialog(
       context: context,
-      builder: (context) => ReaderFrostedAlertDialog(
-        title: const Text('删除书评？'),
-        content: Text(
-          widget.cloud ? '书评正文会从阅微删除，保留评分与读完状态。' : '评分和正文都会删除，且不可恢复。',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('删除'),
-          ),
-        ],
-      ),
+      title: '删除书评？',
+      message: widget.cloud ? '书评正文会从阅微删除，保留评分与读完状态。' : '评分和正文都会删除，且不可恢复。',
+      confirmLabel: '删除',
+      destructive: true,
     );
-    if (confirmed == true && mounted) {
+    if (confirmed && mounted) {
       await _commit(const _ReviewDraft.delete());
     }
   }
@@ -1638,27 +1627,6 @@ class _ReviewEditorSheetState extends State<_ReviewEditorSheet> {
     ],
   );
 
-  Widget _contentInput(ThemeData theme) => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      Text('书评内容', style: theme.textTheme.labelLarge),
-      const SizedBox(height: 8),
-      TextField(
-        key: const ValueKey<String>('review-content'),
-        controller: _controller,
-        readOnly: _saving,
-        minLines: 4,
-        maxLines: 8,
-        maxLength: widget.cloud ? 2000 : BookReview.maxContentLength,
-        textInputAction: TextInputAction.newline,
-        decoration: const InputDecoration(
-          hintText: '写下这本书带给你的感受…',
-          alignLabelWithHint: true,
-        ),
-      ),
-    ],
-  );
-
   Widget _content(BuildContext context) {
     final theme = Theme.of(context);
     return Column(
@@ -1667,7 +1635,13 @@ class _ReviewEditorSheetState extends State<_ReviewEditorSheet> {
       children: [
         _ratingPicker(theme),
         const SizedBox(height: 16),
-        _contentInput(theme),
+        BookReviewField(
+          label: '书评内容',
+          fieldKey: const ValueKey<String>('review-content'),
+          controller: _controller,
+          readOnly: _saving,
+          maxLength: widget.cloud ? 2000 : BookReview.maxContentLength,
+        ),
         if (widget.cloud)
           ReaderSwitchListTile(
             key: const ValueKey('review-publish'),

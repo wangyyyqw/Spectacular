@@ -7,6 +7,7 @@ import 'package:reader_ui/theme/reader_frosted_surface.dart';
 
 import '../library/library_store.dart';
 import '../storage/book_review_store.dart';
+import 'book_review_field.dart';
 
 /// 读完时提交的评分与书评，不把未保存输入写入书籍资料。
 class FinishBookDraft {
@@ -182,27 +183,6 @@ class _FinishBookSheetState extends State<FinishBookSheet> {
     ],
   );
 
-  Widget _reviewInput(ThemeData theme) => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      Text('书评（可选）', style: theme.textTheme.labelLarge),
-      const SizedBox(height: 8),
-      TextField(
-        key: const ValueKey<String>('book-detail-finish-review'),
-        controller: _controller,
-        readOnly: _saving,
-        minLines: 4,
-        maxLines: 7,
-        maxLength: BookReview.maxContentLength,
-        textInputAction: TextInputAction.newline,
-        decoration: const InputDecoration(
-          hintText: '写下这本书带给你的感受…',
-          alignLabelWithHint: true,
-        ),
-      ),
-    ],
-  );
-
   Widget _content(BuildContext context) {
     final theme = Theme.of(context);
     return SingleChildScrollView(
@@ -224,7 +204,13 @@ class _FinishBookSheetState extends State<FinishBookSheet> {
           if (widget.allowReview) ...[
             _ratingPicker(theme),
             const SizedBox(height: 14),
-            _reviewInput(theme),
+            BookReviewField(
+              label: '书评（可选）',
+              fieldKey: const ValueKey<String>('book-detail-finish-review'),
+              controller: _controller,
+              readOnly: _saving,
+              maxLines: 7,
+            ),
           ] else
             const Text('当前无法保存书评，仅标记读完。'),
         ],

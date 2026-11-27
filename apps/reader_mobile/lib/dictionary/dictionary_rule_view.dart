@@ -3,6 +3,7 @@ import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
 import 'dictionary_rule_html.dart';
 import 'dictionary_webview_gestures.dart';
+import 'dictionary_webview_settings.dart';
 
 class DictionaryRuleView extends StatefulWidget {
   const DictionaryRuleView({
@@ -50,22 +51,7 @@ class _DictionaryRuleViewState extends State<DictionaryRuleView> {
                     mimeType: 'text/html',
                     encoding: 'utf-8',
                   ),
-                  initialSettings: InAppWebViewSettings(
-                    javaScriptEnabled: false,
-                    javaScriptCanOpenWindowsAutomatically: false,
-                    allowFileAccess: false,
-                    allowContentAccess: false,
-                    allowFileAccessFromFileURLs: false,
-                    allowUniversalAccessFromFileURLs: false,
-                    useShouldOverrideUrlLoading: true,
-                    transparentBackground: true,
-                    useHybridComposition: true,
-                    disableVerticalScroll: false,
-                    disableHorizontalScroll: true,
-                    verticalScrollBarEnabled: true,
-                    horizontalScrollBarEnabled: false,
-                    supportZoom: false,
-                    textZoom: 100,
+                  initialSettings: dictionaryWebViewSettings(
                     disableContextMenu: true,
                     mixedContentMode:
                         MixedContentMode.MIXED_CONTENT_COMPATIBILITY_MODE,

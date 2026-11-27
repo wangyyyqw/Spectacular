@@ -3,6 +3,7 @@ import 'dart:ui' show SemanticsRole;
 import 'package:flutter/material.dart';
 
 import '../icons/app_icon.dart';
+import 'reader_drag_handle.dart';
 import 'reader_frosted_surface.dart';
 import 'reader_panel_theme.dart';
 import 'reader_sheet_form.dart';
@@ -353,41 +354,29 @@ class _DragHandleState extends State<_DragHandle> {
   double _distance = 0;
 
   @override
-  Widget build(BuildContext context) => Semantics(
-    label: MaterialLocalizations.of(context).modalBarrierDismissLabel,
-    button: true,
-    onTap: widget.dismissible ? () => Navigator.maybePop(context) : null,
-    child: GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onVerticalDragStart: widget.guardDragDismissal
-          ? (_) => _distance = 0
-          : null,
-      onVerticalDragUpdate: widget.guardDragDismissal
-          ? (details) => _distance += details.delta.dy
-          : null,
-      onVerticalDragEnd: widget.guardDragDismissal
-          ? (details) {
-              if (widget.dismissible &&
-                  (_distance >= 40 || (details.primaryVelocity ?? 0) > 500)) {
-                Navigator.maybePop(context);
-              }
+  Widget build(BuildContext context) => GestureDetector(
+    behavior: HitTestBehavior.opaque,
+    onVerticalDragStart: widget.guardDragDismissal
+        ? (_) => _distance = 0
+        : null,
+    onVerticalDragUpdate: widget.guardDragDismissal
+        ? (details) => _distance += details.delta.dy
+        : null,
+    onVerticalDragEnd: widget.guardDragDismissal
+        ? (details) {
+            if (widget.dismissible &&
+                (_distance >= 40 || (details.primaryVelocity ?? 0) > 500)) {
+              Navigator.maybePop(context);
             }
-          : null,
-      child: SizedBox(
-        key: const ValueKey<String>('reader-drawer-drag-handle'),
-        height: widget.height,
-        child: Center(
-          child: Container(
-            width: 32,
-            height: 4,
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.onSurfaceVariant
-                  .withValues(alpha: 0.4),
-              borderRadius: BorderRadius.circular(2),
-            ),
-          ),
-        ),
-      ),
+          }
+        : null,
+    child: ReaderDragHandle(
+      handleKey: const ValueKey<String>('reader-drawer-drag-handle'),
+      label: MaterialLocalizations.of(context).modalBarrierDismissLabel,
+      onDismiss: widget.dismissible ? () => Navigator.maybePop(context) : null,
+      height: widget.height,
+      width: 32,
+      opacity: .4,
     ),
   );
 }
@@ -507,10 +496,12 @@ Future<bool> showReaderConfirmDialog({
   Key? cancelKey,
   Key? confirmKey,
   bool barrierDismissible = true,
+  bool waitForDismissal = false,
 }) async =>
     await showReaderDialog<bool>(
       context: context,
       barrierDismissible: barrierDismissible,
+      waitForDismissal: waitForDismissal,
       builder: (context) {
         final theme = Theme.of(context);
         return ReaderFrostedAlertDialog(

@@ -262,9 +262,10 @@ class _ReaderDecorationEditorSheetState
       if (_fontError != null)
         Padding(
           padding: const EdgeInsets.only(top: 8),
-          child: KeyedSubtree(
+            child: ReaderInlineNotice(
             key: const ValueKey<String>('decoration-font-error'),
-            child: ReaderInlineNotice(message: _fontError!, isError: true),
+              message: _fontError!,
+              isError: true,
           ),
         ),
       const SizedBox(height: 16),

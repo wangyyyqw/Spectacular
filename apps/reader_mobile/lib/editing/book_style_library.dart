@@ -112,7 +112,8 @@ class _StyleLibraryState extends State<_StyleLibrary> {
     canPop: !_working,
     child: ReaderSheetForm(
       title: const Text('样式库'),
-      onClose: _working ? () {} : () => Navigator.pop(context),
+      closeEnabled: !_working,
+      onClose: () => Navigator.pop(context),
       scrollContent: false,
       content: SizedBox(
         height: 760,

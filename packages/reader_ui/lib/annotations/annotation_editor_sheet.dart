@@ -178,27 +178,18 @@ class _ReaderAnnotationEditorSheetState
   }) async {
     if (_dialogVisible) return false;
     _dialogVisible = true;
-    final result = await showReaderDialog<bool>(
+    final result = await showReaderConfirmDialog(
       context: context,
-      builder: (context) => ReaderFrostedAlertDialog(
-        title: Text(title),
-        content: Text(content),
-        actions: [
-          TextButton(
-            key: ValueKey<String>('$keyPrefix-cancel'),
-            onPressed: () => Navigator.of(context).pop(false),
-            child: Text(keyPrefix == 'annotation-discard' ? '继续编辑' : '取消'),
-          ),
-          FilledButton(
-            key: ValueKey<String>('$keyPrefix-confirm'),
-            onPressed: () => Navigator.of(context).pop(true),
-            child: Text(confirm),
-          ),
-        ],
-      ),
+      title: title,
+      message: content,
+      cancelLabel: keyPrefix == 'annotation-discard' ? '继续编辑' : '取消',
+      confirmLabel: confirm,
+      destructive: true,
+      cancelKey: ValueKey<String>('$keyPrefix-cancel'),
+      confirmKey: ValueKey<String>('$keyPrefix-confirm'),
     );
     _dialogVisible = false;
-    return result == true;
+    return result;
   }
 
   void _pop([AnnotationEditAction? action]) {

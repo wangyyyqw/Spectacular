@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../theme/reader_color_option.dart';
 import '../theme/reader_switch.dart';
 import '../theme/reader_ui_style.dart';
 
@@ -187,13 +188,9 @@ class ReaderAnnotationAppearanceEditor extends StatelessWidget {
     spacing: 6,
     runSpacing: 6,
     children: [
-      for (final option in colors) _colorButton(context, option),
+      for (final option in colors) _colorButton(option),
       for (final value in settings.customColors)
-        _colorButton(
-          context,
-          AnnotationColorOption(value, '自定义颜色'),
-          custom: true,
-        ),
+        _colorButton(AnnotationColorOption(value, '自定义颜色'), custom: true),
       IconButton(
         key: const ValueKey<String>('annotation-add-color'),
         tooltip: '添加自定义颜色（长按颜色可删除）',
@@ -204,63 +201,27 @@ class ReaderAnnotationAppearanceEditor extends StatelessWidget {
   );
 
   Widget _colorButton(
-    BuildContext context,
     AnnotationColorOption option, {
     bool custom = false,
-  }) {
-    final scheme = Theme.of(context).colorScheme;
-    return Tooltip(
-      message: custom ? '自定义颜色，长按删除' : option.label,
-      child: Semantics(
-        label: option.label,
-        selected: color == option.value,
-        button: true,
-        child: InkWell(
-          key: ValueKey<String>(
-            'annotation-color-0x${option.value.toRadixString(16).toUpperCase().padLeft(8, '0')}',
-          ),
-          onTap: () => onColor(option.value),
-          onLongPress: custom
-              ? () => onSettings(
-                  settings.copyWith(
-                    customColors: settings.customColors
-                        .where((item) => item != option.value)
-                        .toList(),
-                  ),
-                )
-              : null,
-          borderRadius: BorderRadius.circular(24),
-          child: SizedBox.square(
-            dimension: 44,
-            child: Padding(
-              padding: const EdgeInsets.all(5),
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: Color(option.value),
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: color == option.value
-                        ? scheme.onSurface
-                        : scheme.outlineVariant,
-                    width: color == option.value ? 2 : 1,
-                  ),
-                ),
-                child: color == option.value
-                    ? AppIcon(
-                        AppGlyph.check,
-                        size: 19,
-                        color: Color(option.value).computeLuminance() > 0.5
-                            ? Colors.black
-                            : Colors.white,
-                      )
-                    : null,
-              ),
+  }) => ReaderColorOption(
+    buttonKey: ValueKey<String>(
+      'annotation-color-0x${option.value.toRadixString(16).toUpperCase().padLeft(8, '0')}',
+    ),
+    color: Color(option.value),
+    label: option.label,
+    selected: color == option.value,
+    tooltip: custom ? '自定义颜色，长按删除' : option.label,
+    onTap: () => onColor(option.value),
+    onLongPress: custom
+        ? () => onSettings(
+            settings.copyWith(
+              customColors: settings.customColors
+                  .where((item) => item != option.value)
+                  .toList(),
             ),
-          ),
-        ),
-      ),
-    );
-  }
+          )
+        : null,
+  );
 
   Future<void> _addColor(BuildContext context) async {
     final selected = await showReaderColorDialog(context, initialColor: color);

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:reader_core/text/reader_text_conversion.dart';
 
 import '../icons/app_icon.dart';
+import '../theme/reader_drag_handle.dart';
 import '../theme/reader_ink.dart';
 import '../theme/reader_environment.dart';
 import '../theme/reader_panel_theme.dart';
@@ -1001,30 +1002,10 @@ class _DrawerLayerState extends State<_DrawerLayer>
     },
   );
 
-  Widget _buildHandle() => Builder(
-    builder: (context) {
-      final scheme = Theme.of(context).colorScheme;
-      return Semantics(
-        label: '收起${widget.title}抽屉',
-        button: true,
-        onTap: _close,
-        child: SizedBox(
-          key: const ValueKey('reader-drawer-handle'),
-          height: 28,
-          width: double.infinity,
-          child: Center(
-            child: Container(
-              width: 36,
-              height: 4,
-              decoration: BoxDecoration(
-                color: scheme.onSurfaceVariant.withValues(alpha: 0.36),
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-          ),
-        ),
-      );
-    },
+  Widget _buildHandle() => ReaderDragHandle(
+    handleKey: const ValueKey('reader-drawer-handle'),
+    label: '收起${widget.title}抽屉',
+    onDismiss: _close,
   );
 }
 
