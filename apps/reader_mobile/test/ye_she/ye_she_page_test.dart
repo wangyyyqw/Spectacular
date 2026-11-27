@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:reader_mobile/rea_micro/rea_micro_controller.dart';
+import 'package:reader_mobile/rea_micro/rea_micro_models.dart';
 import 'package:reader_mobile/ye_she/community_page.dart';
 import 'package:reader_mobile/ye_she/ye_she_api_client.dart';
 import 'package:reader_mobile/ye_she/ye_she_controller.dart';
@@ -26,6 +28,7 @@ void main() {
     expect(find.text('文房'), findsWidgets);
     expect(find.text('游艺'), findsOneWidget);
     expect(find.text('见闻'), findsOneWidget);
+    expect(find.text('文会、清玩与榜上声名'), findsNothing);
     expect(find.text('白玉京'), findsWidgets);
     expect(find.text('青士'), findsWidgets);
     expect(find.text('名帖'), findsWidgets);
@@ -412,7 +415,7 @@ void main() {
     expect(heritage.onPressed, isNull);
   });
 
-  testWidgets('社区页展示我的收藏与公开想法', (tester) async {
+  testWidgets('社区顶部三栏按顺序展示公开想法、收藏与全站书评', (tester) async {
     tester.view.physicalSize = const Size(1200, 2400);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -420,9 +423,13 @@ void main() {
     final api = _DemoYeSheApi();
     final controller = YeSheController(tokenProvider: () => 'token', api: api);
     addTearDown(controller.dispose);
+    final account = _ReviewAccount();
+    addTearDown(account.dispose);
 
     await tester.pumpWidget(
-      MaterialApp(home: CommunityPage(controller: controller)),
+      MaterialApp(
+        home: CommunityPage(controller: controller, account: account),
+      ),
     );
     await tester.pumpAndSettle();
 
@@ -430,16 +437,76 @@ void main() {
       find.byKey(const ValueKey<String>('community-page')),
       findsOneWidget,
     );
-    expect(find.text('我的收藏'), findsOneWidget);
-    expect(find.text('社区想法'), findsOneWidget);
-    expect(find.text('原文摘录'), findsOneWidget);
-    expect(find.textContaining('读书想法'), findsWidgets);
+    final tabs = find.descendant(
+      of: find.byType(TabBar),
+      matching: find.byType(Text),
+    );
+    expect(tester.widgetList<Text>(tabs).map((text) => text.data), [
+      '想法',
+      '收藏',
+      '书评',
+    ]);
+    expect(find.text('收藏与阅微读者的公开想法'), findsNothing);
+    expect(find.text('原文摘录'), findsNothing);
     expect(find.text('这段考据很有意思'), findsOneWidget);
     expect(find.textContaining('北寺浮图灾'), findsWidgets);
     expect(find.text('阅微读者'), findsWidgets);
-    expect(controller.loadedCommunity, isTrue);
     expect(api.calls, contains(#fetchMyCollections));
     expect(api.calls, contains(#fetchPublicThoughts));
+    expect(account.pages, isEmpty);
+    await tester.tap(find.byKey(const ValueKey('community-tab-collections')));
+    await tester.pumpAndSettle();
+    expect(find.text('原文摘录'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('community-tab-reviews')));
+    await tester.pumpAndSettle();
+    expect(account.pages, [1]);
+    expect(find.text('公开书评正文'), findsOneWidget);
+    expect(find.text('山河纪'), findsOneWidget);
+  });
+
+  testWidgets('想法滚过二十条自动续页，切栏与收藏后保留列表', (tester) async {
+    final api = _PagedThoughtApi();
+    final controller = YeSheController(tokenProvider: () => 'token', api: api);
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(
+      MaterialApp(home: CommunityPage(controller: controller)),
+    );
+    await tester.pumpAndSettle();
+    expect(api.pages, [1]);
+    final list = find.byKey(const PageStorageKey('community-thoughts'));
+    final scrollable = find.descendant(
+      of: list,
+      matching: find.byType(Scrollable),
+    );
+    await tester.scrollUntilVisible(
+      find.text('想法 21'),
+      440,
+      scrollable: scrollable,
+    );
+    await tester.pumpAndSettle();
+    expect(api.pages, [1, 2]);
+    expect(controller.thoughtFeed.items.length, 21);
+    final position = tester.state<ScrollableState>(scrollable).position.pixels;
+    await tester.tap(find.byKey(const ValueKey('community-tab-collections')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('community-tab-thoughts')));
+    await tester.pumpAndSettle();
+    final action = find.descendant(
+      of: find
+          .ancestor(of: find.text('想法 21'), matching: find.byType(Container))
+          .first,
+      matching: find.widgetWithText(TextButton, '收藏'),
+    );
+    await tester.ensureVisible(action);
+    await tester.tap(action);
+    await tester.pumpAndSettle();
+    expect(api.calls, contains(#collectMark));
+    expect(api.pages, [1, 2]);
+    expect(
+      tester.state<ScrollableState>(scrollable).position.pixels,
+      greaterThanOrEqualTo(position - 1),
+    );
+    expect(find.text('想法 21'), findsOneWidget);
   });
 
   testWidgets('社区页未登录时显示登录提示', (tester) async {
@@ -460,6 +527,52 @@ void main() {
     );
     expect(find.text('登录阅微后查看社区'), findsOneWidget);
   });
+}
+
+class _ReviewAccount extends ChangeNotifier implements ReaMicroController {
+  final pages = <int>[];
+  @override
+  Listenable get pageRefresh => this;
+
+  @override
+  Future<List<ReaMicroBookReview>> loadReviewFlow({
+    int? cloudBookId,
+    int page = 1,
+    int pageSize = 20,
+  }) async {
+    expect(cloudBookId, isNull);
+    pages.add(page);
+    return [
+      ReaMicroBookReview.fromJson({
+        'id': 91,
+        'bookName': '山河纪',
+        'comment': '公开书评正文',
+      }),
+    ];
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _PagedThoughtApi extends _DemoYeSheApi {
+  final pages = <int>[];
+
+  @override
+  Future<YeSheJson> fetchPublicThoughts({
+    int page = 1,
+    int size = 20,
+    String bookId = '',
+    String cloudBookId = '',
+  }) async {
+    pages.add(page);
+    return {
+      'items': [
+        for (var id = page == 1 ? 1 : 20; id <= (page == 1 ? 20 : 21); id++)
+          {'id': id, 'note': '想法 $id'},
+      ],
+    };
+  }
 }
 
 class _DemoYeSheApi implements YeSheApi {

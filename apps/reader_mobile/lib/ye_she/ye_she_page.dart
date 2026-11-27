@@ -8,6 +8,7 @@ import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
 
 import 'ye_she_assets.dart';
+import 'community_navigation.dart';
 import 'ye_she_controller.dart';
 import '../rea_micro/rea_micro_controller.dart';
 import 'ye_she_models.dart';
@@ -102,11 +103,19 @@ class _YeShePageState extends State<YeShePage>
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    return Scaffold(
-      body: Column(
+    return ListenableBuilder(
+      listenable: Listenable.merge([_controller, _tabController]),
+      child: Column(
         children: <Widget>[
-          SafeArea(bottom: false, child: _header(theme)),
-          _tabBar(theme),
+          CommunityTabs(
+            prefix: 'ye-she',
+            controller: _tabController,
+            tabs: const [
+              ('study', AppGlyph.menuBook, '文房'),
+              ('play', AppGlyph.play, '游艺'),
+              ('discover', AppGlyph.discover, '见闻'),
+            ],
+          ),
           Expanded(
             child: ListenableBuilder(
               listenable: _controller,
@@ -132,216 +141,18 @@ class _YeShePageState extends State<YeShePage>
           ),
         ],
       ),
-    );
-  }
-
-  Widget _header(ThemeData theme) {
-    final scheme = theme.colorScheme;
-    return Container(
-      width: double.infinity,
-      decoration: BoxDecoration(
-        gradient: YeSheTokens.headerGradient(context),
-        border: Border(bottom: BorderSide(color: YeSheTokens.line(context))),
-      ),
-      child: Stack(
-        children: <Widget>[
-          Positioned(
-            right: -34,
-            top: -50,
-            child: Container(
-              width: 154,
-              height: 154,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: YeSheTokens.jade(context).withValues(alpha: 0.08),
-              ),
-            ),
-          ),
-          Positioned(
-            right: 22,
-            bottom: 10,
-            child: Transform.rotate(
-              angle: -0.06,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-                decoration: BoxDecoration(
-                  border: Border.all(
-                    color: YeSheTokens.vermilion(context)
-                        .withValues(alpha: 0.45),
-                    width: 1.2,
-                  ),
-                  borderRadius: BorderRadius.circular(3),
-                ),
-                child: Text(
-                  '野社',
-                  style: theme.textTheme.labelSmall?.copyWith(
-                    color: YeSheTokens.vermilion(context)
-                        .withValues(alpha: 0.75),
-                    letterSpacing: 3,
-                  ),
-                ),
-              ),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(6, 4, 10, 6),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Builder(
-                  builder: (context) {
-                    final canPop = Navigator.of(context).canPop();
-                    return IconButton(
-                      tooltip: canPop ? '返回' : '野社',
-                      onPressed: canPop
-                          ? () => Navigator.of(context).maybePop()
-                          : null,
-                      icon: AppIcon(
-                        canPop ? AppGlyph.arrowBack : AppGlyph.review,
-                      ),
-                    );
-                  },
-                ),
-                Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.only(top: 6),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: <Widget>[
-                        Text(
-                          '野社',
-                          key: const ValueKey<String>('ye-she-header-title'),
-                          style: theme.textTheme.titleLarge?.copyWith(
-                            fontSize: 27,
-                            fontWeight: FontWeight.w700,
-                            letterSpacing: 2,
-                            color: scheme.onSurface,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        AnimatedBuilder(
-                          animation: _tabController,
-                          builder: (context, child) => Text(
-                            _tabDescription(_tabController.index),
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: scheme.onSurfaceVariant,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                ListenableBuilder(
-                  listenable: _controller,
-                  builder: (context, child) => IconButton(
-                    key: const ValueKey<String>('ye-she-refresh'),
-                    tooltip: '刷新野社',
-                    onPressed: _currentTabLoading
-                        ? null
-                        : () => unawaited(_refreshCurrentTab()),
-                    icon: const AppIcon(AppGlyph.refresh),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
+      builder: (context, child) => Scaffold(
+        appBar: communityAppBar(
+          context,
+          prefix: 'ye-she',
+          title: '野社',
+          refresh: _controller.signedIn && !_currentTabLoading
+              ? _refreshCurrentTab
+              : null,
+        ),
+        body: child,
       ),
     );
-  }
-
-  Widget _tabBar(ThemeData theme) {
-    final scheme = theme.colorScheme;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
-      child: TabBar(
-        key: const ValueKey<String>('ye-she-tab-bar'),
-        controller: _tabController,
-        labelColor: scheme.onSurface,
-        unselectedLabelColor: scheme.onSurfaceVariant,
-        indicatorColor: YeSheTokens.vermilion(context),
-        indicatorSize: TabBarIndicatorSize.tab,
-        indicator: BoxDecoration(
-          color: scheme.surface,
-          borderRadius: ReaderUiStyle.controlRadiusOf(Theme.of(context)),
-          border: Border.all(color: YeSheTokens.line(context)),
-        ),
-        dividerColor: Colors.transparent,
-        overlayColor: WidgetStatePropertyAll<Color>(
-          YeSheTokens.vermilion(context).withValues(alpha: 0.08),
-        ),
-        labelStyle: theme.textTheme.labelLarge?.copyWith(
-          fontWeight: FontWeight.w700,
-          letterSpacing: 1,
-        ),
-        unselectedLabelStyle: theme.textTheme.labelLarge?.copyWith(
-          letterSpacing: 1,
-        ),
-        tabs: <Widget>[
-          _tab(
-            index: 0,
-            key: const ValueKey<String>('ye-she-tab-study'),
-            glyph: AppGlyph.menuBook,
-            label: '文房',
-          ),
-          _tab(
-            index: 1,
-            key: const ValueKey<String>('ye-she-tab-play'),
-            glyph: AppGlyph.play,
-            label: '游艺',
-          ),
-          _tab(
-            index: 2,
-            key: const ValueKey<String>('ye-she-tab-discover'),
-            glyph: AppGlyph.discover,
-            label: '见闻',
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _tab({
-    required int index,
-    required Key key,
-    required AppGlyph glyph,
-    required String label,
-  }) {
-    return AnimatedBuilder(
-      animation: _tabController,
-      builder: (context, child) {
-        final selected = _tabController.index == index;
-        final scheme = Theme.of(context).colorScheme;
-        final color = selected ? scheme.onSurface : scheme.onSurfaceVariant;
-        return Tab(
-          key: key,
-          height: 42,
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: <Widget>[
-              AppIcon(
-                glyph,
-                size: 16,
-                color: selected
-                    ? YeSheTokens.vermilion(context)
-                    : color.withValues(alpha: 0.7),
-              ),
-              const SizedBox(width: 6),
-              Text(label, style: TextStyle(color: color)),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  String _tabDescription(int index) {
-    return switch (index) {
-      0 => '文会、清玩与榜上声名',
-      1 => '聚宝、樗蒲与道观',
-      _ => '祈愿、期物与百杂市井',
-    };
   }
 
   Widget _tabBody() {

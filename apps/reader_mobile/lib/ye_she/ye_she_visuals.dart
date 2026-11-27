@@ -232,27 +232,6 @@ class YeSheTokens {
   static Color line(BuildContext context) =>
       Theme.of(context).colorScheme.outlineVariant;
 
-  /// 页头渐变。
-  static LinearGradient headerGradient(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    final dark = theme.brightness == Brightness.dark;
-    return LinearGradient(
-      begin: Alignment.topLeft,
-      end: Alignment.bottomRight,
-      colors: <Color>[
-        scheme.surfaceContainerLow,
-        theme.useMaterial3
-            ? scheme.surfaceContainer
-            : dark
-            ? const Color(0xFF262A2B)
-            : const Color(0xFFF2EEE3),
-        scheme.surfaceContainerLow,
-      ],
-      stops: const <double>[0, 0.55, 1],
-    );
-  }
-
   /// 卡片阴影使用极轻的墨色，避免纸面显得厚重。
   static List<BoxShadow> cardShadow(BuildContext context) => <BoxShadow>[
     BoxShadow(

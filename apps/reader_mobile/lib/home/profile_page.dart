@@ -275,8 +275,6 @@ class _CommunityEntry extends StatelessWidget {
             builder: (context) => CommunityPage(
               account: controller,
               tokenProvider: () => controller.token,
-              currentUserName: controller.user?.nickName ?? '',
-              currentUserAvatar: controller.user?.avatar ?? '',
             ),
           ),
         ),

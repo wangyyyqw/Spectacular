@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import 'community_feed.dart';
 import 'ye_she_api_client.dart';
 import '../storage/online_page_cache.dart';
 import 'ye_she_models.dart';
@@ -37,12 +38,10 @@ class YeSheController extends ChangeNotifier {
   bool _loadedStudy = false;
   bool _loadedPlay = false;
   bool _loadedDiscover = false;
-  bool _loadedCommunity = false;
   bool _loadingStudy = false;
   bool _loadingPlay = false;
   bool _loadingDiscover = false;
   bool _loadingRanks = false;
-  bool _loadingCommunity = false;
   bool _authExpired = false;
   bool _actionBusy = false;
   Future<void>? _studyTask;
@@ -51,7 +50,6 @@ class YeSheController extends ChangeNotifier {
   String? _playError;
   String? _discoverError;
   String? _ranksError;
-  String? _communityError;
 
   YeSheAccountStatus? _account;
   YeSheTitle? _title;
@@ -63,7 +61,6 @@ class YeSheController extends ChangeNotifier {
   YeSheLiterarySocietyScores? _societyScores;
   YeSheMerchantGuilds? _guilds;
   YeSheGuildAuction? _guildAuction;
-  List<YeSheCollectionEntry> _collections = const <YeSheCollectionEntry>[];
   List<YeSheGuildMember> _guildMembers = const <YeSheGuildMember>[];
   List<YeSheGuildHistoryEntry> _guildHistory = const <YeSheGuildHistoryEntry>[];
 
@@ -83,7 +80,6 @@ class YeSheController extends ChangeNotifier {
   YeSheVoucherShop? _voucherShop;
   YeSheMutualMarket? _mutualMarket;
   List<YeSheRumor> _rumors = const <YeSheRumor>[];
-  List<YeSheThought> _thoughts = const <YeSheThought>[];
   YeSheMedalTreasure? _medalTreasure;
   Map<YeSheRankKind, YeSheRankBoard> _ranks =
       const <YeSheRankKind, YeSheRankBoard>{};
@@ -103,9 +99,6 @@ class YeSheController extends ChangeNotifier {
   /// 见闻是否已经加载过。
   bool get loadedDiscover => _loadedDiscover;
 
-  /// 社区是否已经加载过。
-  bool get loadedCommunity => _loadedCommunity;
-
   /// 文房是否正在加载。
   bool get loadingStudy => _loadingStudy;
 
@@ -117,9 +110,6 @@ class YeSheController extends ChangeNotifier {
 
   /// 排行榜是否正在加载。
   bool get loadingRanks => _loadingRanks;
-
-  /// 社区是否正在加载。
-  bool get loadingCommunity => _loadingCommunity;
 
   /// 登录是否已在请求过程中失效。
   bool get authExpired => _authExpired;
@@ -142,9 +132,6 @@ class YeSheController extends ChangeNotifier {
   /// 排行榜局部错误。
   String? get ranksError => _ranksError;
 
-  /// 社区局部错误。
-  String? get communityError => _communityError;
-
   YeSheAccountStatus? get account => _account;
   YeSheTitle? get title => _title;
   YeSheSeals? get seals => _seals;
@@ -155,7 +142,6 @@ class YeSheController extends ChangeNotifier {
   YeSheLiterarySocietyScores? get societyScores => _societyScores;
   YeSheMerchantGuilds? get guilds => _guilds;
   YeSheGuildAuction? get guildAuction => _guildAuction;
-  List<YeSheCollectionEntry> get collections => _collections;
   List<YeSheGuildMember> get guildMembers => _guildMembers;
   List<YeSheGuildHistoryEntry> get guildHistory => _guildHistory;
   YeSheDailyLore? get dailyLore => _dailyLore;
@@ -175,7 +161,6 @@ class YeSheController extends ChangeNotifier {
   YeSheVoucherShop? get voucherShop => _voucherShop;
   YeSheMutualMarket? get mutualMarket => _mutualMarket;
   List<YeSheRumor> get rumors => _rumors;
-  List<YeSheThought> get thoughts => _thoughts;
   YeSheMedalTreasure? get medalTreasure => _medalTreasure;
   Map<YeSheRankKind, YeSheRankBoard> get ranks => _ranks;
 
@@ -519,37 +504,41 @@ class YeSheController extends ChangeNotifier {
     _notify();
   }
 
-  /// 首次进入社区页时加载想法与收藏。
-  Future<void> loadCommunity() async {
-    if (_loadedCommunity || !_canLoad() || _disposed) return;
-    await refreshCommunity();
-  }
+  late final thoughtFeed = CommunityFeed<YeSheThought>(
+    (page) =>
+        _communityBatch(page, 20, _api.fetchPublicThoughts, _thoughtsFromJson),
+    (item) => item.id,
+  );
 
-  /// 刷新社区想法与我的收藏。
-  Future<void> refreshCommunity() async {
-    if (!_canLoad() || _loadingCommunity) return;
-    _loadingCommunity = true;
-    _communityError = null;
-    _notify();
-    final failures = <String>[];
-    final results = await Future.wait<Object?>(<Future<Object?>>[
-      _attempt(
-        '我的收藏',
-        _api.fetchMyCollections(),
-        _collectionsFromJson,
-        failures,
-      ),
-      _attempt('社区想法', _api.fetchPublicThoughts(), _thoughtsFromJson, failures),
-    ]);
-    if (_disposed) return;
-    _collections =
-        results[0] as List<YeSheCollectionEntry>? ??
-        const <YeSheCollectionEntry>[];
-    _thoughts = results[1] as List<YeSheThought>? ?? const <YeSheThought>[];
-    _loadedCommunity = true;
-    _loadingCommunity = false;
-    _communityError = _failureText(failures);
-    _notify();
+  late final collectionFeed = CommunityFeed<YeSheCollectionEntry>(
+    (page) => _communityBatch(
+      page,
+      50,
+      _api.fetchMyCollections,
+      _collectionsFromJson,
+    ),
+    (item) => (item.markId, item.collectionType),
+  );
+
+  Future<CommunityBatch<T>> _communityBatch<T>(
+    int page,
+    int size,
+    Future<YeSheJson> Function({required int page, required int size}) fetch,
+    List<T> Function(YeSheJson) parse,
+  ) async {
+    try {
+      final data = await fetch(page: page, size: size);
+      final items = parse(data);
+      final hasMore = data['hasMore'] != null
+          ? yeSheBool(data['hasMore'])
+          : data['total'] != null
+          ? page * size < yeSheInt(data['total'])
+          : items.length >= size;
+      return (items: items, hasMore: hasMore);
+    } catch (error) {
+      _recordAuth(error);
+      rethrow;
+    }
   }
 
   /// 查询公开文会。
@@ -993,7 +982,7 @@ class YeSheController extends ChangeNotifier {
     '收藏想法',
     '已收藏',
     () => _api.collectMark(markId: markId, collectionType: collectionType),
-    refreshCommunity,
+    collectionFeed.refresh,
   );
 
   /// 取消收藏。
@@ -1004,7 +993,7 @@ class YeSheController extends ChangeNotifier {
     '取消收藏',
     '已取消收藏',
     () => _api.uncollectMark(markId: markId, collectionType: collectionType),
-    refreshCommunity,
+    collectionFeed.refresh,
   );
 
   Future<T?> _attempt<T>(
@@ -1106,6 +1095,8 @@ class YeSheController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    thoughtFeed.dispose();
+    collectionFeed.dispose();
     if (_ownsApi) _api.close();
     super.dispose();
   }

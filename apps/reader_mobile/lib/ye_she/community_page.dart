@@ -6,11 +6,14 @@ import 'package:reader_ui/theme/reader_frosted_popup.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 
 import 'ye_she_controller.dart';
+import 'community_feed.dart';
+import 'community_navigation.dart';
 import '../rea_micro/rea_micro_controller.dart';
+import '../rea_micro/rea_micro_models.dart';
 import 'ye_she_models.dart';
 import 'ye_she_visuals.dart';
 
-/// 阅微社区：我的收藏与公开读书想法。
+/// 阅微社区：想法、收藏与全站书评。
 class CommunityPage extends StatefulWidget {
   /// 创建页面。
   const CommunityPage({
@@ -18,8 +21,6 @@ class CommunityPage extends StatefulWidget {
     this.controller,
     this.account,
     this.tokenProvider,
-    this.currentUserName = '',
-    this.currentUserAvatar = '',
   }) : assert(controller != null || tokenProvider != null);
 
   /// 可注入的控制器，供页面测试使用。
@@ -29,24 +30,20 @@ class CommunityPage extends StatefulWidget {
   /// 当前阅微令牌提供者。
   final String? Function()? tokenProvider;
 
-  /// 当前阅微账号昵称。
-  final String currentUserName;
-
-  /// 当前阅微账号头像。
-  final String currentUserAvatar;
-
   @override
   State<CommunityPage> createState() => _CommunityPageState();
 }
 
-class _CommunityPageState extends State<CommunityPage> {
+class _CommunityPageState extends State<CommunityPage>
+    with SingleTickerProviderStateMixin {
   late final YeSheController _controller;
-  late final bool _ownsController;
+  late final TabController _tabs;
+  late final CommunityFeed<ReaMicroBookReview> _reviews;
+  String? _token;
 
   @override
   void initState() {
     super.initState();
-    _ownsController = widget.controller == null;
     _controller =
         widget.controller ??
         YeSheController(
@@ -54,262 +51,219 @@ class _CommunityPageState extends State<CommunityPage> {
           pageCache: widget.account?.pageCache,
           onUnavailable: widget.account?.reportUnavailable,
         );
-    widget.account?.pageRefresh.addListener(_controller.refreshCommunity);
-    unawaited(_controller.loadCommunity());
+    _token = _controller.tokenProvider();
+    _tabs = TabController(length: 3, vsync: this)..addListener(_selectTab);
+    _reviews = CommunityFeed((page) async {
+      final account = widget.account;
+      if (account == null) throw StateError('书评需要阅微账号');
+      final items = await account.loadReviewFlow(page: page);
+      return (items: items, hasMore: items.length >= 20);
+    }, (review) => review.id);
+    widget.account?.addListener(_checkAccount);
+    widget.account?.pageRefresh.addListener(_refresh);
+    _selectTab();
+  }
+
+  void _checkAccount() {
+    final token = _controller.tokenProvider();
+    if (token == _token) return;
+    _token = token;
+    _controller.thoughtFeed.clear();
+    _controller.collectionFeed.clear();
+    _reviews.clear();
+    _selectTab();
+  }
+
+  void _selectTab() {
+    if (!_controller.signedIn) return;
+    if (_tabs.index == 0) unawaited(_controller.thoughtFeed.ensureLoaded());
+    if (_tabs.index < 2) unawaited(_controller.collectionFeed.ensureLoaded());
+    if (_tabs.index == 2) unawaited(_reviews.ensureLoaded());
+  }
+
+  Future<void> _refresh() async {
+    if (!_controller.signedIn) return;
+    switch (_tabs.index) {
+      case 0:
+        await Future.wait([
+          _controller.thoughtFeed.refresh(),
+          _controller.collectionFeed.refresh(),
+        ]);
+      case 1:
+        await _controller.collectionFeed.refresh();
+      case 2:
+        await _reviews.refresh();
+    }
   }
 
   @override
   void dispose() {
-    widget.account?.pageRefresh.removeListener(_controller.refreshCommunity);
-    if (_ownsController) _controller.dispose();
+    widget.account?.removeListener(_checkAccount);
+    widget.account?.pageRefresh.removeListener(_refresh);
+    _tabs.dispose();
+    _reviews.dispose();
+    if (widget.controller == null) _controller.dispose();
     super.dispose();
   }
 
   @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Scaffold(
-      key: const ValueKey<String>('community-page'),
-      body: Column(
-        children: <Widget>[
-          SafeArea(bottom: false, child: _header(theme)),
-          Expanded(
-            child: ListenableBuilder(
-              listenable: _controller,
-              builder: (context, child) {
-                if (!_controller.signedIn) {
-                  return const _CommunitySignedOutView();
-                }
-                if (_controller.loadingCommunity &&
-                    !_controller.loadedCommunity) {
-                  return const Center(
-                    child: Padding(
-                      padding: EdgeInsets.all(32),
-                      child: CircularProgressIndicator(),
-                    ),
-                  );
-                }
-                return RefreshIndicator(
-                  onRefresh: _controller.refreshCommunity,
-                  child: _content(),
-                );
-              },
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: Listenable.merge([
+      _controller,
+      _tabs,
+      _controller.thoughtFeed,
+      _controller.collectionFeed,
+      _reviews,
+    ]),
+    builder: (context, child) {
+      final feed = switch (_tabs.index) {
+        0 => _controller.thoughtFeed,
+        1 => _controller.collectionFeed,
+        _ => _reviews,
+      };
+      return Scaffold(
+        key: const ValueKey('community-page'),
+        appBar: communityAppBar(
+          context,
+          prefix: 'community',
+          title: '社区',
+          refresh: _controller.signedIn && !feed.loading ? _refresh : null,
+        ),
+        body: Column(
+          children: [
+            CommunityTabs(
+              prefix: 'community',
+              controller: _tabs,
+              tabs: const [
+                ('thoughts', AppGlyph.highlighter, '想法'),
+                ('collections', AppGlyph.bookmark, '收藏'),
+                ('reviews', AppGlyph.review, '书评'),
+              ],
             ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _header(ThemeData theme) {
-    final scheme = theme.colorScheme;
-    return Container(
-      width: double.infinity,
-      decoration: BoxDecoration(
-        gradient: YeSheTokens.headerGradient(context),
-        border: Border(bottom: BorderSide(color: YeSheTokens.line(context))),
-      ),
-      child: Stack(
-        children: <Widget>[
-          Positioned(
-            right: -34,
-            top: -50,
-            child: Container(
-              width: 154,
-              height: 154,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: YeSheTokens.jade(context).withValues(alpha: 0.08),
-              ),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(6, 4, 10, 10),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Builder(
-                  builder: (context) {
-                    final canPop = Navigator.of(context).canPop();
-                    return IconButton(
-                      tooltip: canPop ? '返回' : '社区',
-                      onPressed: canPop
-                          ? () => Navigator.of(context).maybePop()
-                          : null,
-                      icon: AppIcon(
-                        canPop ? AppGlyph.arrowBack : AppGlyph.highlighter,
-                      ),
-                    );
-                  },
-                ),
-                Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.only(top: 6),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: <Widget>[
-                        Text(
-                          '社区',
-                          key: const ValueKey<String>('community-header-title'),
-                          style: theme.textTheme.titleLarge?.copyWith(
-                            fontSize: 27,
-                            fontWeight: FontWeight.w700,
-                            letterSpacing: 2,
-                            color: scheme.onSurface,
+            Expanded(
+              child: !_controller.signedIn
+                  ? const _CommunitySignedOutView()
+                  : TabBarView(
+                      controller: _tabs,
+                      children: [
+                        _feedList(
+                          'thoughts',
+                          _controller.thoughtFeed,
+                          '暂无公开读书想法',
+                          (thought) => _ThoughtTile(
+                            thought: thought,
+                            collected: _collectionTypeOf(thought.id, 1) != null,
+                            appreciated:
+                                _collectionTypeOf(thought.id, 2) != null,
+                            busy: _controller.actionBusy,
+                            onCollect: () => _toggleThought(thought, 1),
+                            onAppreciate: () => _toggleThought(thought, 2),
+                            onCollectors: () => _showCollectors(thought),
                           ),
                         ),
-                        const SizedBox(height: 2),
-                        Text(
-                          '收藏与阅微读者的公开想法',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: scheme.onSurfaceVariant,
+                        _feedList(
+                          'collections',
+                          _controller.collectionFeed,
+                          '还没有收藏社区想法',
+                          (item) => _CollectionTile(
+                            item: item,
+                            busy: _controller.actionBusy,
+                            onRemove: () => _uncollect(item),
+                          ),
+                        ),
+                        _feedList(
+                          'reviews',
+                          _reviews,
+                          '暂无公开书评',
+                          (review) => Card(
+                            child: ListTile(
+                              leading: YeSheCover(
+                                url: review.bookCover,
+                                width: 40,
+                                height: 54,
+                                semanticsLabel: '书评封面',
+                              ),
+                              title: Text(
+                                review.bookName.isEmpty
+                                    ? '未知书名'
+                                    : review.bookName,
+                              ),
+                              subtitle: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    [
+                                      review.userName.isEmpty
+                                          ? '阅微读者'
+                                          : review.userName,
+                                      if (review.rating > 0)
+                                        '${review.rating} 分',
+                                    ].join(' · '),
+                                  ),
+                                  if (review.comment.isNotEmpty)
+                                    Text(review.comment),
+                                ],
+                              ),
+                            ),
                           ),
                         ),
                       ],
                     ),
-                  ),
-                ),
-                ListenableBuilder(
-                  listenable: _controller,
-                  builder: (context, child) => IconButton(
-                    key: const ValueKey<String>('community-refresh'),
-                    tooltip: '刷新社区',
-                    onPressed: _controller.loadingCommunity
-                        ? null
-                        : () => unawaited(_controller.refreshCommunity()),
-                    icon: const AppIcon(AppGlyph.refresh),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _content() {
-    final theme = Theme.of(context);
-    final collections = _controller.collections;
-    final thoughts = _controller.thoughts;
-    return ListView(
-      key: const PageStorageKey<String>('community-list'),
-      physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 28),
-      children: <Widget>[
-        if (_controller.loadingCommunity) const LinearProgressIndicator(),
-        _errorCard(_controller.communityError),
-        _CommunityCard(
-          key: const ValueKey<String>('community-collections'),
-          icon: AppGlyph.bookmark,
-          title: '我的收藏',
-          subtitle: '${collections.length} 条',
-          trailing: collections.isEmpty
-              ? null
-              : YeSheTag(
-                  '${collections.length} 条',
-                  color: YeSheTokens.jade(context),
-                ),
-          child: collections.isEmpty
-              ? const YeSheEmpty('还没有收藏社区想法')
-              : Column(
-                  children: <Widget>[
-                    for (final item in collections)
-                      _CollectionTile(
-                        item: item,
-                        busy: _controller.actionBusy,
-                        onRemove: () => _uncollect(item),
-                      ),
-                  ],
-                ),
-        ),
-        const SizedBox(height: 12),
-        _CommunityCard(
-          key: const ValueKey<String>('community-thoughts'),
-          icon: AppGlyph.highlighter,
-          title: '社区想法',
-          subtitle: '${thoughts.length} 条公开笔记',
-          trailing: thoughts.isEmpty
-              ? null
-              : YeSheTag(
-                  '${thoughts.length} 条',
-                  color: YeSheTokens.jade(context),
-                ),
-          child: thoughts.isEmpty
-              ? const YeSheEmpty('暂无公开读书想法')
-              : Column(
-                  children: <Widget>[
-                    for (final thought in thoughts)
-                      _ThoughtTile(
-                        thought: thought,
-                        collected: _collectionTypeOf(thought.id, 1) != null,
-                        appreciated: _collectionTypeOf(thought.id, 2) != null,
-                        busy: _controller.actionBusy,
-                        onCollect: () => _toggleThought(thought, 1),
-                        onAppreciate: () => _toggleThought(thought, 2),
-                        onCollectors: () => _showCollectors(thought),
-                      ),
-                  ],
-                ),
-        ),
-        if (widget.currentUserName.trim().isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.only(top: 4),
-            child: Text(
-              '以 ${widget.currentUserName.trim()} 的阅微账号浏览',
-              textAlign: TextAlign.center,
-              style: theme.textTheme.labelSmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ),
-      ],
-    );
-  }
-
-  Widget _errorCard(String? error) {
-    if (error == null || error.trim().isEmpty) {
-      return const SizedBox.shrink();
-    }
-    final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Container(
-        decoration: BoxDecoration(
-          color: theme.colorScheme.errorContainer,
-          borderRadius: ReaderUiStyle.controlRadiusOf(Theme.of(context)),
-          border: Border.all(
-            color: theme.colorScheme.error.withValues(alpha: 0.22),
-          ),
-        ),
-        padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            AppIcon(AppGlyph.warning, color: theme.colorScheme.error),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                error,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onErrorContainer,
-                ),
-              ),
-            ),
-            TextButton(
-              onPressed: _controller.loadingCommunity
-                  ? null
-                  : () => unawaited(_controller.refreshCommunity()),
-              child: const Text('重试'),
             ),
           ],
         ),
+      );
+    },
+  );
+
+  Widget _feedList<T>(
+    String key,
+    CommunityFeed<T> feed,
+    String empty,
+    Widget Function(T) tile,
+  ) => RefreshIndicator(
+    onRefresh: _refresh,
+    child: NotificationListener<ScrollUpdateNotification>(
+      onNotification: (notification) {
+        if (notification.depth == 0 &&
+            notification.metrics.extentAfter < 300 &&
+            feed.hasMore &&
+            feed.error == null &&
+            !feed.loading) {
+          unawaited(feed.next());
+        }
+        return false;
+      },
+      child: ListView.builder(
+        key: PageStorageKey('community-$key'),
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
+        itemCount: feed.items.length + 1,
+        itemBuilder: (context, index) {
+          if (index < feed.items.length) return tile(feed.items[index]);
+          if (feed.loading) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (feed.error != null) {
+            return Column(
+              children: [
+                Text('加载失败：${feed.error}'),
+                TextButton(onPressed: feed.retry, child: const Text('重试')),
+              ],
+            );
+          }
+          if (feed.items.isEmpty) return YeSheEmpty(empty);
+          if (feed.hasMore) {
+            return TextButton(onPressed: feed.next, child: const Text('加载更多'));
+          }
+          return const SizedBox.shrink();
+        },
       ),
-    );
-  }
+    ),
+  );
 
   int? _collectionTypeOf(int markId, int collectionType) {
-    for (final entry in _controller.collections) {
+    for (final entry in _controller.collectionFeed.items) {
       if (entry.markId == markId && entry.collectionType == collectionType) {
         return entry.collectionType;
       }
@@ -387,89 +341,6 @@ class _CommunityPageState extends State<CommunityPage> {
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(content: Text(result.message)));
-  }
-}
-
-class _CommunityCard extends StatelessWidget {
-  const _CommunityCard({
-    super.key,
-    required this.icon,
-    required this.title,
-    required this.child,
-    this.subtitle,
-    this.trailing,
-  });
-
-  final AppGlyph icon;
-  final String title;
-  final String? subtitle;
-  final Widget? trailing;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Container(
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 13),
-      decoration: BoxDecoration(
-        color: YeSheTokens.paper(context),
-        borderRadius: ReaderUiStyle.cardRadiusOf(Theme.of(context)),
-        border: Border.all(color: YeSheTokens.line(context)),
-        boxShadow: YeSheTokens.cardShadow(context),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Row(
-            children: <Widget>[
-              Container(
-                width: 30,
-                height: 30,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: YeSheTokens.vermilion(context).withValues(alpha: 0.09),
-                  borderRadius: ReaderUiStyle.controlRadiusOf(
-                    Theme.of(context),
-                  ),
-                ),
-                child: AppIcon(
-                  icon,
-                  size: 17,
-                  color: YeSheTokens.vermilion(context),
-                ),
-              ),
-              const SizedBox(width: 9),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    Text(
-                      title,
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 0.5,
-                      ),
-                    ),
-                    if (subtitle != null && subtitle!.trim().isNotEmpty)
-                      Text(
-                        subtitle!,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.labelSmall?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-              ?trailing,
-            ],
-          ),
-          const SizedBox(height: 10),
-          child,
-        ],
-      ),
-    );
   }
 }
 
@@ -745,7 +616,7 @@ class _CommunitySignedOutView extends StatelessWidget {
               ),
               const SizedBox(height: 8),
               Text(
-                '社区复用阅微账号，展示你收藏的想法与读者的公开笔记。',
+                '登录阅微账号后，可浏览读者的公开想法与书评，查看自己的收藏。',
                 textAlign: TextAlign.center,
                 style: theme.textTheme.bodySmall,
               ),
