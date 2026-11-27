@@ -650,7 +650,9 @@ class _DiscoverPageState extends State<DiscoverPage> {
                                       category.title,
                                       style: theme.textTheme.bodyMedium
                                           ?.copyWith(
-                                            color: colors.onSurface,
+                                            color: category == _category
+                                                ? colors.primary
+                                                : colors.onSurfaceVariant,
                                             fontWeight: category == _category
                                                 ? FontWeight.w600
                                                 : FontWeight.normal,

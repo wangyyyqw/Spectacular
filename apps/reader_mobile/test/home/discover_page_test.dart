@@ -300,6 +300,14 @@ void main() {
     expect(tester.getSize(action), const Size.square(kMinInteractiveDimension));
     expect(tester.getCenter(action).dy, tester.getCenter(search).dy);
     final toolbar = find.byKey(const ValueKey('discover-category-toolbar'));
+    void expectCategoryColors(String selected, String other, ColorScheme scheme) {
+      Color? labelColor(String label) => tester.widget<Text>(
+        find.descendant(of: toolbar, matching: find.text(label)),
+      ).style?.color;
+      expect(labelColor(selected), scheme.primary);
+      expect(labelColor(other), scheme.onSurfaceVariant);
+    }
+    expectCategoryColors('最近更新', '人气最高', categoryTheme.colorScheme);
     expect(
       tester.getRect(search).bottom,
       lessThanOrEqualTo(tester.getRect(toolbar).top),
@@ -330,6 +338,7 @@ void main() {
     await pumpReaderUntil(tester, find.text('人气书'));
     await tester.pumpAndSettle();
     expect(requested.last.queryParameters['sort'], 'popular');
+    expectCategoryColors('人气最高', '最近更新', categoryTheme.colorScheme);
     await tester.tap(find.text('最近更新'));
     await pumpReaderUntil(tester, find.text('更新书'));
     await tester.pumpAndSettle();
@@ -338,6 +347,18 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('人气书'), findsWidgets);
     expect(find.text('更新书'), findsNothing);
+    final wallpaperScheme = ColorScheme.fromSeed(
+      seedColor: Colors.teal,
+      brightness: Brightness.dark,
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: ThemeData(colorScheme: wallpaperScheme),
+        home: DiscoverPage(controller: controller),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expectCategoryColors('人气最高', '最近更新', wallpaperScheme);
     await tester.tap(find.text('加载更多'));
     await pumpReaderUntilComplete(
       tester,
