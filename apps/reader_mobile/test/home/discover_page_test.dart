@@ -280,6 +280,9 @@ void main() {
     );
     expect(categoryText.style?.fontWeight, FontWeight.w600);
     final search = find.byKey(const ValueKey('discover-search-field'));
+    final action = find.byKey(const ValueKey('discover-source-menu'));
+    expect(tester.getSize(action), const Size.square(kMinInteractiveDimension));
+    expect(tester.getCenter(action).dy, tester.getCenter(search).dy);
     final toolbar = find.byKey(const ValueKey('discover-category-toolbar'));
     expect(
       tester.getRect(search).bottom,

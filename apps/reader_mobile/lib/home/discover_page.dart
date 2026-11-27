@@ -4,7 +4,6 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:reader_ui/icons/app_icon.dart';
-import 'package:reader_ui/theme/reader_drawer_style.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
 
 import '../book_source/book_source_discovery.dart';
@@ -15,6 +14,8 @@ import '../book_source/online_book_detail_page.dart';
 import '../book_source/online_source_page.dart';
 import 'discover_choice_dialog.dart';
 import 'discover_filter_dialog.dart';
+import 'book_search_bar.dart';
+import 'desktop_layout.dart';
 import '../diagnostics/reader_log.dart';
 
 /// 发现页沿用书架的搜索、按钮栏和图书列表布局。
@@ -474,87 +475,45 @@ class _DiscoverPageState extends State<DiscoverPage> {
 
   @override
   Widget build(BuildContext context) {
+    return Align(
+      alignment: Alignment.topCenter,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxWidth: usesDesktopLayout(context)
+              ? desktopBookPageMaxWidth
+              : double.infinity,
+        ),
+        child: LayoutBuilder(builder: _buildPage),
+      ),
+    );
+  }
+
+  Widget _buildPage(BuildContext context, BoxConstraints bounds) {
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
-    final border = OutlineInputBorder(
-      borderRadius: BorderRadius.circular(20),
-      borderSide: BorderSide.none,
-    );
     return Scaffold(
-      appBar: AppBar(
-        automaticallyImplyLeading: false,
-        toolbarHeight: 56,
-        titleSpacing: 16,
-        title: Material(
-          color: ReaderDrawerStyle.searchSurfaceOf(theme),
-          elevation: 3,
-          surfaceTintColor: Colors.transparent,
-          shadowColor: colors.shadow.withValues(alpha: .12),
-          borderRadius: border.borderRadius,
-          child: TextField(
-            key: const ValueKey('discover-search-field'),
-            controller: _query,
-            textInputAction: TextInputAction.search,
-            onSubmitted: (_) => _search(),
-            decoration: InputDecoration(
-              hintText: '搜索书名或作者',
-              filled: true,
-              fillColor: ReaderDrawerStyle.searchSurfaceOf(theme),
-              isDense: true,
-              contentPadding: const EdgeInsets.symmetric(vertical: 8),
-              border: border,
-              enabledBorder: border,
-              focusedBorder: border,
-              prefixIconConstraints: const BoxConstraints.tightFor(
-                width: 40,
-                height: 40,
-              ),
-              suffixIconConstraints: const BoxConstraints.tightFor(
-                width: 40,
-                height: 40,
-              ),
-              prefixIcon: IconButton(
-                tooltip: '在线搜索',
-                onPressed: _search,
-                icon: const AppIcon(AppGlyph.search),
-              ),
-              suffixIcon: _searchMode
-                  ? IconButton(
-                      tooltip: '返回发现',
-                      onPressed: () {
-                        _query.clear();
-                        unawaited(_search());
-                      },
-                      icon: const AppIcon(AppGlyph.close),
-                    )
-                  : null,
-            ),
-          ),
+      appBar: bookSearchBar(
+        context,
+        section: '发现',
+        keyPrefix: 'discover',
+        controller: _query,
+        availableWidth: bounds.maxWidth,
+        searchLabel: '在线搜索',
+        onSearch: _search,
+        onSubmitted: (_) => _search(),
+        clearButton: !_searchMode ? null : IconButton(
+          tooltip: '返回发现',
+          icon: const AppIcon(AppGlyph.close),
+          onPressed: () {
+            _query.clear();
+            unawaited(_search());
+          },
         ),
-        actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 16),
-            child: Center(
-              child: Material(
-                color: ReaderDrawerStyle.searchSurfaceOf(theme),
-                borderRadius: BorderRadius.circular(20),
-                elevation: 2,
-                surfaceTintColor: Colors.transparent,
-                shadowColor: colors.shadow.withValues(alpha: .12),
-                child: IconButton(
-                  key: const ValueKey('discover-source-menu'),
-                  tooltip: '筛选管理',
-                  constraints: const BoxConstraints.tightFor(
-                    width: 40,
-                    height: 40,
-                  ),
-                  icon: const AppIcon(AppGlyph.more),
-                  onPressed: _openFilter,
-                ),
-              ),
-            ),
-          ),
-        ],
+        actionKey: const ValueKey('discover-source-menu'),
+        actionLabel: '筛选管理',
+        desktopAction: '筛选管理',
+        actionIcon: const AppIcon(AppGlyph.more),
+        onAction: _openFilter,
       ),
       body: Column(
         children: [

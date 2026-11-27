@@ -9,7 +9,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/reader_session.dart';
-import 'package:reader_ui/theme/reader_drawer_style.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
 
 import 'package:reader_core/epub/importer.dart';
@@ -39,6 +38,7 @@ import 'book_detail_sheet.dart';
 import 'book_lists_view.dart';
 import 'bookshelf_sort.dart';
 import 'book_cover_image.dart';
+import 'book_search_bar.dart';
 import 'reading_insights.dart';
 import '../storage/import_queue.dart';
 import '../storage/reading_session_store.dart';
@@ -69,7 +69,6 @@ typedef _OnlineStoredProgress = ({
 
 const _shelfMinColumns = 3;
 const _shelfTargetCardWidth = 192.0;
-const _desktopShelfMaxWidth = 1440.0;
 const _desktopShelfCoverWidth = 160.0;
 const _desktopShelfListWidth = 920.0;
 const _shelfGridPadding = 16.0;
@@ -1721,16 +1720,12 @@ class _BookshelfPageState extends State<BookshelfPage> {
           child: ConstrainedBox(
             constraints: BoxConstraints(
               maxWidth: usesDesktopLayout(context)
-                  ? _desktopShelfMaxWidth
+                  ? desktopBookPageMaxWidth
                   : double.infinity,
             ),
             child: LayoutBuilder(
               builder: (_, bounds) => Scaffold(
-                appBar: _buildAppBar(
-                  visible,
-                  busy || _pickingFiles,
-                  bounds.maxWidth,
-                ),
+                appBar: _buildAppBar(busy || _pickingFiles, bounds.maxWidth),
                 bottomNavigationBar: _selectionMode
                     ? _buildSelectionBar()
                     : null,
@@ -1743,149 +1738,28 @@ class _BookshelfPageState extends State<BookshelfPage> {
     );
   }
 
-  PreferredSizeWidget _buildAppBar(
-    List<_ShelfItem>? items,
-    bool busy,
-    double width,
-  ) {
-    final desktop = usesDesktopLayout(context);
-    final roomy = desktop && width >= 640;
-    return AppBar(
-      automaticallyImplyLeading: false,
-      toolbarHeight: desktop ? 64 : 56,
-      titleSpacing: 16,
-      title: desktop
-          ? Row(
-              children: [
-                if (roomy) ...[
-                  Text('书架', style: Theme.of(context).textTheme.titleLarge),
-                  const SizedBox(width: 24),
-                ],
-                Expanded(
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 440),
-                      child: _buildSearchField(),
-                    ),
-                  ),
-                ),
-              ],
-            )
-          : _buildSearchField(),
-      actions: [
-        Padding(
-          padding: const EdgeInsets.only(right: 16),
-          child: Center(child: _buildImportButton(busy, extended: roomy)),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildImportButton(bool busy, {bool extended = false}) {
-    final colors = Theme.of(context).colorScheme;
-    if (extended) {
-      return FilledButton.tonalIcon(
-        key: const ValueKey('bookshelf-import'),
-        style: FilledButton.styleFrom(
-          minimumSize: const Size(0, 44),
-          visualDensity: VisualDensity.standard,
-        ),
-        onPressed: busy || !widget.allowImport ? null : _chooseImport,
-        icon: busy
-            ? const SizedBox.square(
-                dimension: 18,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            : const AppIcon(AppGlyph.add, size: 18),
-        label: Text(busy ? '导入中…' : '导入书籍'),
-      );
-    }
-    return Material(
-      color: ReaderDrawerStyle.searchSurfaceOf(Theme.of(context)),
-      borderRadius: BorderRadius.circular(20),
-      elevation: 2,
-      surfaceTintColor: Colors.transparent,
-      shadowColor: colors.shadow.withValues(alpha: .12),
-      child: Theme(
-        data: Theme.of(context).copyWith(
-          splashFactory: NoSplash.splashFactory,
-          splashColor: Colors.transparent,
-          highlightColor: Colors.transparent,
-          hoverColor: usesDesktopLayout(context) ? null : Colors.transparent,
-          focusColor: usesDesktopLayout(context) ? null : Colors.transparent,
-        ),
-        child: IconButton(
-          key: const ValueKey<String>('bookshelf-import'),
-          color: colors.primary,
-          tooltip: busy ? '导入中…' : '导入 EPUB / TXT',
-          constraints: const BoxConstraints.tightFor(width: 44, height: 44),
-          onPressed: busy || !widget.allowImport ? null : _chooseImport,
-          icon: busy
-              ? const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const AppIcon(AppGlyph.add),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSearchField() {
-    final theme = Theme.of(context);
-    final border = OutlineInputBorder(
-      borderRadius: BorderRadius.circular(20),
-      borderSide: BorderSide.none,
-    );
-    return Material(
-      key: const ValueKey('bookshelf-search-surface'),
-      color: ReaderDrawerStyle.searchSurfaceOf(theme),
-      borderRadius: border.borderRadius,
-      elevation: 3,
-      surfaceTintColor: Colors.transparent,
-      shadowColor: theme.colorScheme.shadow.withValues(alpha: .12),
-      child: TextField(
-        key: const ValueKey<String>('bookshelf-search-field'),
-        controller: _searchController,
-        focusNode: _searchFocus,
-        textInputAction: TextInputAction.search,
-        onTap: _focusSearch,
-        decoration: InputDecoration(
-          hintText: '搜索书名或作者',
-          filled: true,
-          isDense: true,
-          fillColor: ReaderDrawerStyle.searchSurfaceOf(theme),
-          contentPadding: const EdgeInsets.symmetric(vertical: 8),
-          border: border,
-          enabledBorder: border,
-          focusedBorder: border,
-          prefixIconConstraints: const BoxConstraints.tightFor(
-            width: 40,
-            height: 40,
-          ),
-          suffixIconConstraints: const BoxConstraints.tightFor(
-            width: 40,
-            height: 40,
-          ),
-          prefixIcon: IconButton(
-            tooltip: '搜索书架',
-            onPressed: _focusSearch,
-            icon: const AppIcon(AppGlyph.search),
-          ),
-          suffixIcon: !_searching
-              ? null
-              : IconButton(
-                  tooltip: '关闭搜索',
-                  onPressed: _toggleSearch,
-                  icon: const AppIcon(AppGlyph.close),
-                ),
-        ),
-        onChanged: (value) => setState(() => _query = value),
-      ),
-    );
-  }
+  PreferredSizeWidget _buildAppBar(bool busy, double width) => bookSearchBar(
+    context,
+    section: '书架',
+    keyPrefix: 'bookshelf',
+    availableWidth: width,
+    controller: _searchController,
+    focusNode: _searchFocus,
+    onTap: _focusSearch,
+    onSearch: _focusSearch,
+    searchLabel: '搜索书架',
+    onChanged: (value) => setState(() => _query = value),
+    clearButton: !_searching ? null : IconButton(
+      tooltip: '关闭搜索', onPressed: _toggleSearch, icon: const AppIcon(AppGlyph.close),
+    ),
+    actionKey: const ValueKey('bookshelf-import'),
+    actionLabel: busy ? '导入中…' : '导入 EPUB / TXT',
+    desktopAction: busy ? '导入中…' : '导入书籍',
+    onAction: busy || !widget.allowImport ? null : _chooseImport,
+    actionIcon: busy ? const SizedBox.square(
+      dimension: 18, child: CircularProgressIndicator(strokeWidth: 2),
+    ) : const AppIcon(AppGlyph.add),
+  );
 
   Widget _buildShelfControls(List<_ShelfItem> items) {
     final colors = Theme.of(context).colorScheme;
@@ -2097,7 +1971,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
   ({SliverGridDelegateWithFixedCrossAxisCount delegate, double cardWidth})
   _shelfGridMetrics(double width, TextScaler textScaler) {
     final desktop = usesDesktopLayout(context);
-    if (desktop) width = math.min(width, _desktopShelfMaxWidth);
+    if (desktop) width = math.min(width, desktopBookPageMaxWidth);
     final available = width - _shelfGridPadding * 2;
     // 桌面以封面上限增列，避免向下取整后把多余空间重新放大到封面。
     final columns = desktop
