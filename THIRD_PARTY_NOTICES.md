@@ -1,10 +1,10 @@
 # 第三方资源与来源说明
 
-项目根目录的 Apache License 2.0 仅适用于有权按该协议发布的原创代码。第三方代码、字体和数据继续遵守其原始许可证；文件改名、注释整理和删除本地参考资料不改变来源或授权状态。
+项目根目录的 GNU GPL v3.0（GPL-3.0-only）仅适用于有权按该协议发布的原创代码。基于这些代码分发衍生作品时，须整体采用 GPL v3.0 并提供对应源代码。第三方代码、字体和数据继续遵守其原始许可证；文件改名、注释整理和删除本地参考资料不改变来源或授权状态。
 
 ## 自有项目迁入代码
 
-`packages/epub_toolkit/lib/` 中部分处理逻辑迁自项目作者自有的 [wangyyyqw/epub-toolkit](https://github.com/wangyyyqw/epub-toolkit)，快照为 `de0c056c2bbb376c0f42f84f9d8a9c3612739524`。迁入本仓库的自有原创代码采用根目录的 [Apache License 2.0](LICENSE)；其中使用的第三方代码与资源继续遵守各自许可证。
+`packages/epub_toolkit/lib/` 中部分处理逻辑迁自项目作者自有的 [wangyyyqw/epub-toolkit](https://github.com/wangyyyqw/epub-toolkit)，快照为 `de0c056c2bbb376c0f42f84f9d8a9c3612739524`。迁入本仓库的自有原创代码采用根目录的 [GNU GPL v3.0](LICENSE)；其中使用的第三方代码与资源继续遵守各自许可证。
 
 ## 已随仓库保留的声明
 
@@ -66,14 +66,14 @@ python3 tool/subset_bundled_fonts.py \
 
 系统朗读通过 [flutter_tts](https://pub.dev/packages/flutter_tts) 调用设备引擎；离线合成使用 [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx)，音频播放使用 [audioplayers](https://pub.dev/packages/audioplayers)。依赖版本固定在应用的 `pubspec.lock`，各组件遵守上游许可证。
 
-超文、小雅音色原包取自 [sherpa-onnx 音色发布页](https://github.com/k2-fsa/sherpa-onnx/releases/tag/tts-models)，应用从项目上传的 Streamshare 链接按需下载并校验 SHA-256，模型不随仓库或 APK 内置。下载包中的模型卡及许可文件原样保留，项目的 Apache 2.0 许可不覆盖这些模型。
+超文、小雅音色原包取自 [sherpa-onnx 音色发布页](https://github.com/k2-fsa/sherpa-onnx/releases/tag/tts-models)，应用从项目上传的 Streamshare 链接按需下载并校验 SHA-256，模型不随仓库或 APK 内置。下载包中的模型卡及许可文件原样保留，项目的 GPL v3.0 许可不覆盖这些模型。
 
 | 音色 | 下载地址 | 原包 SHA-256 |
 | --- | --- | --- |
 | 超文 | [Streamshare](https://streamshare.wireway.ch/download/9wqtzm51) | `1b69bdcf10bb6331c7f8a7591940febeb175c6bb86caa3802d96531f8e4ad211` |
 | 小雅 | [Streamshare](https://streamshare.wireway.ch/download/fyhe1qeg) | `9396a3dffbb95b037acaa18094500f58d0db9a7c4f2689554e2539717cf0db65` |
 
-超文模型卡声明数据集为 CC0，并注明从小雅音色微调；小雅模型卡声明数据集限非商业用途。使用或再分发模型时应核对完整上游条款，不能把整个模型视为项目自有的 Apache 2.0 资源。
+超文模型卡声明数据集为 CC0，并注明从小雅音色微调；小雅模型卡声明数据集限非商业用途。使用或再分发模型时应核对完整上游条款，不能把整个模型视为项目自有的 GPL v3.0 资源。
 
 ## EPUB 兼容标记
 
