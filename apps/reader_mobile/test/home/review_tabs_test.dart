@@ -98,7 +98,14 @@ void main() {
 
     bool selected(String section) =>
         tester
-            .widget<Semantics>(find.byKey(ValueKey('$section-tab')))
+            .widget<Semantics>(
+              find
+                  .ancestor(
+                    of: find.byKey(ValueKey('$section-tab')),
+                    matching: find.byType(Semantics),
+                  )
+                  .first,
+            )
             .properties
             .selected ??
         false;
@@ -144,6 +151,38 @@ void main() {
     );
     await tester.pumpAndSettle();
     final body = find.byKey(const ValueKey('reviews-section-body'));
+    expect(
+      tester.widget<GestureDetector>(body).onHorizontalDragUpdate,
+      isNotNull,
+    );
+
+    final gesture = await tester.startGesture(tester.getCenter(body));
+    await gesture.moveBy(const Offset(-80, 0));
+    await tester.pump();
+    await gesture.moveBy(const Offset(-80, 0));
+    await tester.pump();
+    final pages = find.descendant(
+      of: body,
+      matching: find.byType(FractionalTranslation),
+    );
+    expect(pages, findsNWidgets(2));
+    final oldPageOffset = tester
+        .widget<FractionalTranslation>(pages.at(0))
+        .translation
+        .dx;
+    final newPageOffset = tester
+        .widget<FractionalTranslation>(pages.at(1))
+        .translation
+        .dx;
+    expect(oldPageOffset, lessThan(0));
+    expect(newPageOffset, greaterThan(0));
+    expect(newPageOffset - oldPageOffset, closeTo(1, .01));
+    await gesture.up();
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('review-pending-book')), findsOneWidget);
+    await tester.drag(body, const Offset(220, 0));
+    await tester.pumpAndSettle();
+    expect(find.text('还没有笔记'), findsOneWidget);
 
     await tester.drag(body, const Offset(-220, 0));
     await tester.pumpAndSettle();
