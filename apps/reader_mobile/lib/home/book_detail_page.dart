@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
@@ -9,6 +10,7 @@ import 'package:path/path.dart' as p;
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
+import 'package:reader_ui/theme/reader_sheet_form.dart';
 
 import '../library/library_store.dart';
 import '../txt/txt_book_service.dart';
@@ -19,7 +21,6 @@ import 'book_rating.dart';
 import 'book_reading_chart.dart';
 import 'reading_insights.dart';
 import 'reading_metric.dart';
-import 'tag_delete_confirmation.dart';
 import 'finish_book_sheet.dart';
 import '../storage/book_review_store.dart';
 import '../storage/drift_progress_store.dart';
@@ -102,6 +103,7 @@ class _BookDetailPageState extends State<BookDetailPage> {
   );
   late final TextEditingController _descriptionController =
       TextEditingController(text: widget.entry.description);
+  final FocusNode _descriptionFocusNode = FocusNode();
   final TextEditingController _tagController = TextEditingController();
 
   List<BookTag> _tags = const <BookTag>[];
@@ -109,6 +111,8 @@ class _BookDetailPageState extends State<BookDetailPage> {
   _BookReadingStats _readingStats = const _BookReadingStats.empty();
   ReaderProgress? _progress;
   BookReview? _review;
+  Future<int?>? _fileSize;
+  int? _characterCount;
   bool _loading = true;
   bool _saving = false;
   bool _changingCover = false;
@@ -141,6 +145,7 @@ class _BookDetailPageState extends State<BookDetailPage> {
     _descriptionController
       ..removeListener(_onDraftChanged)
       ..dispose();
+    _descriptionFocusNode.dispose();
     _tagController
       ..removeListener(_onDraftChanged)
       ..dispose();
@@ -175,6 +180,7 @@ class _BookDetailPageState extends State<BookDetailPage> {
     final entry = await widget.library.bookById(_entry.id);
     final tags = await widget.library.listTags();
     final selected = await widget.library.bookTags(_entry.id);
+    final characterCount = await _loadCharacterCount(_entry.id);
     final sessionStore =
         widget.sessionStore ?? widget.library.readingSessionStore();
     final sessions =
@@ -202,6 +208,10 @@ class _BookDetailPageState extends State<BookDetailPage> {
     _descriptionController.text = entry.description;
     setState(() {
       _entry = entry;
+      _fileSize = widget.library.supportsPersistence
+          ? _bookFileSize(entry.filePath)
+          : null;
+      _characterCount = characterCount;
       _tags = tags;
       _selectedTagIds = <String>{for (final tag in selected) tag.id};
       _readingStats = _BookReadingStats.fromSessions(
@@ -313,17 +323,17 @@ class _BookDetailPageState extends State<BookDetailPage> {
     }
   }
 
-  Future<void> _toggleTag(BookTag tag) async {
+  Future<void> _setTagSelected(BookTag tag, bool selected) async {
     if (_writingBook) return;
     setState(() {
       _savingTags = true;
       _writeError = null;
     });
     try {
-      if (_selectedTagIds.contains(tag.id)) {
-        await widget.library.removeBookTag(_entry.id, tag.id);
-      } else {
+      if (selected) {
         await widget.library.addBookTag(_entry.id, tag.id);
+      } else {
+        await widget.library.removeBookTag(_entry.id, tag.id);
       }
       await _reloadTags();
     } on LibraryImportException catch (error) {
@@ -361,27 +371,6 @@ class _BookDetailPageState extends State<BookDetailPage> {
     }
   }
 
-  Future<void> _deleteTag(BookTag tag) async {
-    if (_writingBook || !await confirmDeleteBookTag(context, tag) || !mounted) {
-      return;
-    }
-    setState(() {
-      _savingTags = true;
-      _writeError = null;
-    });
-    try {
-      await widget.library.deleteTag(tag.id);
-      await _reloadTags();
-    } on LibraryImportException catch (error) {
-      _showMessage(error.message, isWriteError: true);
-    } catch (error, stackTrace) {
-      recordAppError('book_tag_delete_failed', error, stackTrace: stackTrace);
-      _showMessage('删除失败，标签仍保留，请重试', isWriteError: true);
-    } finally {
-      if (mounted) setState(() => _savingTags = false);
-    }
-  }
-
   Future<void> _reloadTags() async {
     final tags = await widget.library.listTags();
     final selected = await widget.library.bookTags(_entry.id);
@@ -398,12 +387,24 @@ class _BookDetailPageState extends State<BookDetailPage> {
 
   Future<void> _refreshBookEntry(BookEntry entry) async {
     final progress = await widget.progressStore?.load(entry.id);
+    final characterCount = await _loadCharacterCount(entry.id);
     if (mounted) {
       setState(() {
         _entry = entry;
+        _fileSize = widget.library.supportsPersistence
+            ? _bookFileSize(entry.filePath)
+            : null;
+        _characterCount = characterCount;
         _progress = progress;
       });
     }
+  }
+
+  Future<int?> _loadCharacterCount(String bookId) async {
+    final weights = await widget.library.progressWeights(bookId);
+    return weights.estimated || weights.chapterCount == 0
+        ? null
+        : weights.totalCharacters;
   }
 
   Future<void> _editFinished() async {
@@ -532,7 +533,7 @@ class _BookDetailPageState extends State<BookDetailPage> {
     );
     if (changed == true && mounted) {
       final entry = await widget.library.bookById(_entry.id);
-      if (entry != null && mounted) setState(() => _entry = entry);
+      if (entry != null && mounted) await _refreshBookEntry(entry);
     }
   }
 
@@ -544,21 +545,37 @@ class _BookDetailPageState extends State<BookDetailPage> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final canSave =
         !_writingBook && !_loading && _hasMetadataChanges && _loadError == null;
+    if (widget.inDrawer) {
+      // 与设置、书单等抽屉共用同一骨架：面板底色、标题、关闭和底部主按钮。
+      return Material(
+        type: MaterialType.transparency,
+        child: ReaderSheetForm(
+          title: const Text('图书详情'),
+          contentPadding: EdgeInsets.zero,
+          scrollContent: false,
+          content: Column(
+            children: [
+              if (_writeError != null)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                  child: ReaderNoticeBanner(message: _writeError!),
+                ),
+              Expanded(child: _content()),
+            ],
+          ),
+          actions: [_saveButton(canSave)],
+        ),
+      );
+    }
+    final theme = Theme.of(context);
     return Scaffold(
-      backgroundColor: widget.inDrawer ? Colors.transparent : null,
+      backgroundColor: theme.colorScheme.surfaceContainerLowest,
       appBar: AppBar(
-        backgroundColor: widget.inDrawer ? theme.colorScheme.surface : null,
-        automaticallyImplyLeading: !widget.inDrawer,
-        leading: widget.inDrawer
-            ? IconButton(
-                tooltip: '关闭',
-                onPressed: () => Navigator.maybePop(context),
-                icon: const AppIcon(AppGlyph.close),
-              )
-            : null,
+        backgroundColor: theme.colorScheme.surfaceContainerLowest,
+        surfaceTintColor: Colors.transparent,
+        scrolledUnderElevation: 0,
         title: const FittedBox(
           fit: BoxFit.scaleDown,
           alignment: Alignment.centerLeft,
@@ -589,70 +606,178 @@ class _BookDetailPageState extends State<BookDetailPage> {
                 child: ReaderNoticeBanner(message: _writeError!),
               ),
             ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _loadError != null
-          ? ReaderEmptyState(
-              icon: AppGlyph.error,
-              title: _loadError!,
-              action: TextButton(onPressed: _load, child: const Text('重试')),
-            )
-          : Align(
-              alignment: Alignment.topCenter,
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 720),
-                child: ListView(
-                  key: const ValueKey('book-detail-content'),
-                  padding: ReaderUiStyle.pagePadding,
-                  children: [
-                    _metadataSection(),
-                    const SizedBox(height: 24),
-                    _tagsSection(),
-                    const SizedBox(height: 24),
-                    _ReadingStatusSection(
-                      progress: _progress,
-                      review: _review,
-                      busy: _writingBook,
-                      canEdit: widget.progressStore != null,
-                      onEdit: _editFinished,
-                      onUnmark: _unmarkFinished,
-                    ),
-                    const SizedBox(height: 24),
-                    _ReadingStatsSection(stats: _readingStats),
-                    const SizedBox(height: 24),
-                    _bookActions(),
-                  ],
-                ),
-              ),
-            ),
+      body: _content(),
     );
   }
 
+  Widget _saveButton(bool canSave) => FilledButton(
+    key: const ValueKey('book-detail-save'),
+    onPressed: canSave ? _saveMetadata : null,
+    child: _saving
+        ? const SizedBox.square(
+            dimension: 16,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          )
+        : const Text('保存'),
+  );
+
+  Widget _content() => _loading
+      ? const Center(child: CircularProgressIndicator())
+      : _loadError != null
+      ? ReaderEmptyState(
+          icon: AppGlyph.error,
+          title: _loadError!,
+          action: TextButton(onPressed: _load, child: const Text('重试')),
+        )
+      : Align(
+          alignment: Alignment.topCenter,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 720),
+            child: ListView(
+              key: const ValueKey('book-detail-content'),
+              padding: ReaderUiStyle.pagePadding,
+              children: [
+                _metadataSection(),
+                const SizedBox(height: 16),
+                _storageSection(),
+                const SizedBox(height: 16),
+                _tagsSection(),
+                const SizedBox(height: 16),
+                _descriptionSection(),
+                const SizedBox(height: 16),
+                _ReadingStatsSection(stats: _readingStats),
+                const SizedBox(height: 24),
+                _ReadingStatusSection(
+                  progress: _progress,
+                  review: _review,
+                  busy: _writingBook,
+                  canEdit: widget.progressStore != null,
+                  onEdit: _editFinished,
+                  onUnmark: _unmarkFinished,
+                ),
+                const SizedBox(height: 24),
+                _bookActions(),
+              ],
+            ),
+          ),
+        );
+
   Widget _metadataSection() => ReaderSectionCard(
-    title: '图书资料',
+    key: const ValueKey('book-detail-metadata-card'),
+    padding: const EdgeInsets.all(16),
+    child: LayoutBuilder(
+      builder: (context, bounds) => Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _CoverEditor(
+            entry: _entry,
+            width: (bounds.maxWidth * .28).clamp(72.0, 112.0),
+            busy: _writingBook,
+            changingCover: _changingCover,
+            onChange: _changeCover,
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              children: [
+                _MetadataField(
+                  fieldKey: const ValueKey('book-detail-title-field'),
+                  label: '书名',
+                  controller: _titleController,
+                  enabled: !_writingBook,
+                  textInputAction: TextInputAction.next,
+                ),
+                const Divider(height: 16),
+                _MetadataField(
+                  fieldKey: const ValueKey('book-detail-author-field'),
+                  label: '作者',
+                  controller: _authorController,
+                  enabled: !_writingBook,
+                  textInputAction: TextInputAction.done,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+
+  Widget _storageSection() => FutureBuilder<int?>(
+    future: _fileSize,
+    builder: (context, snapshot) => ReaderSectionCard(
+      key: const ValueKey('book-detail-storage-card'),
+      children: [
+        ReaderOptionTile(
+          title: 'EPUB 大小',
+          trailing: Text(
+            snapshot.data != null
+                ? _formatFileSize(snapshot.data!)
+                : snapshot.connectionState == ConnectionState.waiting
+                ? '读取中…'
+                : '暂不可用',
+            key: const ValueKey('book-detail-storage-value'),
+          ),
+        ),
+        ReaderOptionTile(
+          title: '字数',
+          trailing: Text(
+            _characterCount == null
+                ? '暂无统计'
+                : '${_formatReadingCharacters(_characterCount!)} 字',
+            key: const ValueKey('book-detail-character-count'),
+          ),
+        ),
+      ],
+    ),
+  );
+
+  Widget _descriptionSection() => ReaderSectionCard(
+    key: const ValueKey('book-detail-description-card'),
     padding: const EdgeInsets.all(16),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _CoverEditor(
-          entry: _entry,
-          busy: _writingBook,
-          changingCover: _changingCover,
-          onChange: _changeCover,
-          titleController: _titleController,
-          authorController: _authorController,
+        InkWell(
+          key: const ValueKey('book-detail-edit-description'),
+          onTap: _writingBook ? null : _descriptionFocusNode.requestFocus,
+          child: Row(
+            children: [
+              Expanded(
+                child: Text('简介', style: Theme.of(context).textTheme.bodySmall),
+              ),
+              AppIcon(
+                AppGlyph.edit,
+                size: 16,
+                color: Theme.of(context).colorScheme.outline,
+              ),
+            ],
+          ),
         ),
-        const SizedBox(height: 20),
-        TextField(
-          key: const ValueKey('book-detail-description-field'),
-          enabled: !_writingBook,
-          controller: _descriptionController,
-          minLines: 3,
-          maxLines: 6,
-          decoration: const InputDecoration(
-            labelText: '简介',
-            hintText: '添加简介',
-            alignLabelWithHint: true,
+        const SizedBox(height: 12),
+        const Divider(),
+        const SizedBox(height: 12),
+        Semantics(
+          label: '简介',
+          child: TextField(
+            key: const ValueKey('book-detail-description-field'),
+            enabled: !_writingBook,
+            controller: _descriptionController,
+            focusNode: _descriptionFocusNode,
+            minLines: _descriptionController.text.isEmpty ? 2 : 3,
+            maxLines: 6,
+            style: Theme.of(context).textTheme.bodyMedium
+                ?.copyWith(height: 1.8),
+            decoration: const InputDecoration(
+              hintText: '添加简介',
+              isDense: true,
+              filled: false,
+              contentPadding: EdgeInsets.zero,
+              border: InputBorder.none,
+              enabledBorder: InputBorder.none,
+              focusedBorder: InputBorder.none,
+              disabledBorder: InputBorder.none,
+            ),
           ),
         ),
       ],
@@ -660,7 +785,8 @@ class _BookDetailPageState extends State<BookDetailPage> {
   );
 
   Widget _tagsSection() => ReaderSectionCard(
-    title: '标签',
+    key: const ValueKey('book-detail-tags-card'),
+    title: '设置标签',
     trailing: Text(
       _savingTags ? '保存中…' : '已选 ${_selectedTagIds.length} 个',
       style: Theme.of(context).textTheme.bodySmall,
@@ -669,31 +795,57 @@ class _BookDetailPageState extends State<BookDetailPage> {
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        if (_tags.isEmpty)
-          Text('暂无标签，添加后可用于书架堆叠。', style: Theme.of(context).textTheme.bodySmall)
+        Text('本书标签', style: Theme.of(context).textTheme.titleSmall),
+        const SizedBox(height: 8),
+        if (_selectedTagIds.isEmpty)
+          Text(
+            '本书暂无标签，可从下方全部标签中添加。',
+            style: Theme.of(context).textTheme.bodySmall,
+          )
         else
           Wrap(
+            key: const ValueKey('book-detail-book-tags'),
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final tag in _tags)
+                if (_selectedTagIds.contains(tag.id))
+                  InputChip(
+                    key: ValueKey('book-detail-book-tag-${tag.id}'),
+                    label: _tagLabel(tag),
+                    tooltip: tag.name,
+                    isEnabled: !_writingBook,
+                    deleteIcon: const AppIcon(AppGlyph.close, size: 18),
+                    deleteButtonTooltipMessage: '从本书移除标签「${tag.name}」',
+                    onDeleted: _writingBook
+                        ? null
+                        : () => _setTagSelected(tag, false),
+                  ),
+            ],
+          ),
+        const SizedBox(height: 8),
+        Text('移除仅对本书生效，不影响其他书籍。', style: Theme.of(context).textTheme.bodySmall),
+        const Divider(height: 24),
+        Text('全部标签', style: Theme.of(context).textTheme.titleSmall),
+        const SizedBox(height: 8),
+        if (_tags.isEmpty)
+          Text('暂无标签，可在下方新建。', style: Theme.of(context).textTheme.bodySmall)
+        else
+          Wrap(
+            key: const ValueKey('book-detail-all-tags'),
             spacing: 8,
             runSpacing: 8,
             children: [
               for (final tag in _tags)
                 FilterChip(
                   key: ValueKey('book-detail-tag-${tag.id}'),
-                  label: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 180),
-                    child: Text(
-                      tag.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
+                  label: _tagLabel(tag),
                   tooltip: tag.name,
                   selected: _selectedTagIds.contains(tag.id),
                   showCheckmark: true,
-                  onSelected: _writingBook ? null : (_) => _toggleTag(tag),
-                  deleteIcon: const AppIcon(AppGlyph.delete, size: 18),
-                  deleteButtonTooltipMessage: '删除标签「${tag.name}」',
-                  onDeleted: _writingBook ? null : () => _deleteTag(tag),
+                  onSelected: _writingBook
+                      ? null
+                      : (selected) => _setTagSelected(tag, selected),
                 ),
             ],
           ),
@@ -721,6 +873,11 @@ class _BookDetailPageState extends State<BookDetailPage> {
     ),
   );
 
+  Widget _tagLabel(BookTag tag) => ConstrainedBox(
+    constraints: const BoxConstraints(maxWidth: 180),
+    child: Text(tag.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+  );
+
   Widget _bookActions() => ReaderSectionCard(
     title: '书籍管理',
     children: [
@@ -744,6 +901,17 @@ class _BookDetailPageState extends State<BookDetailPage> {
         ),
     ],
   );
+}
+
+Future<int?> _bookFileSize(String path) async {
+  final stat = await File(path).stat();
+  return stat.type == FileSystemEntityType.file ? stat.size : null;
+}
+
+String _formatFileSize(int bytes) {
+  if (bytes < 1024) return '$bytes B';
+  if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+  return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
 }
 
 String _formatReadingCharacters(int count) {
@@ -781,66 +949,85 @@ String _formatDayLabel(DateTime date) {
   return '${date.month}月${date.day}日';
 }
 
+class _MetadataField extends StatelessWidget {
+  const _MetadataField({
+    required this.fieldKey,
+    required this.label,
+    required this.controller,
+    required this.enabled,
+    required this.textInputAction,
+  });
+
+  final Key fieldKey;
+  final String label;
+  final TextEditingController controller;
+  final bool enabled;
+  final TextInputAction textInputAction;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(label, style: theme.textTheme.bodySmall),
+        Semantics(
+          label: label,
+          child: TextField(
+            key: fieldKey,
+            enabled: enabled,
+            controller: controller,
+            textInputAction: textInputAction,
+            minLines: 1,
+            maxLines: 3,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              fontWeight: FontWeight.w600,
+              height: 1.5,
+            ),
+            decoration: InputDecoration(
+              hintText: label == '书名' ? '填写书名' : '未填写',
+              filled: false,
+              isDense: true,
+              contentPadding: const EdgeInsets.symmetric(vertical: 8),
+              border: InputBorder.none,
+              enabledBorder: InputBorder.none,
+              focusedBorder: InputBorder.none,
+              disabledBorder: InputBorder.none,
+              suffixIcon: Padding(
+                padding: const EdgeInsets.only(left: 12),
+                child: AppIcon(
+                  AppGlyph.edit,
+                  size: 16,
+                  color: theme.colorScheme.outline,
+                ),
+              ),
+              suffixIconConstraints: const BoxConstraints(minWidth: 28),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class _CoverEditor extends StatelessWidget {
   const _CoverEditor({
     required this.entry,
+    required this.width,
     required this.busy,
     required this.changingCover,
     required this.onChange,
-    required this.titleController,
-    required this.authorController,
   });
 
   final BookEntry entry;
+  final double width;
   final bool busy;
   final bool changingCover;
   final VoidCallback onChange;
-  final TextEditingController titleController;
-  final TextEditingController authorController;
 
   @override
-  Widget build(BuildContext context) => LayoutBuilder(
-    builder: (context, bounds) {
-      final stacked =
-          bounds.maxWidth < 300 ||
-          MediaQuery.textScalerOf(context).scale(14) > 21;
-      final fields = Column(
-        children: [
-          TextField(
-            key: const ValueKey('book-detail-title-field'),
-            enabled: !busy,
-            controller: titleController,
-            textInputAction: TextInputAction.next,
-            minLines: 1,
-            maxLines: 2,
-            decoration: const InputDecoration(labelText: '书名'),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            key: const ValueKey('book-detail-author-field'),
-            enabled: !busy,
-            controller: authorController,
-            textInputAction: TextInputAction.done,
-            decoration: const InputDecoration(labelText: '作者', hintText: '未填写'),
-          ),
-        ],
-      );
-      final cover = _cover(context);
-      return stacked
-          ? Column(children: [cover, const SizedBox(height: 20), fields])
-          : Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                cover,
-                const SizedBox(width: 20),
-                Expanded(child: fields),
-              ],
-            );
-    },
-  );
-
-  Widget _cover(BuildContext context) => SizedBox(
-    width: 96,
+  Widget build(BuildContext context) => SizedBox(
+    width: width,
     child: Semantics(
       label: '更换封面',
       button: true,
@@ -852,12 +1039,7 @@ class _CoverEditor extends StatelessWidget {
         child: ExcludeSemantics(
           child: Column(
             children: [
-              BookCoverImage(
-                book: entry,
-                width: 96,
-                height: 128,
-                showShadow: true,
-              ),
+              BookCoverImage(book: entry, width: width, height: width * 1.4),
               const SizedBox(height: 8),
               if (changingCover)
                 const SizedBox.square(
@@ -986,6 +1168,20 @@ class _ReadingStatsSection extends StatelessWidget {
                 valueKey: const ValueKey('book-detail-total-duration'),
                 valueSize: 26,
               ),
+              const SizedBox(height: 16),
+              if (maximum > Duration.zero)
+                BookReadingChart(
+                  framed: false,
+                  durations: [
+                    for (final day in stats.recentDays.reversed) day.duration,
+                  ],
+                  endDate: stats.recentDays.first.date,
+                )
+              else
+                Text(
+                  '最近 7 天暂无阅读记录',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
               const Divider(height: 32),
               _ReadingMetricRow(
                 left: ReadingMetric(
@@ -1019,16 +1215,6 @@ class _ReadingStatsSection extends StatelessWidget {
             ],
           ),
         ),
-        const SizedBox(height: 12),
-        if (maximum > Duration.zero)
-          BookReadingChart(
-            durations: [
-              for (final day in stats.recentDays.reversed) day.duration,
-            ],
-            endDate: stats.recentDays.first.date,
-          )
-        else
-          const Text('最近 7 天暂无阅读记录'),
         const SizedBox(height: 12),
         ReaderSectionCard(
           child: AppExpansionTile(

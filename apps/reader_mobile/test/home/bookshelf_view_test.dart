@@ -80,21 +80,15 @@ void main() {
       final toolbarIcons = tester.widgetList<AppIcon>(
         find.descendant(of: toolbarFinder, matching: find.byType(AppIcon)),
       );
-      expect(toolbarIcons.map((icon) => icon.strokeWidth), <double>[
-        1.3,
-        1.3,
-        1.3,
-      ]);
+      expect(toolbarIcons.map((icon) => icon.strokeWidth), <double>[1.3, 1.3]);
       final toolbarButtons = tester.widgetList<IconButton>(
         find.descendant(of: toolbarFinder, matching: find.byType(IconButton)),
       );
       final theme = Theme.of(tester.element(find.byType(BookshelfPage)));
-      expect(toolbarButtons, hasLength(3));
+      expect(toolbarButtons, hasLength(2));
       for (final button in toolbarButtons) {
         expect(button.color, theme.colorScheme.onSurfaceVariant);
-        if (button.key != const ValueKey('bookshelf-tag-stacks')) {
-          expect(button.disabledColor, theme.disabledColor);
-        }
+        expect(button.disabledColor, theme.disabledColor);
       }
       for (final button in [
         find.byTooltip('列表视图'),
@@ -136,7 +130,7 @@ void main() {
       expect(grid, reducedMotion ? findsNothing : findsOneWidget);
       if (!reducedMotion) {
         expect(grid.hitTestable(), findsNothing);
-        expect(tester.getRect(grid).top, lessThan(restingBounds.top));
+        expect(tester.getRect(grid), restingBounds, reason: '旧层保持原位承接新布局');
         expect(
           tester.getRect(list).top,
           inExclusiveRange(restingBounds.top, enteringBounds.top),

@@ -276,6 +276,102 @@ void main() {
     expect(coverDecodeHeight(1000, 4), 1200);
   });
 
+  testWidgets('布局重建且目标尺寸尚未解码时复用旧封面，不露出占位', (tester) async {
+    final directory = Directory.systemTemp.createTempSync('cover-switch');
+    addTearDown(() => directory.deleteSync(recursive: true));
+    final file = File('${directory.path}/cover.png');
+    await tester.runAsync(() => _writeWideCover(file));
+    final book = BookEntry(
+      id: 'switch',
+      title: '视图切换封面',
+      author: '',
+      filePath: '',
+      addedAt: DateTime(2026),
+      coverPath: file.path,
+    );
+    Widget host(String view, double width) => MaterialApp(
+      home: Scaffold(
+        body: Center(
+          child: BookCoverImage(
+            key: ValueKey(view),
+            book: book,
+            width: width,
+            height: width * 4 / 3,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(body: SizedBox(key: ValueKey('warmup'))),
+      ),
+    );
+    await tester.runAsync(() async {
+      final context = tester.element(find.byKey(const ValueKey('warmup')));
+      await precacheImage(
+        coverImageProvider(
+          file.path,
+          coverDecodeWidth(120, tester.view.devicePixelRatio),
+          decodeHeight: coverDecodeHeight(160, tester.view.devicePixelRatio),
+        ),
+        context,
+      );
+    });
+    await tester.pumpWidget(host('grid', 120));
+    await tester.pumpAndSettle();
+    final oldProvider = tester.widget<Image>(find.byType(Image)).image;
+    await tester.pumpWidget(host('list', 66));
+    expect(
+      find.byKey(const ValueKey('cover-placeholder-switch')),
+      findsNothing,
+    );
+    expect(
+      tester
+          .widgetList<Image>(find.byType(Image))
+          .any((image) => image.image == oldProvider),
+      isTrue,
+      reason: '新组件在不同解码尺寸准备好之前仍显示已加载封面',
+    );
+    expect(
+      tester
+          .widgetList<RawImage>(find.byType(RawImage))
+          .any((image) => image.image != null),
+      isTrue,
+    );
+    await tester.runAsync(() => file.delete());
+    await tester.pumpWidget(host('missing', 260));
+    final context = tester.element(find.byType(BookCoverImage));
+    var failed = false;
+    final stream = coverImageProvider(
+      file.path,
+      coverDecodeWidth(260, tester.view.devicePixelRatio),
+      decodeHeight: coverDecodeHeight(
+        260 * 4 / 3,
+        tester.view.devicePixelRatio,
+      ),
+    ).resolve(createLocalImageConfiguration(context));
+    final listener = ImageStreamListener(
+      (_, _) => fail('文件已删除，不能解码新尺寸'),
+      onError: (_, _) => failed = true,
+    );
+    stream.addListener(listener);
+    for (var attempt = 0; !failed && attempt < 20; attempt++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 10)),
+      );
+      await tester.pump();
+    }
+    stream.removeListener(listener);
+    await tester.pumpAndSettle();
+    expect(failed, isTrue);
+    expect(
+      find.byKey(const ValueKey('cover-placeholder-switch')),
+      findsOneWidget,
+      reason: '新尺寸确实加载失败后清除旧预览，恢复书名占位',
+    );
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('封面文件缺失时显示书名占位，不叠加警告标识', (tester) async {
     final book = BookEntry(
       id: 'missing',

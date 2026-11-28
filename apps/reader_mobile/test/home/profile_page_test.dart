@@ -2,14 +2,19 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:reader_mobile/home/book_cover_stack.dart';
 import 'package:reader_mobile/home/bookshelf_sort.dart';
+import 'package:reader_mobile/home/home_shell.dart';
 import 'package:reader_mobile/home/profile_page.dart';
 import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/reader/reader_font_store.dart';
 import 'package:reader_mobile/theme/app_theme.dart';
 import 'package:reader_ui/panels/reader_settings_sheet.dart';
+import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/theme/reader_section_slider.dart';
 import 'package:reader_ui/theme/reader_ui_style.dart';
+
+import '../support/test_epub.dart';
 
 class _FakeAppFontStore extends ReaderFontStore {
   _FakeAppFontStore(
@@ -40,6 +45,116 @@ class _FakeAppFontStore extends ReaderFontStore {
 }
 
 void main() {
+  testWidgets('我的页统一控制标签叠加，返回书架生效，重开保留且不改标签关联', (tester) async {
+    tester.view
+      ..physicalSize = const Size(390, 850)
+      ..devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final library = LibraryStore.memory();
+    final books = <BookEntry>[];
+    late BookTag tag;
+    await tester.runAsync(() async {
+      for (final title in ['标签甲', '标签乙', '未归类']) {
+        books.add(await library.importBytes(buildTestEpub(title: title)));
+      }
+      tag = await library.createTag('同标签');
+      for (final book in books.take(2)) {
+        await library.addBookTag(book.id, tag.id);
+      }
+    });
+    final assignments = await library.bookTagAssignments();
+    final setting = find.byKey(
+      const ValueKey('bookshelf-tag-stacking-setting'),
+    );
+    final stack = find.byKey(ValueKey('book-stack-${tag.id}'));
+    Future<void> show() async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildAppTheme(),
+          home: HomeShell(
+            key: UniqueKey(),
+            library: library,
+            progressStore: MemoryReaderProgressStore(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> toggle() async {
+      await tester.tap(find.text('我的'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(setting);
+      await tester.pumpAndSettle();
+      await tester.tap(setting);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('书架'));
+      await tester.pumpAndSettle();
+    }
+
+    await show();
+    expect(find.byType(BookCoverStack), findsNothing);
+    expect(find.byKey(const ValueKey('bookshelf-tag-stacks')), findsNothing);
+    await toggle();
+    expect(stack, findsOneWidget);
+    expect(await library.getSetting(bookshelfTagStacksKey), 'true');
+    await show();
+    expect(stack, findsOneWidget, reason: '重开应用保留开启状态');
+    await tester.tap(stack);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('bookshelf-stack-back')), findsOneWidget);
+    await toggle();
+    expect(find.byType(BookCoverStack), findsNothing);
+    expect(
+      find.byKey(const ValueKey('bookshelf-stack-back')),
+      findsNothing,
+      reason: '关闭开关同时退出已展开的标签堆叠',
+    );
+    for (final book in books) {
+      expect(find.byKey(ValueKey('book-card-${book.id}')), findsOneWidget);
+    }
+    expect(await library.getSetting(bookshelfTagStacksKey), 'false');
+    await show();
+    expect(find.byType(BookCoverStack), findsNothing, reason: '重开应用保留关闭状态');
+    await tester.tap(find.text('我的'));
+    await tester.pumpAndSettle();
+    expect(tester.widget<SwitchListTile>(setting).value, isFalse);
+    expect(await library.bookTagAssignments(), assignments);
+    expect(await library.list(), hasLength(books.length));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('窄屏大字下标签叠加开关可见且可操作', (tester) async {
+    tester.view
+      ..physicalSize = const Size(320, 640)
+      ..devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final library = LibraryStore.memory();
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildAppTheme(),
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(context)
+              .copyWith(textScaler: TextScaler.linear(2)),
+          child: child!,
+        ),
+        home: ProfilePage(library: library),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final setting = find.byKey(
+      const ValueKey('bookshelf-tag-stacking-setting'),
+    );
+    await tester.ensureVisible(setting);
+    await tester.pumpAndSettle();
+    expect(tester.widget<SwitchListTile>(setting).value, isFalse);
+    await tester.tap(setting);
+    await tester.pumpAndSettle();
+    expect(tester.widget<SwitchListTile>(setting).value, isTrue);
+    expect(await library.getSetting(bookshelfTagStacksKey), 'true');
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('新书位置开关持久化，书名排序禁用但保留所选位置', (tester) async {
     tester.view
       ..physicalSize = const Size(320, 640)
@@ -175,6 +290,12 @@ void main() {
   testWidgets('我的页可查看诊断日志且不显示浮动提示', (tester) async {
     await tester.pumpWidget(
       MaterialApp(home: ProfilePage(library: LibraryStore.memory())),
+    );
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.text('查看诊断日志'),
+      180,
+      scrollable: find.byType(Scrollable).first,
     );
     await tester.pumpAndSettle();
     expect(find.text('查看诊断日志'), findsOneWidget);

@@ -16,6 +16,7 @@ import '../reader/reader_font_store.dart';
 import '../theme/app_theme.dart';
 import 'app_font_picker.dart';
 import 'bookshelf_sort.dart';
+import 'bookshelf_stacks.dart';
 import 'theme_preset_picker.dart';
 import '../sync/sync_controller.dart';
 import '../sync/sync_page.dart';
@@ -73,6 +74,7 @@ class _ProfilePageState extends State<ProfilePage> {
   BookSortOrder _shelfSort = BookSortOrder.recent;
   bool _newBooksFirst = true;
   bool _showShelfTitles = true;
+  bool _tagStacking = false;
   List<ReaderFontEntry> _appFonts = const [];
 
   @override
@@ -117,11 +119,13 @@ class _ProfilePageState extends State<ProfilePage> {
       bookshelfNewBooksFirstKey,
     );
     final showTitles = await widget.library.getSetting(bookshelfShowTitlesKey);
+    final tagStacking = await loadBookshelfTagStacking(widget.library);
     if (mounted) {
       setState(() {
         _shelfSort = BookSortOrder.fromValue(sort);
         _newBooksFirst = newBooksFirst != 'false';
         _showShelfTitles = showTitles != 'false';
+        _tagStacking = tagStacking;
       });
     }
   }
@@ -164,6 +168,11 @@ class _ProfilePageState extends State<ProfilePage> {
   Future<void> _toggleNewBooksFirst(bool value) async {
     setState(() => _newBooksFirst = value);
     await widget.library.setSetting(bookshelfNewBooksFirstKey, '$value');
+  }
+
+  Future<void> _toggleTagStacking(bool value) async {
+    setState(() => _tagStacking = value);
+    await widget.library.setSetting(bookshelfTagStacksKey, '$value');
   }
 
   Future<void> _chooseTheme(ThemeMode current) async {
@@ -410,6 +419,18 @@ class _ProfilePageState extends State<ProfilePage> {
                     subtitle: const Text('关闭后宫格书架只显示封面'),
                     value: _showShelfTitles,
                     onChanged: _toggleShelfTitles,
+                  ),
+                  SwitchListTile(
+                    key: const ValueKey('bookshelf-tag-stacking-setting'),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 4,
+                    ),
+                    secondary: _iconBadge(context, AppGlyph.bookshelf),
+                    title: const Text('标签叠加'),
+                    subtitle: const Text('开启后，各分组内同标签的两本及以上书籍自动叠加'),
+                    value: _tagStacking,
+                    onChanged: _toggleTagStacking,
                   ),
                 ]),
                 const SizedBox(height: 18),

@@ -74,7 +74,7 @@ Future<Set<String>> _versionDirectories(_Library library) async {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('内存标签全局删除清全部分组配置与关联，重复删除不通知', () async {
+  test('内存标签全局删除清关联且保留叠加开关，重复删除不通知', () async {
     final store = LibraryStore.memory();
     final first = await _book(store, '内存甲');
     final second = await _book(store, '内存乙');
@@ -83,14 +83,7 @@ void main() {
     await store.addBookTag(first.id, removed.id);
     await store.addBookTag(second.id, removed.id);
     await store.addBookTag(first.id, kept.id);
-    await store.setSetting(
-      bookshelfTagStacksKey,
-      jsonEncode({
-        'default': [removed.id, kept.id, removed.id],
-        'group-a': [kept.id, removed.id],
-        'group-b': [removed.id],
-      }),
-    );
+    await store.setSetting(bookshelfTagStacksKey, 'true');
     var notifications = 0;
     store.addListener(() => notifications++);
 
@@ -99,11 +92,7 @@ void main() {
     expect((await store.listTags()).map((tag) => tag.id), [kept.id]);
     expect((await store.bookTags(first.id)).map((tag) => tag.id), [kept.id]);
     expect(await store.bookTags(second.id), isEmpty);
-    expect(jsonDecode((await store.getSetting(bookshelfTagStacksKey))!), {
-      'default': [kept.id],
-      'group-a': [kept.id],
-      'group-b': <String>[],
-    });
+    expect(await store.getSetting(bookshelfTagStacksKey), 'true');
     expect(notifications, 1);
     await store.deleteTag(removed.id);
     await store.deleteTag('不存在');
@@ -148,13 +137,7 @@ void main() {
     );
     final previousProgress = await _rows(f.db, 'reading_progress');
     final previousSpine = await _rows(f.db, 'spine_items');
-    await f.store.setSetting(
-      bookshelfTagStacksKey,
-      jsonEncode({
-        'default': [removed.id, kept.id],
-        'another': [removed.id],
-      }),
-    );
+    await f.store.setSetting(bookshelfTagStacksKey, 'true');
     var notifications = 0;
     f.store.addListener(() => notifications++);
 
@@ -210,10 +193,7 @@ void main() {
     expect(nextProgress, previousProgress);
     expect(await _rows(f.db, 'spine_items'), previousSpine);
     expect((await f.store.listTags()).map((tag) => tag.id), [kept.id]);
-    expect(jsonDecode((await f.store.getSetting(bookshelfTagStacksKey))!), {
-      'default': [kept.id],
-      'another': <String>[],
-    });
+    expect(await f.store.getSetting(bookshelfTagStacksKey), 'true');
     final revision = (await f.store.bookById(first.id))!.contentRevision;
     await f.store.deleteTag(removed.id);
     expect((await f.store.bookById(first.id))!.contentRevision, revision);
@@ -249,10 +229,7 @@ void main() {
     for (final book in books) {
       await f.store.addBookTag(book.id, tag.id);
     }
-    final stacks = jsonEncode({
-      'default': [tag.id],
-    });
-    await f.store.setSetting(bookshelfTagStacksKey, stacks);
+    await f.store.setSetting(bookshelfTagStacksKey, 'true');
     final rows = await _rows(f.db, 'books');
     final links = await _rows(f.db, 'book_tag_links');
     final directories = await _versionDirectories(f);
@@ -265,7 +242,7 @@ void main() {
     expect(await _rows(f.db, 'books'), rows);
     expect(await _rows(f.db, 'book_tag_links'), links);
     expect((await f.store.listTags()).single.id, tag.id);
-    expect(await f.store.getSetting(bookshelfTagStacksKey), stacks);
+    expect(await f.store.getSetting(bookshelfTagStacksKey), 'true');
     expect(await _versionDirectories(f), directories);
   });
 
@@ -324,24 +301,18 @@ void main() {
     expect(await _rows(f.db, 'books'), rows);
   });
 
-  test('重复删除仍清除各分组遗留引用，不改其他顺序', () async {
+  test('删除不存在的标签不改变叠加开关，也不触发书库刷新', () async {
     final f = await _library();
-    await f.store.setSetting(
-      bookshelfTagStacksKey,
-      jsonEncode({
-        'default': ['other-a', 'missing', 'other-b'],
-        'group': ['missing'],
-      }),
-    );
+    await f.store.setSetting(bookshelfTagStacksKey, 'true');
+    var notifications = 0;
+    f.store.addListener(() => notifications++);
 
     await f.store.deleteTag('missing');
 
-    expect(jsonDecode((await f.store.getSetting(bookshelfTagStacksKey))!), {
-      'default': ['other-a', 'other-b'],
-      'group': <String>[],
-    });
+    expect(await f.store.getSetting(bookshelfTagStacksKey), 'true');
     await f.store.deleteTag('missing');
     expect(await f.store.listTags(), isEmpty);
+    expect(notifications, 0);
   });
 
   test('全局删除由现有同步快照缺失产生标签和关联tombstone', () async {

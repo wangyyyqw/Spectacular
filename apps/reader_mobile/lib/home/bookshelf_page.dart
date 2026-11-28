@@ -14,6 +14,7 @@ import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/theme/reader_common_widgets.dart';
 import 'package:reader_ui/theme/reader_ink.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
+import 'package:reader_ui/theme/reader_frosted_surface.dart';
 import 'package:reader_ui/theme/reader_sheet_form.dart';
 
 import 'package:reader_core/epub/importer.dart';
@@ -37,7 +38,6 @@ import 'book_cover_image.dart';
 import 'book_cover_stack.dart';
 import 'book_stack_tile.dart';
 import 'bookshelf_stacks.dart';
-import 'tag_stack_settings_sheet.dart';
 import 'horizontal_page_switcher.dart';
 import '../storage/import_queue.dart';
 import '../storage/reading_session_store.dart';
@@ -100,7 +100,7 @@ class BookshelfPage extends StatefulWidget {
   /// 阅读进度存储（进阅读页用）。
   final ReaderProgressStore progressStore;
 
-  /// 外部切换页面时递增，用于重新读取排序设置。
+  /// 外部切换页面时递增，用于重新读取书架设置。
   final int refreshToken;
 
   /// 临时模式暂停新增与更新导入，避免将内存内容误认为已保存。
@@ -154,7 +154,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
   Map<String, String> _bookGroups = const <String, String>{};
   List<BookTag> _tags = const [];
   Map<String, Set<String>> _bookTags = const {};
-  Map<String, List<String>> _stackTags = const {};
+  bool _tagStacking = false;
   BookTag? _expandedStack;
   String? _activeGroupId;
   bool _grid = true;
@@ -274,7 +274,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
     _searchFocus.requestFocus();
   }
 
-  /// 读持久化的排序、视图模式与书名显示（settings 表）。
+  /// 读持久化的排序、视图模式、书名显示与标签堆叠（settings 表）。
   Future<void> _loadPreferences() async {
     final sort = await widget.library.getSetting(bookshelfSortKey);
     final newBooksFirst = await widget.library.getSetting(
@@ -291,12 +291,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
     } on FormatException {
       nextOrder = const [];
     }
-    final stackTags = await widget.library.getSetting(bookshelfTagStacksKey);
-    final nextStackTags = stackTags == null
-        ? <String, List<String>>{}
-        : (jsonDecode(stackTags) as Map<String, dynamic>).map(
-            (key, value) => MapEntry(key, (value as List).cast<String>()),
-          );
+    final tagStacking = await loadBookshelfTagStacking(widget.library);
     if (!mounted) {
       return;
     }
@@ -312,10 +307,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
         _grid == nextGrid &&
         _showTitles == nextShowTitles &&
         listEquals(_groupOrder, nextOrder) &&
-        _stackTags.length == nextStackTags.length &&
-        nextStackTags.entries.every(
-          (entry) => listEquals(_stackTags[entry.key], entry.value),
-        ) &&
+        _tagStacking == tagStacking &&
         listEquals(_pinnedIds, nextPinned)) {
       return;
     }
@@ -326,7 +318,8 @@ class _BookshelfPageState extends State<BookshelfPage> {
       _showTitles = nextShowTitles;
       _groupOrder = nextOrder;
       _pinnedIds = nextPinned;
-      _stackTags = nextStackTags;
+      _tagStacking = tagStacking;
+      if (!tagStacking) _expandedStack = null;
     });
   }
 
@@ -366,50 +359,6 @@ class _BookshelfPageState extends State<BookshelfPage> {
     ids.insert(newIndex, moved);
     setState(() => _groupOrder = ids);
     await widget.library.setSetting(bookshelfGroupOrderKey, jsonEncode(ids));
-  }
-
-  Future<void> _configureTagStacks() async {
-    final groupId = _activeGroupId;
-    final groupName =
-        _groups.where((group) => group.id == groupId).firstOrNull?.name ?? '默认';
-    final counts = <String, int>{};
-    for (final item in _items ?? <_ShelfItem>[]) {
-      if (_bookGroups[item.entry.id] != groupId) continue;
-      for (final tag in _bookTags[item.entry.id] ?? <String>{}) {
-        counts.update(tag, (count) => count + 1, ifAbsent: () => 1);
-      }
-    }
-    final selected = _stackTags[groupId ?? 'default'] ?? const <String>[];
-    final tags = List<BookTag>.of(_tags);
-    await showReaderDrawer<void>(
-      context: context,
-      builder: (_) => TagStackSettingsSheet(
-        groupName: groupName,
-        tags: tags,
-        counts: counts,
-        selected: selected
-            .where((id) => tags.any((tag) => tag.id == id))
-            .toList(),
-        onDelete: (tag) async {
-          await widget.library.deleteTag(tag.id);
-          await _loadPreferences();
-          await _reload();
-        },
-        onSave: (ids) async {
-          final next = {..._stackTags, groupId ?? 'default': ids};
-          await widget.library.setSetting(
-            bookshelfTagStacksKey,
-            jsonEncode(next),
-          );
-          if (mounted) {
-            setState(() {
-              _stackTags = next;
-              _expandedStack = null;
-            });
-          }
-        },
-      ),
-    );
   }
 
   int _groupBookCount(ShelfGroup group) => (_items ?? const <_ShelfItem>[])
@@ -753,21 +702,13 @@ class _BookshelfPageState extends State<BookshelfPage> {
     ];
   }
 
-  List<ShelfStack<_ShelfItem>> _tagStacks(
-    List<_ShelfItem> books,
-    String? groupId,
-  ) {
-    final byId = {for (final tag in _tags) tag.id: tag};
-    return stackBooksByTags(
-      books: books,
-      bookId: (book) => book.entry.id,
-      bookTags: _bookTags,
-      tags: [
-        for (final id in _stackTags[groupId ?? 'default'] ?? <String>[])
-          ?byId[id],
-      ],
-    );
-  }
+  List<ShelfStack<_ShelfItem>> _tagStacks(List<_ShelfItem> books) =>
+      stackBooksByTags(
+        books: books,
+        bookId: (book) => book.entry.id,
+        bookTags: _bookTags,
+        tags: _tagStacking ? _tags : const [],
+      );
 
   @override
   void dispose() {
@@ -978,7 +919,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
         : 66.0;
     final cardHeight = _grid ? cardWidth / _shelfCoverAspectRatio : 88.0;
     final covers = [
-      for (final stack in _tagStacks(ordered, _activeGroupId))
+      for (final stack in _tagStacks(ordered))
         for (final item in stack.books.take(bookStackPreviewCount))
           (
             path: item.entry.coverPath,
@@ -1641,18 +1582,6 @@ class _BookshelfPageState extends State<BookshelfPage> {
             onManage: _manageGroup,
           ),
         ),
-        IconButton(
-          key: const ValueKey('bookshelf-tag-stacks'),
-          tooltip: '标签堆叠',
-          color: colors.onSurfaceVariant,
-          constraints: const BoxConstraints.tightFor(width: 44, height: 44),
-          padding: EdgeInsets.zero,
-          onPressed: _selectionMode ? null : _configureTagStacks,
-          icon: const AppIcon(
-            AppGlyph.bookshelf,
-            strokeWidth: _shelfToolbarIconStroke,
-          ),
-        ),
         Theme(
           data: _noFeedback(context),
           child: IconButton(
@@ -1719,26 +1648,6 @@ class _BookshelfPageState extends State<BookshelfPage> {
             },
           ),
         if (_error == null && items != null) _buildShelfControls(items),
-        if (_expandedStack case final tag?)
-          Row(
-            children: [
-              IconButton(
-                key: const ValueKey('bookshelf-stack-back'),
-                tooltip: '收起堆叠',
-                onPressed: () => setState(() => _expandedStack = null),
-                icon: const AppIcon(AppGlyph.chevronLeft),
-              ),
-              Expanded(
-                child: Text(
-                  '${tag.name} · ${visible?.length ?? 0} 本',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.titleSmall,
-                ),
-              ),
-              const SizedBox(width: 16),
-            ],
-          ),
         Expanded(
           child: HorizontalPageSwitcher<String?>(
             gestureKey: const ValueKey('bookshelf-group-pages'),
@@ -1748,17 +1657,44 @@ class _BookshelfPageState extends State<BookshelfPage> {
             onChanged: _selectGroup,
             builder: (id) => _ShelfBodyTransition(
               groupId: id,
-              groupIndex: 0,
               grid: _grid,
+              stackId: id == _activeGroupId ? _expandedStack?.id : null,
               animate: !_selectionMode && _error == null && items != null,
-              child: _buildLibraryBody(
-                items,
-                id == _activeGroupId
-                    ? visible
-                    : items == null
-                    ? null
-                    : _visible(items, groupId: id),
-                groupId: id,
+              child: Column(
+                children: [
+                  if (id == _activeGroupId && _expandedStack != null)
+                    Row(
+                      children: [
+                        IconButton(
+                          key: const ValueKey('bookshelf-stack-back'),
+                          tooltip: '收起堆叠',
+                          onPressed: () =>
+                              setState(() => _expandedStack = null),
+                          icon: const AppIcon(AppGlyph.chevronLeft),
+                        ),
+                        Expanded(
+                          child: Text(
+                            '${_expandedStack!.name} · ${visible?.length ?? 0} 本',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.titleSmall,
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                      ],
+                    ),
+                  Expanded(
+                    child: _buildLibraryBody(
+                      items,
+                      id == _activeGroupId
+                          ? visible
+                          : items == null
+                          ? null
+                          : _visible(items, groupId: id),
+                      groupId: id,
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
@@ -1814,7 +1750,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
         ? [
             for (final book in books) ShelfStack(books: [book]),
           ]
-        : _tagStacks(books, groupId);
+        : _tagStacks(books);
     return RefreshIndicator(
       onRefresh: () async => _reload(),
       child: _grid
@@ -2080,19 +2016,19 @@ class _BookshelfPageState extends State<BookshelfPage> {
   }
 }
 
-/// 网格与列表视图切换保持轻微纵移淡入。
+/// 新布局在旧封面上方过渡，标题栏随堆叠一起切换，避免先挤动内容。
 class _ShelfBodyTransition extends StatefulWidget {
   const _ShelfBodyTransition({
     required this.groupId,
-    required this.groupIndex,
     required this.grid,
+    required this.stackId,
     required this.animate,
     required this.child,
   });
 
   final String? groupId;
-  final int groupIndex;
   final bool grid;
+  final String? stackId;
   final bool animate;
   final Widget child;
 
@@ -2101,32 +2037,34 @@ class _ShelfBodyTransition extends StatefulWidget {
 }
 
 class _ShelfBodyTransitionState extends State<_ShelfBodyTransition> {
-  double _groupDirection = 0;
-  double _viewDirection = 0;
+  Offset _direction = Offset.zero;
+  bool _closingStack = false;
 
   @override
   void didUpdateWidget(_ShelfBodyTransition oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.groupId != widget.groupId || oldWidget.grid != widget.grid) {
-      _groupDirection = (widget.groupIndex - oldWidget.groupIndex).sign
-          .toDouble();
-      _viewDirection = oldWidget.grid == widget.grid
-          ? 0
-          : widget.grid
-          ? -1
-          : 1;
+    if (oldWidget.stackId != widget.stackId) {
+      _closingStack = widget.stackId == null;
+      _direction = Offset(_closingStack ? -16 : 16, 0);
+    } else if (oldWidget.grid != widget.grid) {
+      _closingStack = false;
+      _direction = Offset(0, widget.grid ? -8 : 8);
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final animate = widget.animate && !MediaQuery.disableAnimationsOf(context);
-    final key = ValueKey((widget.groupId, widget.grid));
+    final animate =
+        widget.animate &&
+        !MediaQuery.disableAnimationsOf(context) &&
+        !ReaderFrostedScope.inkModeOf(context);
+    final key = ValueKey((widget.groupId, widget.grid, widget.stackId));
+    final duration = Duration(milliseconds: _closingStack ? 150 : 200);
     return ClipRect(
       child: AnimatedSwitcher(
-        duration: animate ? const Duration(milliseconds: 200) : Duration.zero,
-        // 旧条目创建于加载期也保留退出时长，减少动态效果时不展示旧层。
-        reverseDuration: const Duration(milliseconds: 150),
+        duration: animate ? duration : Duration.zero,
+        // 旧层保留到新层完全覆盖，避免交叉淡出时露出背景。
+        reverseDuration: const Duration(milliseconds: 200),
         switchInCurve: Curves.easeOutCubic,
         switchOutCurve: Curves.easeOutCubic,
         layoutBuilder: (current, previous) =>
@@ -2143,39 +2081,36 @@ class _ShelfBodyTransitionState extends State<_ShelfBodyTransition> {
     Animation<double> animation,
     Key currentKey,
   ) {
-    final page = RepaintBoundary(child: child);
-    final direction = child.key == currentKey
-        ? _groupDirection
-        : -_groupDirection;
-    final viewDirection = child.key == currentKey
-        ? _viewDirection
-        : -_viewDirection;
-    final content = direction == 0
-        ? AnimatedBuilder(
-            animation: animation,
-            builder: (_, child) => Transform.translate(
-              offset: Offset(0, viewDirection * 12 * (1 - animation.value)),
-              child: child,
-            ),
-            child: page,
-          )
-        : SlideTransition(
-            position: Tween(
-              begin: Offset(direction * .1, 0),
-              end: Offset.zero,
-            ).animate(animation),
-            child: page,
-          );
-    return FadeTransition(opacity: animation, child: content);
+    final entering = child.key == currentKey;
+    final page = RepaintBoundary(
+      child: ColoredBox(
+        color: Theme.of(context).scaffoldBackgroundColor,
+        child: child,
+      ),
+    );
+    if (!entering) return page;
+    return FadeTransition(
+      opacity: animation,
+      child: AnimatedBuilder(
+        animation: animation,
+        builder: (_, child) => Transform.translate(
+          offset: _direction * (1 - animation.value),
+          child: child,
+        ),
+        child: page,
+      ),
+    );
   }
 
   Widget _layoutLayers(Widget? current, List<Widget> previous) => Stack(
     fit: StackFit.expand,
     children: [
-      for (final child in previous)
+      if (previous.isNotEmpty)
         ExcludeFocus(
           child: ExcludeSemantics(
-            child: IgnorePointer(child: HeroMode(enabled: false, child: child)),
+            child: IgnorePointer(
+              child: HeroMode(enabled: false, child: previous.last),
+            ),
           ),
         ),
       ?current,

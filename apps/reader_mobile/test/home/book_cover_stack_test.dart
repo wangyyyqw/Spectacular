@@ -41,8 +41,11 @@ class _FocusStore extends BookCoverTitleFocusStore {
   final pending = <String, Completer<CoverTitleFocus?>>{};
 
   @override
-  Future<CoverTitleFocus?> resolve(String? imagePath, String title) =>
-      pending.putIfAbsent(title, Completer<CoverTitleFocus?>.new).future;
+  Future<CoverTitleFocus?> resolve(
+    String? imagePath,
+    String title, {
+    String? revision,
+  }) => pending.putIfAbsent(title, Completer<CoverTitleFocus?>.new).future;
 }
 
 List<double> _regionRatios(WidgetTester tester, int count, Size size) {
@@ -81,7 +84,12 @@ void main() {
     final store = _FocusStore();
     Future<void> show(List<BookEntry> entries) => _show(
       tester,
-      BookCoverStack(books: entries, width: 120, height: 160, focusStore: store),
+      BookCoverStack(
+        books: entries,
+        width: 120,
+        height: 160,
+        focusStore: store,
+      ),
     );
     await show(books);
     final initialSize = tester.getSize(_cover('0'));
@@ -97,9 +105,24 @@ void main() {
     store.pending[renamed.title]!.complete(focus);
     await tester.pumpAndSettle();
     expect(tester.getSize(_cover('0')).aspectRatio, closeTo(.5, .0001));
+    await _show(
+      tester,
+      BookCoverStack(
+        books: [renamed, books.last],
+        width: 66,
+        height: 88,
+        focusStore: store,
+      ),
+    );
+    expect(
+      tester.getSize(_cover('0')).aspectRatio,
+      closeTo(.5, .0001),
+      reason: '布局缩小时直接复用当前焦点，不先退回默认裁切',
+    );
+    final resizedFallback = tester.getSize(_cover('1'));
     store.pending[books.last.title]!.completeError(StateError('模拟识别失败'));
     await tester.pump();
-    expect(tester.getSize(_cover('1')), initialSize);
+    expect(tester.getSize(_cover('1')), resizedFallback);
     expect(tester.takeException(), isNull);
   });
 

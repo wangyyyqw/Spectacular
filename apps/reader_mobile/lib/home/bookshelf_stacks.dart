@@ -1,6 +1,18 @@
+import 'dart:convert';
+
 import '../library/library_store.dart';
 
 export '../library/library_store.dart' show bookshelfTagStacksKey;
+
+/// 旧版有已选堆叠标签时保留开启状态，新设置直接保存统一开关。
+Future<bool> loadBookshelfTagStacking(LibraryStore library) async {
+  final raw = await library.getSetting(bookshelfTagStacksKey);
+  if (raw == null) return false;
+  final value = jsonDecode(raw);
+  return value == true ||
+      value is Map<String, dynamic> &&
+          value.values.any((ids) => ids is List && ids.isNotEmpty);
+}
 
 /// 一个书架位置：未堆叠的单本，或同一标签下的多本书。
 class ShelfStack<T> {

@@ -139,6 +139,7 @@ class _CollageCover extends StatefulWidget {
 }
 
 class _CollageCoverState extends State<_CollageCover> {
+  CoverTitleFocus? _focus;
   Offset _translation = Offset.zero;
   Size? _imageSize;
   var _generation = 0;
@@ -146,6 +147,7 @@ class _CollageCoverState extends State<_CollageCover> {
   @override
   void initState() {
     super.initState();
+    _restoreFocus();
     unawaited(_loadFocus());
   }
 
@@ -156,16 +158,42 @@ class _CollageCoverState extends State<_CollageCover> {
         oldWidget.book.title != widget.book.title ||
         oldWidget.book.coverPath != widget.book.coverPath ||
         oldWidget.book.contentRevision != widget.book.contentRevision ||
-        oldWidget.focusStore != widget.focusStore ||
-        oldWidget.count != widget.count ||
+        oldWidget.focusStore != widget.focusStore) {
+      _restoreFocus();
+      unawaited(_loadFocus());
+    } else if (oldWidget.count != widget.count ||
         oldWidget.coverSize != widget.coverSize ||
         oldWidget.region.center != widget.region.center ||
         oldWidget.region.rotation != widget.region.rotation) {
-      _generation++;
+      _placeFocus();
+    }
+  }
+
+  void _restoreFocus() {
+    _focus = widget.focusStore.peek(
+      widget.book.coverPath,
+      widget.book.title,
+      revision: widget.book.contentRevision,
+    );
+    _placeFocus();
+  }
+
+  void _placeFocus() {
+    final focus = _focus;
+    if (focus == null) {
       _translation = Offset.zero;
       _imageSize = null;
-      unawaited(_loadFocus());
+      return;
     }
+    final placement = coverTitleFocusPlacement(
+      focus: focus,
+      coverSize: widget.coverSize,
+      clipPath: widget.region.path,
+      regionCenter: widget.region.center,
+      rotation: widget.region.rotation,
+    );
+    _translation = placement.translation;
+    _imageSize = placement.imageSize;
   }
 
   Future<void> _loadFocus() async {
@@ -174,18 +202,14 @@ class _CollageCoverState extends State<_CollageCover> {
       final focus = await widget.focusStore.resolve(
         widget.book.coverPath,
         widget.book.title,
+        revision: widget.book.contentRevision,
       );
-      if (!mounted || generation != _generation || focus == null) return;
-      final placement = coverTitleFocusPlacement(
-        focus: focus,
-        coverSize: widget.coverSize,
-        clipPath: widget.region.path,
-        regionCenter: widget.region.center,
-        rotation: widget.region.rotation,
-      );
+      if (!mounted || generation != _generation || identical(focus, _focus)) {
+        return;
+      }
       setState(() {
-        _translation = placement.translation;
-        _imageSize = placement.imageSize;
+        _focus = focus;
+        _placeFocus();
       });
     } on Object {
       // OCR、平台运行时或缓存不可用时保留原有居中裁切。

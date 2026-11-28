@@ -13,6 +13,7 @@ import 'package:reader_mobile/theme/app_theme.dart';
 import 'package:reader_ui/icons/app_icon.dart';
 import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/theme/reader_frosted_popup.dart';
+import 'package:reader_ui/theme/reader_sheet_form.dart';
 
 import '../support/test_epub.dart';
 
@@ -151,6 +152,44 @@ void main() {
     expect(card, findsOneWidget);
     expect((await store.bookById(entry.id))!.title, entry.title);
     expect(await store.list(), hasLength(1));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('详情抽屉复用统一弹窗骨架，可从把手下拉收起', (tester) async {
+    late BookEntry entry;
+    await tester.runAsync(() async {
+      entry = await store.importBytes(buildTestEpub(title: '详情抽屉统一样式'));
+    });
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildAppTheme(),
+        home: BookshelfPage(
+          library: store,
+          progressStore: MemoryReaderProgressStore(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.longPress(find.byKey(ValueKey('book-card-${entry.id}')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('book-detail-open-page')));
+    await tester.pumpAndSettle();
+    final sheet = find.byType(BottomSheet);
+    expect(
+      find.descendant(of: sheet, matching: find.byType(ReaderSheetForm)),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: sheet, matching: find.byType(Scaffold)),
+      findsNothing,
+    );
+    expect(find.widgetWithText(FilledButton, '保存'), findsOneWidget);
+    await tester.drag(
+      find.byKey(const ValueKey('reader-drawer-drag-handle')),
+      const Offset(0, 400),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byType(BookDetailPage), findsNothing);
     expect(tester.takeException(), isNull);
   });
 

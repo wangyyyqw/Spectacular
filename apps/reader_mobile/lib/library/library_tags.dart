@@ -17,7 +17,6 @@ extension LibraryTagOperations on LibraryStore {
       for (final tags in _memoryBookTags.values) {
         changed = tags.remove(tagId) || changed;
       }
-      changed = await _removeTagFromStacks(tagId) || changed;
       if (changed) _notify();
       return;
     }
@@ -100,39 +99,9 @@ extension LibraryTagOperations on LibraryStore {
     final removedTags = await (db.delete(
       db.bookTags,
     )..where((row) => row.id.equals(tagId))).go();
-    final changedStacks = await _removeTagFromStacks(tagId);
     if (prepared.isNotEmpty && _syncReaders != 0) {
       throw const LibraryImportException('请先退出阅读或编辑，再修改图书资料');
     }
-    return removedLinks > 0 || removedTags > 0 || changedStacks;
+    return removedLinks > 0 || removedTags > 0;
   });
-
-  Future<bool> _removeTagFromStacks(String tagId) async {
-    final raw = await getSetting(bookshelfTagStacksKey);
-    if (raw == null) return false;
-    final Object? decoded;
-    try {
-      decoded = jsonDecode(raw);
-    } on FormatException {
-      return false;
-    }
-    if (decoded is! Map<String, dynamic>) return false;
-    var changed = false;
-    for (final entry in decoded.entries) {
-      final ids = entry.value;
-      if (ids is! List || !ids.contains(tagId)) continue;
-      decoded[entry.key] = ids.where((id) => id != tagId).toList();
-      changed = true;
-    }
-    if (!changed) return false;
-    final value = jsonEncode(decoded);
-    if (_isMemory) {
-      _memorySettings[bookshelfTagStacksKey] = value;
-    } else {
-      await (_db!.update(_db.settingsTable)
-            ..where((row) => row.key.equals(bookshelfTagStacksKey)))
-          .write(SettingsTableCompanion(value: Value(value)));
-    }
-    return true;
-  }
 }

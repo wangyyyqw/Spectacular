@@ -30,13 +30,21 @@ List<Duration> recentBookReadingDurations(
 /// 图书详情与长按菜单共用的每日阅读时长折线图。
 class BookReadingChart extends StatelessWidget {
   /// 创建图表；[durations] 按时间从早到晚排列。
-  const BookReadingChart({super.key, required this.durations, this.endDate});
+  const BookReadingChart({
+    super.key,
+    required this.durations,
+    this.endDate,
+    this.framed = true,
+  });
 
   /// 每日阅读时长。
   final List<Duration> durations;
 
   /// 最后一个数据点对应的日期，缺省为今天。
   final DateTime? endDate;
+
+  /// 详情页内嵌于累计时长卡片，长按菜单仍保留独立卡片。
+  final bool framed;
 
   @override
   Widget build(BuildContext context) {
@@ -63,6 +71,49 @@ class BookReadingChart extends StatelessWidget {
         '${_formatAxisDate(dates[index])} '
             '${formatReadingDuration(durations[index])}',
     ].join('，');
+    final content = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        OverflowBar(
+          alignment: MainAxisAlignment.spaceBetween,
+          spacing: 8,
+          overflowSpacing: 4,
+          overflowAlignment: OverflowBarAlignment.start,
+          children: <Widget>[
+            Text('最近 7 天', style: theme.textTheme.labelLarge),
+            Text(
+              '每日阅读时长',
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Expanded(
+          child: SizedBox.expand(
+            child: CustomPaint(
+              painter: _ReadingLinePainter(
+                durations: durations,
+                dates: dates,
+                lineColor: lineColor,
+                gridColor: theme.colorScheme.outlineVariant.withValues(
+                  alpha: dark ? 0.22 : 0.38,
+                ),
+                axisColor: theme.colorScheme.outlineVariant,
+                labelStyle: theme.textTheme.labelSmall!.copyWith(
+                  fontSize: 9,
+                  height: 1.2,
+                  color: theme.colorScheme.onSurfaceVariant,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                ),
+                textScaler: textScaler,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
     return Semantics(
       container: true,
       image: true,
@@ -70,53 +121,13 @@ class BookReadingChart extends StatelessWidget {
       child: ExcludeSemantics(
         child: SizedBox(
           key: const ValueKey<String>('book-detail-reading-chart'),
-          height: 166 * textScale,
-          child: ReaderSectionCard(
-            padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                OverflowBar(
-                  alignment: MainAxisAlignment.spaceBetween,
-                  spacing: 8,
-                  overflowSpacing: 4,
-                  overflowAlignment: OverflowBarAlignment.start,
-                  children: <Widget>[
-                    Text('最近 7 天', style: theme.textTheme.labelLarge),
-                    Text(
-                      '每日阅读时长',
-                      style: theme.textTheme.labelSmall?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Expanded(
-                  child: SizedBox.expand(
-                    child: CustomPaint(
-                      painter: _ReadingLinePainter(
-                        durations: durations,
-                        dates: dates,
-                        lineColor: lineColor,
-                        gridColor: theme.colorScheme.outlineVariant.withValues(
-                          alpha: dark ? 0.22 : 0.38,
-                        ),
-                        axisColor: theme.colorScheme.outlineVariant,
-                        labelStyle: theme.textTheme.labelSmall!.copyWith(
-                          fontSize: 9,
-                          height: 1.2,
-                          color: theme.colorScheme.onSurfaceVariant,
-                          fontFeatures: const [FontFeature.tabularFigures()],
-                        ),
-                        textScaler: textScaler,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
+          height: (framed ? 166 : 210) * textScale,
+          child: framed
+              ? ReaderSectionCard(
+                  padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
+                  child: content,
+                )
+              : content,
         ),
       ),
     );

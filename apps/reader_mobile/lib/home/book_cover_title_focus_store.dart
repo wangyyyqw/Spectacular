@@ -45,8 +45,17 @@ class BookCoverTitleFocusStore {
   final bool Function() _supportsPlatform;
   final Map<String, CoverTitleFocus?> _memory = {};
   final Map<String, Completer<CoverTitleFocus?>> _pending = {};
+  final _resolved = <(String, String, String?), CoverTitleFocus?>{};
 
-  Future<CoverTitleFocus?> resolve(String? imagePath, String title) async {
+  /// 重建拼图时立即复用已识别焦点；后续异步请求仍校验文件版本。
+  CoverTitleFocus? peek(String? imagePath, String title, {String? revision}) =>
+      _resolved[(imagePath ?? '', normalizeCoverTitle(title), revision)];
+
+  Future<CoverTitleFocus?> resolve(
+    String? imagePath,
+    String title, {
+    String? revision,
+  }) async {
     final normalizedTitle = normalizeCoverTitle(title);
     if (!_supportsPlatform() || imagePath == null || normalizedTitle.isEmpty) {
       return null;
@@ -61,14 +70,25 @@ class BookCoverTitleFocusStore {
           ),
         )
         .toString();
-    if (_memory.containsKey(key)) return _memory[key];
-    final pending = _pending[key];
-    if (pending != null) return await pending.future;
-
-    final completer = Completer<CoverTitleFocus?>();
-    _pending[key] = completer;
-    unawaited(_completePending(key, image, title, completer));
-    return completer.future;
+    final CoverTitleFocus? focus;
+    if (_memory.containsKey(key)) {
+      focus = _memory[key];
+    } else {
+      final pending = _pending[key];
+      if (pending != null) {
+        focus = await pending.future;
+      } else {
+        final completer = Completer<CoverTitleFocus?>();
+        _pending[key] = completer;
+        unawaited(_completePending(key, image, title, completer));
+        focus = await completer.future;
+      }
+    }
+    final displayKey = (imagePath, normalizedTitle, revision);
+    _resolved.remove(displayKey);
+    _resolved[displayKey] = focus;
+    if (_resolved.length > 128) _resolved.remove(_resolved.keys.first);
+    return focus;
   }
 
   Future<void> _completePending(

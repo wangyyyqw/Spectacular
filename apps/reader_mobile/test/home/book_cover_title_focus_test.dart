@@ -71,13 +71,17 @@ void main() {
       },
     );
 
-    final first = await createStore().resolve(image.path, '旧书店');
+    final store = createStore();
+    final first = await store.resolve(image.path, '旧书店', revision: 'v1');
     final second = await createStore().resolve(image.path, '旧书店');
 
     expect(first, isNotNull);
     expect(first!.titleBounds, const Rect.fromLTRB(.1, .1, .7, .2));
     expect(second?.titleBounds, first.titleBounds);
     expect(recognitions, 1);
+    expect(store.peek(image.path, '旧书店', revision: 'v1'), same(first));
+    expect(store.peek(image.path, '新书名', revision: 'v1'), isNull);
+    expect(store.peek(image.path, '旧书店', revision: 'v2'), isNull);
   });
 
   test('未支持的平台安全回退，不访问图片和 OCR', () async {

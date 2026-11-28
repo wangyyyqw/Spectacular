@@ -28,6 +28,28 @@ ImageProvider coverImageProvider(
   policy: ResizeImagePolicy.fit,
 );
 
+// 只记录已解码图像的缓存键，不另存位图；切换布局可先复用上一种尺寸。
+final _coverPreviews = <String, ({ImageProvider provider, Object key})>{};
+
+ImageProvider? _cachedCoverPreview(String path) {
+  final preview = _coverPreviews[path];
+  if (preview == null) return null;
+  final status = PaintingBinding.instance.imageCache.statusForKey(preview.key);
+  if (status.keepAlive || status.live) return preview.provider;
+  _coverPreviews.remove(path);
+  return null;
+}
+
+void _rememberCoverPreview(String path, ImageProvider provider) {
+  provider.obtainKey(ImageConfiguration.empty).then((key) {
+    _coverPreviews.remove(path);
+    _coverPreviews[path] = (provider: provider, key: key);
+    if (_coverPreviews.length > 128) {
+      _coverPreviews.remove(_coverPreviews.keys.first);
+    }
+  });
+}
+
 /// 书架、详情、统计与书评共用封面；等比缩放并居中裁切铺满容器。
 class BookCoverImage extends StatelessWidget {
   const BookCoverImage({
@@ -116,11 +138,17 @@ class _CoverImage extends StatefulWidget {
 
 class _CoverImageState extends State<_CoverImage> {
   bool _loaded = false;
+  ImageProvider? _preview;
+  ImageProvider? _remembered;
 
   @override
   void didUpdateWidget(covariant _CoverImage oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.book.coverPath != widget.book.coverPath) _loaded = false;
+    if (oldWidget.book.coverPath != widget.book.coverPath) {
+      _loaded = false;
+      _preview = null;
+      _remembered = null;
+    }
   }
 
   @override
@@ -132,16 +160,27 @@ class _CoverImageState extends State<_CoverImage> {
         ? widget.constraints.maxHeight
         : logicalWidth * 4 / 3;
     final devicePixelRatio = MediaQuery.devicePixelRatioOf(context);
+    final path = widget.book.coverPath!;
+    final provider = coverImageProvider(
+      path,
+      coverDecodeWidth(logicalWidth, devicePixelRatio),
+      decodeHeight: coverDecodeHeight(logicalHeight, devicePixelRatio),
+    );
+    _preview ??= _cachedCoverPreview(path);
     return Stack(
       fit: StackFit.expand,
       children: [
-        if (!_loaded) widget.placeholder,
+        if (!_loaded)
+          _preview == null || _preview == provider
+              ? widget.placeholder
+              : Image(
+                  image: _preview!,
+                  fit: BoxFit.cover,
+                  excludeFromSemantics: true,
+                  errorBuilder: (_, _, _) => widget.placeholder,
+                ),
         Image(
-          image: coverImageProvider(
-            widget.book.coverPath!,
-            coverDecodeWidth(logicalWidth, devicePixelRatio),
-            decodeHeight: coverDecodeHeight(logicalHeight, devicePixelRatio),
-          ),
+          image: provider,
           key: ValueKey('cover-${widget.book.coverPath}'),
           width: double.infinity,
           height: double.infinity,
@@ -150,6 +189,10 @@ class _CoverImageState extends State<_CoverImage> {
           excludeFromSemantics: true,
           frameBuilder: (_, child, frame, synchronous) {
             final ready = synchronous || frame != null;
+            if (ready && _remembered != provider) {
+              _remembered = provider;
+              _rememberCoverPreview(path, provider);
+            }
             if (ready && !_loaded) {
               WidgetsBinding.instance.addPostFrameCallback((_) {
                 if (mounted && !_loaded) setState(() => _loaded = true);
@@ -158,9 +201,14 @@ class _CoverImageState extends State<_CoverImage> {
             return _loaded || ready ? child : const SizedBox.shrink();
           },
           errorBuilder: (_, _, _) {
-            if (_loaded) {
+            if (_loaded || _preview != null) {
               WidgetsBinding.instance.addPostFrameCallback((_) {
-                if (mounted && _loaded) setState(() => _loaded = false);
+                if (!mounted || widget.book.coverPath != path) return;
+                _coverPreviews.remove(path);
+                setState(() {
+                  _loaded = false;
+                  _preview = null;
+                });
               });
             }
             return const SizedBox.shrink();

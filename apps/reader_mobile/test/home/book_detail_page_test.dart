@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -74,36 +75,119 @@ void main() {
     }
   });
 
-  testWidgets('详情页删除标签需确认，删除后所有书的关联同时消失', (tester) async {
-    final library = LibraryStore.memory();
+  for (final persistent in [false, true]) {
+    testWidgets('详情页区分本书与全部标签，移除不影响其他书且可重新添加：持久化=$persistent', (tester) async {
+      final library = persistent ? store : LibraryStore.memory();
+      late BookEntry entry;
+      late BookEntry another;
+      late BookTag tag;
+      late BookTag otherTag;
+      await tester.runAsync(() async {
+        entry = await library.importBytes(buildTestEpub(title: '详情移除甲'));
+        another = await library.importBytes(buildTestEpub(title: '详情移除乙'));
+        tag = await library.createTag('科幻');
+        otherTag = await library.createTag('待读');
+        await library.addBookTag(entry.id, tag.id);
+        await library.addBookTag(another.id, tag.id);
+        await library.addBookTag(another.id, otherTag.id);
+      });
+      await tester.pumpWidget(
+        MaterialApp(
+          home: BookDetailPage(entry: entry, library: library),
+        ),
+      );
+      final bookChip = find.byKey(ValueKey('book-detail-book-tag-${tag.id}'));
+      final allChip = find.byKey(ValueKey('book-detail-tag-${tag.id}'));
+      await pumpReaderUntil(tester, bookChip);
+      await tester.scrollUntilVisible(
+        bookChip,
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('本书标签'), findsOneWidget);
+      expect(find.text('全部标签'), findsOneWidget);
+      expect(find.byType(InputChip), findsOneWidget);
+      expect(find.byType(FilterChip), findsNWidgets(2));
+      expect(tester.widget<FilterChip>(allChip).selected, isTrue);
+      expect(tester.widget<FilterChip>(allChip).onDeleted, isNull);
+      expect(
+        tester
+            .widget<FilterChip>(
+              find.byKey(ValueKey('book-detail-tag-${otherTag.id}')),
+            )
+            .selected,
+        isFalse,
+      );
+      await tester.tap(find.byTooltip('从本书移除标签「科幻」'));
+      await pumpReaderUntilComplete(
+        tester,
+        () => bookChip.evaluate().isEmpty,
+        description: '仅移除本书标签',
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('本书暂无标签，可从下方全部标签中添加。'), findsOneWidget);
+      expect(find.text('已选 0 个'), findsOneWidget);
+      expect(allChip, findsOneWidget);
+      expect(tester.widget<FilterChip>(allChip).selected, isFalse);
+      expect(await library.listTags(), hasLength(2));
+      expect(await library.bookTags(entry.id), isEmpty);
+      expect((await library.bookTags(another.id)).map((tag) => tag.id), [
+        tag.id,
+        otherTag.id,
+      ]);
+      await tester.ensureVisible(allChip);
+      await tester.pumpAndSettle();
+      await tester.tap(allChip);
+      await pumpReaderUntil(tester, bookChip);
+      await tester.pumpAndSettle();
+      expect(find.text('已选 1 个'), findsOneWidget);
+      expect(tester.widget<FilterChip>(allChip).selected, isTrue);
+      expect((await library.bookTags(entry.id)).single.id, tag.id);
+      expect(await library.listTags(), hasLength(2));
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets('本书标签移除失败时保留显示与关联，解除占用后可重试', (tester) async {
     late BookEntry entry;
-    late BookEntry another;
     late BookTag tag;
     await tester.runAsync(() async {
-      entry = await library.importBytes(buildTestEpub(title: '详情删除甲'));
-      another = await library.importBytes(buildTestEpub(title: '详情删除乙'));
-      tag = await library.createTag('待删除标签');
-      await library.addBookTag(entry.id, tag.id);
-      await library.addBookTag(another.id, tag.id);
+      entry = await store.importBytes(buildTestEpub(title: '标签移除重试'));
+      tag = await store.createTag('待读');
+      await store.addBookTag(entry.id, tag.id);
     });
-    await tester.pumpWidget(MaterialApp(home: BookDetailPage(entry: entry, library: library)));
-    await tester.pumpAndSettle();
-    final remove = find.byTooltip('删除标签「待删除标签」');
-    await tester.ensureVisible(remove);
-    await tester.tap(remove);
-    await tester.pumpAndSettle();
-    expect(find.textContaining('所有书籍和标签堆叠'), findsOneWidget);
-    await tester.tap(find.byKey(const ValueKey('delete-tag-confirm')));
-    await pumpReaderUntilComplete(
-      tester,
-      () => find.byKey(ValueKey('book-detail-tag-${tag.id}')).evaluate().isEmpty,
-      description: '详情标签删除',
+    await tester.pumpWidget(
+      MaterialApp(
+        home: BookDetailPage(entry: entry, library: store),
+      ),
+    );
+    final bookChip = find.byKey(ValueKey('book-detail-book-tag-${tag.id}'));
+    await pumpReaderUntil(tester, bookChip);
+    await tester.scrollUntilVisible(
+      bookChip,
+      200,
+      scrollable: find.byType(Scrollable).first,
     );
     await tester.pumpAndSettle();
-    expect(await library.listTags(), isEmpty);
-    expect(await library.bookTags(entry.id), isEmpty);
-    expect(await library.bookTags(another.id), isEmpty);
-    expect(find.byKey(ValueKey('book-detail-tag-${tag.id}')), findsNothing);
+    store.beginSyncRead();
+    try {
+      await tester.tap(find.byTooltip('从本书移除标签「待读」'));
+      await pumpReaderUntil(tester, find.text('请先退出阅读或编辑，再修改图书资料'));
+      await tester.pumpAndSettle();
+      expect(bookChip, findsOneWidget);
+      expect((await store.bookTags(entry.id)).single.id, tag.id);
+    } finally {
+      store.endSyncRead();
+    }
+    await tester.ensureVisible(bookChip);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('从本书移除标签「待读」'));
+    await pumpReaderUntilComplete(tester, () => bookChip.evaluate().isEmpty);
+    await tester.pumpAndSettle();
+    expect(await store.bookTags(entry.id), isEmpty);
+    expect((await store.listTags()).single.id, tag.id);
+    expect(find.text('请先退出阅读或编辑，再修改图书资料'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
@@ -160,12 +244,13 @@ void main() {
     await tester.tap(entryTile);
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('booklist-membership')), findsOneWidget);
-    await tester.tap(find.byKey(ValueKey('booklist-membership-${bookList.id}')));
-    await tester.pumpAndSettle();
-    expect(
-      (await store.bookListStore().list()).single.bookIds,
-      <String>[entry.id],
+    await tester.tap(
+      find.byKey(ValueKey('booklist-membership-${bookList.id}')),
     );
+    await tester.pumpAndSettle();
+    expect((await store.bookListStore().list()).single.bookIds, <String>[
+      entry.id,
+    ]);
     expect(tester.takeException(), isNull);
   });
 
@@ -300,9 +385,20 @@ void main() {
       find.byKey(const ValueKey<String>('book-detail-author-field')),
       '新作者',
     );
-    await tester.enterText(
-      find.byKey(const ValueKey<String>('book-detail-description-field')),
-      '新的简介',
+    final description = find.byKey(
+      const ValueKey<String>('book-detail-description-field'),
+    );
+    await tester.scrollUntilVisible(
+      description,
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.enterText(description, '新的简介');
+    tester.widget<TextField>(description).focusNode!.unfocus();
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey<String>('book-detail-title-field')),
+      -200,
+      scrollable: find.byType(Scrollable).first,
     );
     await tester.pump();
     store.beginSyncRead();
@@ -429,6 +525,66 @@ void main() {
 
     expect(coverStore.replaced, isTrue);
     expect(find.text('封面已更新'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('文件信息展示真实 EPUB 大小和导入时的全书字数', (tester) async {
+    final entry = (await tester.runAsync(
+      () => store.importBytes(buildTestEpub(title: '本地文件大小')),
+    ))!;
+    final bytes = (await tester.runAsync(() => File(entry.filePath).length()))!;
+    final expected = bytes < 1024
+        ? '$bytes B'
+        : '${(bytes / 1024).toStringAsFixed(1)} KB';
+    final characters = (await store.progressWeights(entry.id)).totalCharacters;
+    expect(characters, greaterThan(0));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: BookDetailPage(entry: entry, library: store),
+      ),
+    );
+    final value = find.byKey(const ValueKey('book-detail-storage-value'));
+    await pumpReaderUntilComplete(
+      tester,
+      () =>
+          value.evaluate().isNotEmpty &&
+          tester.widget<Text>(value).data == expected,
+      description: '详情 EPUB 大小',
+    );
+    expect(tester.widget<Text>(value).data, expected);
+    final characterCount = find.byKey(
+      const ValueKey('book-detail-character-count'),
+    );
+    expect(tester.widget<Text>(characterCount).data, '$characters 字');
+    expect(
+      tester.getRect(characterCount).top,
+      greaterThan(tester.getRect(value).bottom),
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('旧书缺少真实字数时不把按章估算值当作字数', (tester) async {
+    final entry = (await tester.runAsync(
+      () => store.importBytes(buildTestEpub(title: '尚未统计字数')),
+    ))!;
+    await db
+        .update(db.spineItems)
+        .write(const SpineItemsCompanion(charCount: Value<int>(0)));
+    expect((await store.progressWeights(entry.id)).estimated, isTrue);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: BookDetailPage(entry: entry, library: store),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<Text>(
+            find.byKey(const ValueKey('book-detail-character-count')),
+          )
+          .data,
+      '暂无统计',
+    );
     expect(tester.takeException(), isNull);
   });
 

@@ -61,7 +61,7 @@ enum BookImportOutcome { added, updated, unchanged }
 
 const txtChapterRulesSettingKey = 'txt.chapterRules.v1';
 
-/// 当前设备各书架分组的标签堆叠顺序；标签关联仍由书库正常同步。
+/// 当前设备的书架标签自动堆叠开关；标签关联仍由书库正常同步。
 const bookshelfTagStacksKey = 'local.bookshelf.tagStacks';
 
 typedef BookNoteCounts = ({int thoughts, int marks, DateTime updatedAt});

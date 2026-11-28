@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -156,12 +155,7 @@ void main() {
         await library.addBookTag(book.id, tag.id);
       }
       await library.setSetting(bookshelfSortKey, BookSortOrder.title.value);
-      await library.setSetting(
-        bookshelfTagStacksKey,
-        jsonEncode({
-          'default': [tag.id],
-        }),
-      );
+      await library.setSetting(bookshelfTagStacksKey, 'true');
     });
     final progress = MemoryReaderProgressStore();
     final coverSizes = <Size>[];
@@ -224,12 +218,7 @@ void main() {
         await library.addBookTag(book.id, tag.id);
       }
       await library.setSetting(bookshelfShowTitlesKey, 'false');
-      await library.setSetting(
-        bookshelfTagStacksKey,
-        jsonEncode({
-          'default': [tag.id],
-        }),
-      );
+      await library.setSetting(bookshelfTagStacksKey, 'true');
     });
     final progress = MemoryReaderProgressStore();
     Future<void> show(int refresh) async {
