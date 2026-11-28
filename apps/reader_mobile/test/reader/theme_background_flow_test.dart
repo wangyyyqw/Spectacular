@@ -10,6 +10,7 @@ import 'package:reader_mobile/reader/reader_settings.dart';
 import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/reader_view.dart';
+import 'package:reader_ui/reader_ui_diagnostics.dart';
 import 'package:reader_ui/panels/settings_panel.dart';
 import 'package:reader_ui/theme/reader_theme.dart';
 import 'package:reader_ui/theme/reader_panel_theme.dart';
@@ -393,6 +394,14 @@ void main() {
   testWidgets('恢复缺失图片时回退纯色，不显示已启用图片', (tester) async {
     final source = await openTestChapterSource(_book());
     final changes = <String>[];
+    final messages = <String>[];
+    final previousDiagnostic = ReaderUiDiagnostics.onEvent;
+    ReaderUiDiagnostics.onEvent = (event, fields) {
+      if (event == 'reader_ui_message') {
+        messages.add(fields['message']! as String);
+      }
+    };
+    addTearDown(() => ReaderUiDiagnostics.onEvent = previousDiagnostic);
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
@@ -409,10 +418,7 @@ void main() {
       ),
     );
     await pumpReaderUntil(tester, find.byType(ReaderView));
-    expect(find.text('背景图片无法读取，请重新选择'), findsOneWidget);
-    // 提示结束后再点底栏，确保测试确实进入主题抽屉。
-    await tester.pumpAndSettle();
-    await tester.pump(const Duration(seconds: 2));
+    expect(messages, contains('背景图片无法读取，请重新选择'));
     await tester.pumpAndSettle();
     await _themeMenu(tester);
     expect(find.byType(SettingsPanel), findsOneWidget);

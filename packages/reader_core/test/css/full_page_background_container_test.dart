@@ -132,7 +132,8 @@ void main() {
     final page = (await _pages(background)).single;
     final block = page.slices.single.block;
     expect(block.layout.text, 'TEXT');
-    expect(block.startCfi, 'epubcfi(/6/2!/4/2/2/1)');
+    expect(block.startCfi, 'epubcfi(/6/2!/4/2/2/1:0)');
+    expect(block.offsetForCfi(block.startCfi!), 0);
     final cell = block.table!.cells.single;
     expect(cell.layout.text, 'TEXT');
     expect(cell.startCfi, block.startCfi);

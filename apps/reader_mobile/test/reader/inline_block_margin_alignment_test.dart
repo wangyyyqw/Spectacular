@@ -107,7 +107,9 @@ Future<void> _expectServantTags(EpubChapterSource source, double size) async {
     final block = blocks.firstWhere(
       (block) => block.layout.lines
           .expand((line) => line.inlineBoxes)
-          .any((tag) => (tag.spec.payload! as PageBlock).layout.text == text),
+          .map((tag) => tag.spec.payload)
+          .whereType<PageBlock>()
+          .any((block) => block.layout.text == text),
     );
     await _expectServantRow(block, size, text);
   }
@@ -118,7 +120,10 @@ Future<void> _expectServantRow(
   double size,
   String text,
 ) async {
-  final tags = block.layout.lines.expand((line) => line.inlineBoxes).toList();
+  final tags = block.layout.lines
+      .expand((line) => line.inlineBoxes)
+      .where((box) => box.spec.payload is PageBlock)
+      .toList();
   expect(tags, hasLength(2));
   if (size == 17) {
     expect(block.layout.lines, hasLength(1), reason: '默认字号复现手机同排标签');

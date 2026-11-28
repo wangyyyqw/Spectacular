@@ -292,12 +292,18 @@ class _MarginCollapseWork {
         : previousMargin == null
         ? current.spaceBefore
         : collapseMargins(previousMargin, current.spaceBefore);
+    final preservePageStartMargin = _pendingEmptyMargins != null;
     _pendingFloatParentMargins = null;
     _pendingEmptyMargins = null;
     _lastEmptyBlock = null;
-    if ((parents != null || previousMargin != null) &&
-        before != current.spaceBefore) {
-      current = current.withSpacing(spaceBefore: before);
+    if (preservePageStartMargin ||
+        (parents != null || previousMargin != null) &&
+            before != current.spaceBefore) {
+      current = current.withSpacing(
+        spaceBefore: before,
+        preservePageStartMargin:
+            preservePageStartMargin || current.preservePageStartMargin,
+      );
       _parentMarginChanged = true;
     }
     _blocks.add(current);

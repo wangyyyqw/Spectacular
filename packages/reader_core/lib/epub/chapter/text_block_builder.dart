@@ -373,7 +373,7 @@ class TextBlockBuilder {
     // rem 相对章节根字号，不能用已被作者缩小的父容器作为分母。
     final referenceSize = CssFontSizes.usesRoot(raw)
         ? styles.style.fontSize
-        : _fontSizeReference(ancestors);
+        : _fontSizeReference(context.ancestors);
     if (referenceSize <= 0) return null;
     return readerSize * computed.fontSize / referenceSize;
   }
@@ -1166,12 +1166,8 @@ class TextBlockBuilder {
       start: start,
       end: end,
       style: style,
-      inlineLeadingInset: replacedImage
-          ? 0
-          : style.margin.left + run.leadingInset,
-      inlineTrailingInset: replacedImage
-          ? 0
-          : style.margin.right + run.trailingInset,
+      inlineLeadingInset: replacedImage ? 0 : run.leadingInset,
+      inlineTrailingInset: replacedImage ? 0 : run.trailingInset,
     );
   }
 

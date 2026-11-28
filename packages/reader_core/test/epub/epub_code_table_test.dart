@@ -27,16 +27,22 @@ void main() {
     }
   });
 
-  test('lib 内全部码字面量已登记（防漂移）', () {
+  test('lib 内 EPUB 码字面量已登记（独立 TXT 异常域除外）', () {
     final libDir = Directory('lib');
     expect(libDir.existsSync(), isTrue, reason: '需在包根目录运行');
     final used = <String>{};
     final pattern = RegExp(r"'(E_[A-Z_]+)'");
+    final txtPattern = RegExp(r"TxtConversionException\(\s*'(E_[A-Z_]+)'");
     for (final entity in libDir.listSync(recursive: true)) {
       if (entity is! File || !entity.path.endsWith('.dart')) {
         continue;
       }
-      for (final match in pattern.allMatches(entity.readAsStringSync())) {
+      // 只排除独立 TXT 异常的实际码位，同名 EPUB 码仍需登记。
+      final source = entity.readAsStringSync().replaceAll(
+        txtPattern,
+        'TxtConversionException(',
+      );
+      for (final match in pattern.allMatches(source)) {
         used.add(match.group(1)!);
       }
     }

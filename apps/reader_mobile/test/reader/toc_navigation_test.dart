@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_view.dart';
 import 'package:reader_ui/reader_session.dart';
+import 'package:reader_ui/panels/toc_panel.dart';
 
 import '../support/reader_pump.dart';
 import '../support/test_epub.dart';
@@ -64,7 +65,8 @@ void main() {
     // 进目录面板。
     await tester.tap(find.text('目录'));
     await tester.pumpAndSettle();
-    expect(find.textContaining('共 '), findsOneWidget);
+    expect(find.byType(TocPanel), findsOneWidget);
+    expect(tester.widget<TocPanel>(find.byType(TocPanel)).entries, session.toc);
 
     // 点一个非当前章。
     final target = session.toc.last;

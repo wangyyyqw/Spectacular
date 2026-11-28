@@ -794,7 +794,8 @@ class PagePainter {
       _paintGallery(context, geometry, gallery);
       return;
     }
-    final fontMetricsCache = <TextStyle, ({double ascent, double descent})>{};
+    final fontMetricsCache =
+        <(TextStyle, String), ({double ascent, double descent})>{};
     // 表格切片（flat 管线接入）：网格线 + 逐格文字，不走行文本路径。
     final tableSpec = geometry.slice.block.table;
     if (tableSpec != null) {
@@ -1350,7 +1351,8 @@ class PagePainter {
       }
     }
     final geometries = <_SliceGeometry>[];
-    final borderMetrics = <TextStyle, ({double ascent, double descent})>{};
+    final borderMetrics =
+        <(TextStyle, String), ({double ascent, double descent})>{};
     var y = page.topPadding;
     var chapterLeading = page.pageIndex == 0;
     for (final slice in page.slices) {
@@ -1417,7 +1419,7 @@ class PagePainter {
     PageBlockSlice slice,
     Size pageSize,
     double sliceY,
-    Map<TextStyle, ({double ascent, double descent})> metricsCache,
+    Map<(TextStyle, String), ({double ascent, double descent})> metricsCache,
   ) {
     final layout = slice.block.layout;
     if (layout.isVertical || layout.lines.any((line) => line.vertical)) {
@@ -1434,7 +1436,14 @@ class PagePainter {
     for (final line in slice.lines) {
       for (final run in runs) {
         if (run.end <= line.start || run.start >= line.end) continue;
-        final extents = _inlineBorderVerticalExtents(run.style, metricsCache);
+        final extents = _inlineBorderVerticalExtents(
+          run.style,
+          metricsCache,
+          layout.text.substring(
+            math.max(run.start, line.start),
+            math.min(run.end, line.end),
+          ),
+        );
         final baseline = lineTop + line.baseline - line.top;
         top = math.max(top, clip.top - baseline + extents.top);
         bottom = math.max(bottom, baseline + extents.bottom - clip.bottom);
@@ -1453,9 +1462,10 @@ class PagePainter {
   /// 相对基线的上下边界：字体内容盒、内边距及可见边框依次向外扩。
   ({double top, double bottom}) _inlineBorderVerticalExtents(
     ComputedStyle style,
-    Map<TextStyle, ({double ascent, double descent})> metricsCache,
+    Map<(TextStyle, String), ({double ascent, double descent})> metricsCache,
+    String text,
   ) {
-    final font = _fontMetricsOf(style, metricsCache);
+    final font = _fontMetricsOf(style, metricsCache, text: text);
     final borders = style.borders;
     return (
       top:
@@ -2495,7 +2505,8 @@ class PagePainter {
     // 表格原点与正文左缘对齐（P9-16）：列坐标是表格内的相对坐标，
     // 左内缩（容器内边距）与 margin 必须叠加，否则表格压到页边距外。
     final left = geometry.leftInset;
-    final fontMetricsCache = <TextStyle, ({double ascent, double descent})>{};
+    final fontMetricsCache =
+        <(TextStyle, String), ({double ascent, double descent})>{};
     // 行背景在单元格背景下方；按起始格裁剪，保留合并格的行背景归属。
     for (final cell in spec.cells) {
       _paintTableRowBackground(canvas, cell, Offset(left, top));
@@ -3135,7 +3146,8 @@ class PagePainter {
     required LineBox line,
     required CssTextAlign textAlign,
     required bool isRtl,
-    required Map<TextStyle, ({double ascent, double descent})> metricsCache,
+    required Map<(TextStyle, String), ({double ascent, double descent})>
+    metricsCache,
   }) {
     final marginPlan = _InlineMarginPlan(
       runs: runs,
@@ -3169,7 +3181,13 @@ class PagePainter {
       // 行内背景/边框按 CSS 内容盒定位：字体自身 ascent/descent（不含
       // line-height 的半行距）加上下 padding。此时 span 继承的 line-height
       // 只作用于行盒，不放大背景；竖排仍沿用行盒切片。
-      final font = line.vertical ? null : _fontMetricsOf(style, metricsCache);
+      final font = line.vertical
+          ? null
+          : _fontMetricsOf(
+              style,
+              metricsCache,
+              text: painter.text!.toPlainText().substring(run.start, run.end),
+            );
       final baseline = font == null
           ? 0.0
           : y +
@@ -5272,7 +5290,7 @@ class PagePainter {
     ComputedStyle style,
     double x,
     double y,
-    Map<TextStyle, ({double ascent, double descent})> metricsCache,
+    Map<(TextStyle, String), ({double ascent, double descent})> metricsCache,
   ) {
     final lineLength = line.end - line.start;
     if (lineLength <= 0) {
@@ -5489,13 +5507,13 @@ class PagePainter {
   /// `TextStyle.copyWith(height: null)` 清不掉 height（null 视为「不修改」），
   /// 这里按原样式的字体字段新建一个不带 height 的探针样式。
   ///
-  /// 探针文本「国Hg」同时覆盖 CJK 与拉丁，取到的是这一行参与排版的字体
-  /// 度量；若书籍字体缺其中一种而落到回退字体，装饰线位置会有 ≤1px 偏差
-  /// （Chromium 按被装饰文本自己的字体算，回退场景同样存在口径差异）。
+  /// 行内边框传入实际文字，避免探针中的无关字符触发回退字体并扩大盒高；
+  /// 手动画线的兼容入口仍使用默认探针。
   ({double ascent, double descent}) _fontMetricsOf(
     ComputedStyle style,
-    Map<TextStyle, ({double ascent, double descent})> cache,
-  ) {
+    Map<(TextStyle, String), ({double ascent, double descent})> cache, {
+    String text = '国Hg',
+  }) {
     final textStyle = TextLayoutEngine.textStyleFor(style);
     final key = TextStyle(
       fontSize: textStyle.fontSize,
@@ -5508,12 +5526,12 @@ class PagePainter {
       locale: textStyle.locale,
       leadingDistribution: textStyle.leadingDistribution,
     );
-    final cached = cache[key];
+    final cached = cache[(key, text)];
     if (cached != null) {
       return cached;
     }
     final probe = TextPainter(
-      text: TextSpan(text: '国Hg', style: key),
+      text: TextSpan(text: text, style: key),
       textDirection: TextDirection.ltr,
     )..layout();
     final metrics = probe.computeLineMetrics();
@@ -5521,7 +5539,7 @@ class PagePainter {
         ? (ascent: style.fontSize * 1.15, descent: style.fontSize * 0.29)
         : (ascent: metrics.first.ascent, descent: metrics.first.descent);
     probe.dispose();
-    cache[key] = result;
+    cache[(key, text)] = result;
     return result;
   }
 

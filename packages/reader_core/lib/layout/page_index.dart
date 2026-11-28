@@ -459,6 +459,7 @@ class _IndexReplayPage {
             slices.isEmpty &&
             entry.topPadding >= 0 &&
             range.start == 0 &&
+            !block.preservePageStartMargin &&
             block.canTrimTextEdgesAt(range.start)
         ? math.max(0.0, block.spaceBefore)
         : 0.0;

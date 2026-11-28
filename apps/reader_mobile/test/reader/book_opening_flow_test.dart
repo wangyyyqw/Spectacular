@@ -130,7 +130,10 @@ void main() {
         .widget<ReaderSemanticsLayer>(find.byType(ReaderSemanticsLayer))
         .page;
     expect(page.background?.imageUrl, 'OEBPS/Images/cover.png');
-    expect(page.slices, isEmpty, reason: '背景封面没有正文或图片元素的位置锚点');
+    for (final slice in page.slices) {
+      expect(slice.block.layout.text.trim(), isEmpty);
+      expect(slice.block.inlineImages, isEmpty, reason: 'CSS 背景不转成正文图片');
+    }
     expect(find.byType(BookOpeningView), findsNothing);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox());

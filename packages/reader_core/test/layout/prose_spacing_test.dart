@@ -451,11 +451,15 @@ void main() {
     final box = TextHitTester.lineBoxes(page).first;
     final line = layout.lines.first;
     final painter = _paintLine(layout, line, style);
+    final paintOffset = textLineJustifyOffset(line, painter);
     for (var i = 0; i < box.text.length; i++) {
       final position = TextPosition(offset: i);
       expect(
         TextHitTester.caretOffset(box, position).dx,
-        closeTo(painter.getOffsetForCaret(position, Rect.zero).dx, .01),
+        closeTo(
+          painter.getOffsetForCaret(position, Rect.zero).dx + paintOffset,
+          .01,
+        ),
       );
       final selected = TextHitTester.selectionRects(box, i, i + 1).single;
       final painted = painter
@@ -463,8 +467,8 @@ void main() {
             TextSelection(baseOffset: i, extentOffset: i + 1),
           )
           .single;
-      expect(selected.left, closeTo(painted.left, .01));
-      expect(selected.right, closeTo(painted.right, .01));
+      expect(selected.left, closeTo(painted.left + paintOffset, .01));
+      expect(selected.right, closeTo(painted.right + paintOffset, .01));
       final hit = TextHitTester.hitTest(
         page,
         Offset(box.rect.left + painted.left + .1, box.rect.center.dy),

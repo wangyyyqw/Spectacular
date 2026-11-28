@@ -111,7 +111,7 @@ void main() {
     expect(actual.bottom, closeTo(expected.bottom, 0.5));
   });
 
-  test('小字号独占段落不增加占位，行顶搬移时基线同步移动', () {
+  test('小字号独占段落保留父行高，行顶搬移时基线同步移动', () {
     final layout = TextLayoutEngine.layout(
       text: 'abcdefgh',
       style: _base,
@@ -119,7 +119,7 @@ void main() {
       runs: [StyledRun(start: 0, end: 8, style: _small)],
     );
     expect(layout.lineCount, 2);
-    expect(layout.height, 44, reason: '不强制撑大已排好的行盒');
+    expect(layout.height, 64, reason: '两行均保留父段落 32px 最小行高');
     final first = layout.lines.first;
     final moved = first.copyWith(top: first.top + 22);
     expect(moved.baseline - moved.top, first.baseline - first.top);

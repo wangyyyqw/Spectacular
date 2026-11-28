@@ -190,7 +190,7 @@ void main() {
       image,
       '<div><img src="$_imageHref"/></div>',
     );
-    expect(bounds.width, closeTo(_pageSize.width - _insets.horizontal, 2));
+    expect(bounds.width, closeTo(_pageSize.width, 2));
     expect(bounds.height, closeTo(bounds.width * 4 / 3, 2));
   });
 

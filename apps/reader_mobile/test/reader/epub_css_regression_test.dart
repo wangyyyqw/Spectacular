@@ -283,23 +283,22 @@ void main() {
     final exactBytes = const <int>[0, 1, 2, 3];
     final fallbackBytes = File('assets/fonts/MoyuSerif-Regular.otf')
         .readAsBytesSync();
-    String digestOf(List<int> bytes) => sha256
-        .convert(utf8.encode('w400i0:${sha256.convert(bytes)}'))
-        .toString();
     final source = await openCssChapter(
       body: '<p>字体精确路径</p>',
       css:
           '@font-face {font-family:auditfont;src:url("Fonts/shared.otf");}'
           'p {font-family:auditfont,serif;}',
       binaryFiles: {
-        // 精确来源存在但字节无效：注册必须失败，不能悄悄改用另一个目录。
+        // 精确来源存在但字节无效：不能悄悄改用另一个目录的有效字体。
         'OEBPS/Styles/Fonts/shared.otf': exactBytes,
         'OEBPS/Other/Fonts/shared.otf': fallbackBytes,
       },
     );
     addTearDown(source.close);
     final block = (await source.loadChapter(0)).first.slices.first.block;
-    expect(block.style!.fontFamily, contains(digestOf(exactBytes)));
-    expect(block.style!.fontFamily, isNot(contains(digestOf(fallbackBytes))));
+    String familyOf(List<int> bytes) =>
+        'bi_data_${sha256.convert(utf8.encode(jsonEncode(['bk-${source.document.opfPath.hashCode}', sha256.convert(bytes).toString()])))}';
+    expect(block.style!.fontFamily, familyOf(exactBytes));
+    expect(block.style!.fontFamily, isNot(familyOf(fallbackBytes)));
   });
 }

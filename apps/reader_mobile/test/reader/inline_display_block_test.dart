@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/parser/document_parser.dart';
+import 'package:reader_core/position/cfi.dart';
 import 'package:reader_core/epub/epub_chapter_source.dart';
 
 import 'support/css_chapter_book.dart';
@@ -24,7 +25,9 @@ Future<List<PageBlock>> blocksOf(
 Map<String, String> textCfis(ParsedNode root) {
   final result = <String, String>{};
   void visit(ParsedNode node) {
-    if (node is ParsedText) result[node.text] = node.cfi.serialize();
+    if (node is ParsedText) {
+      result[node.text] = cfiWithCharOffset(node.cfi.serialize(), 0);
+    }
     if (node is ParsedElement) node.children.forEach(visit);
   }
 

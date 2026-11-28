@@ -133,11 +133,11 @@ void main() {
       final style = block.style!;
       expect(style.color, const Color(0xFFFF0000));
       expect(style.fontSize, readerSize);
-      // 2em + 4px 在作者级联中计算；覆盖阅读字号不重算该缩进。
-      expect(style.textIndent, closeTo(2 * bookFontSize + 4, .001));
+      // em 随最终阅读字号变化，绝对的 4px 保持不变。
+      expect(style.textIndent, closeTo(2 * readerSize + 4, .001));
       expect(
         block.layout.lines.first.indent,
-        closeTo(2 * bookFontSize + 4, .001),
+        closeTo(2 * readerSize + 4, .001),
       );
     }
   });
@@ -274,7 +274,9 @@ void main() {
     );
     final pages = await source.loadChapter(0);
     expect(pages, hasLength(1), reason: '空白章不能产出零页');
-    expect(pages.first.slices, isEmpty);
+    expect(pages.first.slices, hasLength(1));
+    expect(pages.first.slices.single.block.layout.text, isEmpty);
+    expect(pages.first.slices.single.block.layout.lines, hasLength(1));
     expect(pages.first.background?.imageUrl, 'OEBPS/Images/i.png');
   });
 
@@ -296,11 +298,11 @@ void main() {
           .map((s) => s.block);
       final block = blocks.first;
       final style = block.style!;
-      // 短居中段沿用装饰标题字号，普通正文仍消费阅读设置。
-      expect(style.fontSize, bookFontSize);
+      // 相对字号与缩进随阅读设置变化，作者居中和避分页声明保留。
+      expect(style.fontSize, readerSize);
       expect(blocks.last.style!.fontSize, readerSize);
-      expect(style.textIndent, 2 * bookFontSize);
-      expect(block.layout.lines.first.indent, 2 * bookFontSize);
+      expect(style.textIndent, 2 * readerSize);
+      expect(block.layout.lines.first.indent, 2 * readerSize);
       expect(style.textAlign, CssTextAlign.center);
       expect(style.breakInsideAvoid, isTrue);
     }

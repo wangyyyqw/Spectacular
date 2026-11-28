@@ -232,9 +232,9 @@ void main() {
     final name = blocks.firstWhere(
       (block) => block.layout.lines
           .expand((line) => line.inlineBoxes)
-          .any(
-            (box) => (box.spec.payload! as PageBlock).layout.text == '【恐惧养料】',
-          ),
+          .map((box) => box.spec.payload)
+          .whereType<PageBlock>()
+          .any((block) => block.layout.text == '【恐惧养料】'),
     );
     final description = blocks.firstWhere(
       (b) => b.layout.text.startsWith('你可以吸收周围的恐惧情绪'),

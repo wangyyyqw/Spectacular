@@ -30,13 +30,17 @@ void main() {
       };
       final tags = <InlineBoxPlacement>[
         for (final block in blocks)
-          for (final line in block.layout.lines) ...line.inlineBoxes,
+          for (final line in block.layout.lines)
+            ...line.inlineBoxes.where((box) => box.spec.payload is PageBlock),
       ];
       final ranks = <InlineBoxPlacement>[
         for (final block in blocks)
           if (block.table != null)
             for (final cell in block.table!.cells)
-              for (final line in cell.layout.lines) ...line.inlineBoxes,
+              for (final line in cell.layout.lines)
+                ...line.inlineBoxes.where(
+                  (box) => box.spec.payload is PageBlock,
+                ),
       ];
       expect(tags, hasLength(62));
       expect(ranks, hasLength(62));
@@ -53,7 +57,9 @@ void main() {
       expect(tags.first.spec.marginRight, 5);
       for (final block in blocks) {
         for (final line in block.layout.lines) {
-          for (final tag in line.inlineBoxes) {
+          for (final tag in line.inlineBoxes.where(
+            (box) => box.spec.payload is PageBlock,
+          )) {
             expect(tag.spec.verticalAlign, InlineBoxVerticalAlign.middle);
             final baseline = line.baseline - line.top;
             final midpoint = baseline - tag.ascent + tag.spec.outerHeight / 2;

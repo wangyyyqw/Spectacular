@@ -325,7 +325,14 @@ void main() {
         painter.paintBackground(canvas, pageSize: _size, pageInsets: insets);
         canvas.drawImage(body, Offset.zero, Paint());
       });
-      expect(_diff(full, composite), 0, reason: '透明正文铺回真实纸底后应保留文字对比度及作者卡片');
+      // 透明位图先预乘 alpha 再合成，8 位颜色通道允许一次整数舍入。
+      for (var offset = 0; offset < full.lengthInBytes; offset++) {
+        expect(
+          (full.getUint8(offset) - composite.getUint8(offset)).abs(),
+          lessThanOrEqualTo(1),
+          reason: '透明正文铺回真实纸底后应保留文字对比度及作者卡片，通道 $offset',
+        );
+      }
     });
   }
 

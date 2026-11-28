@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:reader_mobile/diagnostics/reader_log.dart';
 import 'package:reader_mobile/reader/epub_reader_page.dart';
 import 'package:reader_mobile/storage/reading_session_store.dart';
 import 'package:reader_ui/reader_page.dart';
@@ -99,8 +100,13 @@ class _ReadingDurationStore implements ReadingSessionCheckpointStore {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets('正常退出后才拒绝保存，在书架提示旧位置保留', (tester) async {
+  testWidgets('正常退出后才拒绝保存，记录诊断并保留旧位置', (tester) async {
+    ReaderLog.instance.resetForTest();
     final store = _DelayedRejectingStore();
+    store.items['late-close-progress'] = const ReaderProgress(
+      spineIndex: 0,
+      pageIndex: 0,
+    );
     addTearDown(() {
       if (!store.reject.isCompleted) store.reject.complete();
     });
@@ -130,6 +136,7 @@ void main() {
     await tester.tap(find.text('书架阅读'));
     await pumpReaderUntil(tester, find.byType(ReaderView));
     await tester.pumpAndSettle();
+    final saved = await store.load('late-close-progress');
     store.rejectSaves = true;
     final view = tester.getRect(find.byType(ReaderView));
     await tester.tapAt(view.topRight + Offset(-4, view.height * 0.4));
@@ -149,7 +156,11 @@ void main() {
     );
     await tester.pump();
 
-    expect(find.text('本次位置未保存，保留上次保存位置：书籍已更新'), findsOneWidget);
+    expect(
+      await ReaderLog.instance.exportText(),
+      contains('reader_progress_close_failed'),
+    );
+    expect(await store.load('late-close-progress'), saved);
     expect(tester.takeException(), isNull);
   });
 

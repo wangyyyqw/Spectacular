@@ -517,6 +517,10 @@ class _TableCell {
 
   Future<double> minWidth() async {
     if (!hasContent) return 0;
+    if (style.whiteSpace == CssWhiteSpace.nowrap ||
+        style.whiteSpace == CssWhiteSpace.pre) {
+      return naturalWidth();
+    }
     var width = await inline.measure.minContentTextWidth(
       text: content.text,
       breakEverywhere:

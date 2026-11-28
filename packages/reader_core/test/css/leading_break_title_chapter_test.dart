@@ -8,6 +8,7 @@ import 'package:reader_core/epub/epub_chapter_source.dart';
 import 'package:reader_core/epub/epub_format_opener.dart';
 import 'package:reader_core/layout/paginator.dart';
 import 'package:reader_core/paint/page_renderer.dart';
+import 'package:reader_core/parser/cfi_binder.dart';
 import 'package:reader_core/source/format_opener.dart';
 
 import '../audit/audit_epub_fixture.dart';
@@ -207,8 +208,16 @@ void main() {
     );
     final chapter = await source.loadAnchorChapter(0);
     expect(chapter.text, layout.text);
-    // 这是修复前正文“简介”的旧坐标；布局空行不能改变保存的原文位置。
-    const savedCfi = 'epubcfi(/6/2!/4/2/1:1)';
+    // 以原 XHTML 的字符节点为准；两个 br 和 b 均参与标准 CFI 步进。
+    final bound = CfiBinder.bind(
+      xhtml: '<html><body><h2> \n<br/>\n<br/> <b>简介</b></h2></body></html>',
+      spineIndex: 0,
+    );
+    final savedCfi = bound.textNodes
+        .singleWhere((node) => node.text == '简介')
+        .baseCfi
+        .withCharOffset(1)
+        .serialize();
     expect(chapter.cfiAt(1), savedCfi);
     expect(chapter.offsetFor(savedCfi), 1);
     expect(chapter.text.substring(chapter.offsetFor(savedCfi)!), '介');

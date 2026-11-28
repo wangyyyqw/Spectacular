@@ -53,6 +53,7 @@ void main() {
             .whereType<ParsedText>()
             .first
             .cfi
+            .withCharOffset(0)
             .serialize();
         final text = slices
             .where((slice) => slice.block.startCfi == cfi)

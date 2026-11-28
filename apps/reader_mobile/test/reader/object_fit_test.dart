@@ -83,8 +83,8 @@ void main() {
     final values = await styleOf(
       'img { width: 120px; height: 80px; margin: 6px 0 2px; }',
     );
-    expect(values['margin-top'], '6px');
-    expect(values['margin-bottom'], '2px');
+    expect(cssPx(values['margin-top']), 6);
+    expect(cssPx(values['margin-bottom']), 2);
   });
 
   test('aspect-ratio：宽度定高、高度定宽，双显式尺寸不被覆盖', () async {
@@ -97,8 +97,8 @@ void main() {
     final byHeight = await imageBoxOf(
       'img { height: 40px; aspect-ratio: 4/1; }',
     );
-    expect(cssPx(byHeight.$1['width']), 160);
-    expect(byHeight.$2, 40);
+    expect(cssPx(byHeight.$1['width']), 120);
+    expect(byHeight.$2, 30, reason: '比例宽超出父盒时等比缩小');
 
     final explicit = await imageBoxOf(
       'img { width: 96px; height: 48px; aspect-ratio: 5/1; }',
@@ -115,7 +115,7 @@ void main() {
 
   test('max-width 收窄图片盒，高度按原图比例随之收缩', () async {
     final box = await imageBoxOf(
-      'img { max-width: 60%; height: auto; display: block; '
+      'img { width:100%; max-width: 60%; height: auto; display: block; '
       'margin: 0 auto; }',
     );
     expect(cssPx(box.$1['width']), closeTo(72, 0.01), reason: '父盒 120px 的 60%');

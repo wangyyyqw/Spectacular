@@ -42,8 +42,9 @@ void main() {
             (align == 'end' && direction == 'ltr');
         final shortOffset = align == 'center' ? 30.0 : (right ? 60.0 : 0.0);
         expect(cell.layout.lines.last.offsetX, closeTo(shortOffset, .01));
-        expect(cell.layout.lines.map((line) => line.height), [30, 15]);
-        expect(cell.layout.height, closeTo(45, .01));
+        // 小字号 run 保持自身字形尺寸，父段落的 30px 最小行高仍参与每行。
+        expect(cell.layout.lines.map((line) => line.height), [30, 30]);
+        expect(cell.layout.height, closeTo(60, .01));
       });
     }
   }

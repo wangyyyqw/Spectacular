@@ -12,7 +12,6 @@ import 'package:reader_core/layout/line_breaker.dart';
 import 'package:reader_core/layout/text_layout_cache.dart';
 import 'package:reader_core/parser/block_builder.dart';
 import 'package:reader_core/parser/text_aggregator.dart';
-import 'package:reader_core/position/cfi.dart';
 import 'package:reader_core/text/reader_text_overlay.dart';
 import 'package:reader_core/util/bounded_cache.dart';
 import 'package:reader_core/epub/chapter/book_fonts.dart';
@@ -65,7 +64,7 @@ void main() {
     expect(block.footnotes.single.start, text.indexOf('注'));
     expect(block.footnotes.single.end, text.indexOf('注') + 1);
     expect(block.footnotes.single.text, contains('脚注正文'));
-    expect(block.startCfi, job.node('target').cfi.serialize());
+    expect(block.startCfi, job.node('target').textCfis!.cfiAt(0));
   });
 
   test('空可见盒在计数器之前短路，下一段编号不被空盒消耗', () async {
@@ -114,7 +113,7 @@ void main() {
     expect(cap.floatSide, FloatSide.left);
     expect(cap.startCfi, job.node('target').cfi.serialize());
     expect(body.layout.text, '甲乙\uFFFC$_sentence');
-    expect(cfiCharOffset(body.startCfi!), 2);
+    expect(body.startCfi, job.node('target').textCfis!.cfiAt(2));
     expect(body.rubies!.single.start, 0);
     expect(body.rubies!.single.end, 1);
     expect(body.inlineImages.single.offset, 2);
@@ -250,12 +249,12 @@ void main() {
           '.blue span {color:blue;font-size:24px;font-family:monospace;}',
     );
     final probe = chapter.job();
-    final cfi = probe.node('red').cfi.serialize();
+    final coordinates = probe.node('red').textCfis!;
     final job = chapter.job(
       overlays: ReaderTextOverlayResolver([
         ReaderTextOverlay(
-          startCfi: cfiWithCharOffset(cfi, 4),
-          endCfi: cfiWithCharOffset(cfi, 8),
+          startCfi: coordinates.cfiAt(4)!,
+          endCfi: coordinates.cfiAt(8, end: true)!,
           fontWeight: 700,
           fontSizeScale: 1.25,
         ),

@@ -84,13 +84,13 @@ void main() {
         reason: 'UA th 居中');
   });
 
-  test('三列自动表格按 min/max-content 保留窄列，不把首列挤到换行', () async {
+  test('三列自动表格保留声明 nowrap 的首列，其余列按 min/max-content 分配', () async {
     final source = await EpubChapterSource.open(
       _buildTableEpub(
         '<table class="wz">'
-        '<tr><th>世界</th><th>种族</th><th>代表角色</th></tr>'
-        '<tr><td>载酒</td><td>人族</td><td>寻歌</td></tr>'
-        '<tr><td rowspan="2">泽兰</td><td>亡灵</td>'
+        '<tr><th class="world">世界</th><th>种族</th><th>代表角色</th></tr>'
+        '<tr><td class="world">载酒</td><td>人族</td><td>寻歌</td></tr>'
+        '<tr><td class="world" rowspan="2">泽兰</td><td>亡灵</td>'
         '<td>枯覆、骨影、语律、喑哑</td></tr>'
         '<tr><td>月狐(雪乡)</td>'
         '<td>雾刃、花殊、燃瓶、空涂、问风、涂风</td></tr>'
@@ -101,7 +101,8 @@ void main() {
             'margin: 20px 0; background: #fff; } '
             'table.wz td, table.wz th { border: 1px solid #000; '
             'padding: 8px 12px; vertical-align: middle; '
-            'font-size: .8em; text-align: center; }',
+            'font-size: .8em; text-align: center; }'
+            'table.wz .world { white-space: nowrap; }',
       ),
       contentWidth: 350,
       contentHeight: 700,
@@ -116,7 +117,7 @@ void main() {
       spec.columnXs[2] - spec.columnXs[1],
       spec.columnXs[3] - spec.columnXs[2],
     ];
-    expect(widths[0], inInclusiveRange(48, 51));
+    expect(widths[0], greaterThanOrEqualTo(2 * 13.6 + 24 + 1 - .01));
     expect(widths[1], greaterThan(70));
     expect(widths[2], greaterThan(widths[1] * 2));
     final world = spec.cells.firstWhere((cell) => cell.layout.text == '世界');

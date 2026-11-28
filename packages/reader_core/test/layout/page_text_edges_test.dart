@@ -126,18 +126,18 @@ void main() {
     );
   });
 
-  test('段前段后距离保留，中间块不回收行高留白', () {
+  test('页首尾回收普通段距，中间块保留折叠段距与行高留白', () {
     final blocks = [
       _block('abc', before: 7, after: 11),
       _block('def', before: 5, after: 9),
     ];
     final page = _paginate(blocks, height: 140).pages.single;
-    expect(page.slices.first.leadingExtent, closeTo(-3, 0.01));
+    expect(page.slices.first.leadingExtent, closeTo(-10, 0.01));
     expect(page.slices.first.trailingExtent, 0);
     expect(page.slices.last.leadingExtent, 11, reason: '相邻段距仍折叠');
-    expect(page.slices.last.trailingExtent, closeTo(-1, 0.01));
-    expect(page.usedHeight, closeTo(87, 0.01));
-    expect(TextHitTester.lineBoxes(page).first.rect.top, closeTo(7, 0.01));
+    expect(page.slices.last.trailingExtent, closeTo(-10, 0.01));
+    expect(page.usedHeight, closeTo(71, 0.01));
+    expect(TextHitTester.lineBoxes(page).first.rect.top, closeTo(0, 0.01));
   });
 
   test('只有一行时同时回收首尾，normal 不新增裁边', () {

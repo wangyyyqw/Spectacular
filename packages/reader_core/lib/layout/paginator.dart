@@ -225,6 +225,7 @@ class PageBlock {
     this.style,
     this.spaceBefore = 0,
     this.spaceAfter = 0,
+    this.preservePageStartMargin = false,
     this.topInset = 0,
     this.bottomInset = 0,
     this.leftInset = 0,
@@ -403,6 +404,9 @@ class PageBlock {
 
   /// 段后间距（逻辑像素，绘制用）。
   final double spaceAfter;
+
+  /// 空块折叠而来的作者留白不属于普通正文段距，页首裁边时必须保留。
+  final bool preservePageStartMargin;
 
   /// 内容区上内缩（border.top + padding.top）。
   final double topInset;
@@ -692,6 +696,7 @@ class PageBlock {
   PageBlock withSpacing({
     double? spaceBefore,
     double? spaceAfter,
+    bool? preservePageStartMargin,
     double? topInset,
     double? bottomInset,
     List<PageContainerFragment>? containers,
@@ -715,6 +720,8 @@ class PageBlock {
     style: style,
     spaceBefore: spaceBefore ?? this.spaceBefore,
     spaceAfter: spaceAfter ?? this.spaceAfter,
+    preservePageStartMargin:
+        preservePageStartMargin ?? this.preservePageStartMargin,
     topInset: topInset ?? this.topInset,
     bottomInset: bottomInset ?? this.bottomInset,
     leftInset: leftInset,
@@ -2193,6 +2200,7 @@ class Paginator {
     style: source.style,
     spaceBefore: source.spaceBefore,
     spaceAfter: source.spaceAfter,
+    preservePageStartMargin: source.preservePageStartMargin,
     topInset: source.topInset,
     bottomInset: source.bottomInset,
     leftInset: source.leftInset,
@@ -2504,6 +2512,7 @@ class Paginator {
           trimTextEdges &&
               slices.isEmpty &&
               startLine == 0 &&
+              !block.preservePageStartMargin &&
               !(firstPage && topPadding < 0) &&
               block.canTrimTextEdgesAt(startLine)
           ? math.max(0.0, block.spaceBefore)
@@ -3519,6 +3528,7 @@ class _TablePieceWork {
       style: source.style,
       spaceBefore: startRow == 0 ? source.spaceBefore : 0,
       spaceAfter: endRow == rowCount ? source.spaceAfter : 0,
+      preservePageStartMargin: startRow == 0 && source.preservePageStartMargin,
       topInset: startRow == 0 ? source.topInset : 0,
       bottomInset: endRow == rowCount ? source.bottomInset : 0,
       leftInset: source.leftInset,

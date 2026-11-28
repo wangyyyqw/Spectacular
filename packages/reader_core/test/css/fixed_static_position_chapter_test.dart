@@ -168,7 +168,7 @@ void main() {
 
   test('出血头图自身上边距推动后方固定父框，不吞掉图片留白', () async {
     final page = await _page(extraCss: '.header img {margin-top:2em;}');
-    expect(_bounds(page).top, closeTo(32 + _size.width * 600 / 1080, .01));
+    expect(_bounds(page).top, closeTo(2 * 18 + _size.width * 600 / 1080, .01));
   });
 
   test('章首固定父框没有上下偏移时从正文起点开始', () async {

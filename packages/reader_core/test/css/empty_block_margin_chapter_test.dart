@@ -7,6 +7,7 @@ import 'package:reader_core/css/reader_overrides.dart';
 import 'package:reader_core/epub/epub_chapter_source.dart';
 import 'package:reader_core/epub/epub_format_opener.dart';
 import 'package:reader_core/layout/paginator.dart';
+import 'package:reader_core/layout/page_index.dart';
 import 'package:reader_core/source/format_opener.dart';
 import 'package:reader_core/paint/page_renderer.dart';
 
@@ -93,6 +94,23 @@ void main() {
     final page = (await source.loadChapter(0)).single;
     final expected = _width * .98 * .7;
     expect(_textTop(page, 'INTRO'), closeTo(expected, .01));
+    final blocks = page.slices.map((slice) => slice.block).toList();
+    final pagination = ChapterPagination(
+      spineIndex: 0,
+      pages: [page],
+      pageHeight: _height,
+      totalHeight: page.usedHeight,
+    );
+    final index = PageIndex.decode(
+      PageIndex.from(pagination, blocks).encode(),
+    )!;
+    final replayed = PageIndex.apply(
+      index,
+      blocks,
+      spineIndex: 0,
+      trimTextEdges: true,
+    )!.single;
+    expect(_textTop(replayed, 'INTRO'), closeTo(expected, .01));
     final pixels = await _paint(page);
     var firstInk = -1;
     for (var y = 0; y < 854 && firstInk < 0; y++) {

@@ -523,7 +523,7 @@ abstract final class TextHitTester {
     );
     final trailing = line.spacing?.trailingSpaceStart;
     // 折叠空白仍保留原文下标，但平台不能从零尺寸尾字形求光标；锚到可见边缘。
-    final caret = trailing != null && clamped.offset >= trailing
+    var caret = trailing != null && clamped.offset >= trailing
         ? (trailing == 0
               ? Offset.zero
               : painter.getOffsetForCaret(
@@ -534,6 +534,18 @@ abstract final class TextHitTester {
                   Rect.zero,
                 ))
         : painter.getOffsetForCaret(clamped, Rect.zero);
+    if (trailing != null && trailing > 0 && clamped.offset >= trailing) {
+      final visible = painter.getBoxesForSelection(
+        TextSelection(baseOffset: 0, extentOffset: trailing),
+      );
+      if (visible.isNotEmpty) {
+        final edge = visible.last;
+        caret = Offset(
+          edge.direction == TextDirection.rtl ? edge.left : edge.right,
+          caret.dy,
+        );
+      }
+    }
     final baselineOffset =
         (box.textTop ?? box.rect.top) -
         box.rect.top +

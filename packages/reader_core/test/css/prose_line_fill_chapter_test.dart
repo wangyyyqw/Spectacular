@@ -105,6 +105,8 @@ void _expectFilledLine(PageLineBox box) {
 void _expectCoordinates(PageContent page) {
   for (final box in TextHitTester.lineBoxes(page)) {
     final painter = _painter(box);
+    final line = box.slice.block.layout.lines[box.lineIndex];
+    final paintOffset = textLineJustifyOffset(line, painter);
     for (var i = 0; i < box.text.length; i++) {
       final rect = TextHitTester.selectionRects(box, i, i + 1).single;
       final painted = painter
@@ -112,12 +114,13 @@ void _expectCoordinates(PageContent page) {
             TextSelection(baseOffset: i, extentOffset: i + 1),
           )
           .single;
-      expect(rect.left, closeTo(painted.left, .01));
-      expect(rect.right, closeTo(painted.right, .01));
+      expect(rect.left, closeTo(painted.left + paintOffset, .01));
+      expect(rect.right, closeTo(painted.right + paintOffset, .01));
       expect(
         TextHitTester.caretOffset(box, TextPosition(offset: i)).dx,
         closeTo(
-          painter.getOffsetForCaret(TextPosition(offset: i), Rect.zero).dx,
+          painter.getOffsetForCaret(TextPosition(offset: i), Rect.zero).dx +
+              paintOffset,
           .01,
         ),
       );

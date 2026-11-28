@@ -210,6 +210,31 @@ void main() {
     expect(_pixel(result.pixels, _width - 2, 1), 0x00aa00ff);
   });
 
+  test('静态外层出血不跨越定位包含块改变图片百分比宽度', () async {
+    final result = await _render(
+      body:
+          '<div class="outer"><p>OUTER</p><div class="inner">'
+          '<img src="banner.png"/><div class="caption">CAPTION</div>'
+          '</div><p>AFTER</p></div>',
+      extraCss:
+          'body,div,p {margin:0;padding:0;} '
+          '.outer {duokan-bleed:lefttopright;} '
+          '.inner {position:relative;width:220px;} '
+          'img {display:block;width:100%;} '
+          '.caption {position:absolute;left:0;top:0;}',
+    );
+    final image = result.page.slices
+        .singleWhere((slice) => slice.block.isReplaced)
+        .block;
+    expect(image.style!.width!.resolve(1), closeTo(220, .01));
+    expect(image.bleedLeft, isFalse);
+    expect(image.bleedRight, isFalse);
+    expect(image.bleedTop, isFalse);
+    final bounds = _colorBounds(result.pixels, 0x00aa00ff);
+    expect(bounds.width / _ratio, closeTo(220, 1));
+    expect(bounds.height / _ratio, closeTo(220 * 9 / 16, 1));
+  });
+
   for (final (limit, expectedWidth) in [
     ('100%', _pageSize.width),
     ('80%', _pageSize.width * .8),

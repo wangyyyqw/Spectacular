@@ -31,8 +31,8 @@ void main() {
       expect(indexed.first.text, block.layout.text);
       final text = block.layout.text;
       if (text.isEmpty) continue;
-      final start = cfiWithCharOffset(block.startCfi!, 0);
-      final end = cfiWithCharOffset(block.startCfi!, text.length);
+      final start = block.cfiAt(0)!;
+      final end = block.cfiAt(text.length, end: true)!;
       expect(book.capture(start, endCfi: end)?.quote, text);
     }
     expect(chapter.text, contains('保留 a  b\nc  d'));

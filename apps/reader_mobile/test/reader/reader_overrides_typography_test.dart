@@ -178,7 +178,7 @@ void main() {
     }
   });
 
-  test('阅读器段距同步应用于分隔线', () async {
+  test('阅读器段距不覆盖作者分隔线留白', () async {
     final source = await openCssChapter(
       body: '<div class="design-box"><p>前文</p><hr/><p>后文</p></div>',
       css:
@@ -192,8 +192,9 @@ void main() {
         .map((slice) => slice.block)
         .firstWhere((block) => block.style?.borders.top.width == 1);
 
-    expect(rule.spaceBefore, 0);
-    expect(rule.spaceAfter, 0);
+    expect(rule.spaceBefore, 6);
+    expect(rule.style!.margin.bottom, 6);
+    expect(rule.spaceAfter, 0, reason: '下边距折叠到后继正文，作者声明仍保留');
   });
 
   test('正文字体覆盖作者块与行内样式', () async {

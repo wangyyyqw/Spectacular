@@ -640,6 +640,16 @@ class ChapterStyleResolver {
     final ancestorStyle = chainStyle(chain.sublist(0, index + 1));
     final retained = retainedContainers[chain[index]];
     if (retained != null) {
+      // 静态容器保留横幅图片的兼容出血；定位盒内图片仍以其包含块为准。
+      if (ancestorStyle.position == CssPosition.static) {
+        for (final property in const ['duokan-bleed', '-duokan-bleed']) {
+          final value = ancestorStyle.values[property];
+          if (value != null) projection.declarations[property] = value;
+        }
+      } else {
+        projection.declarations.remove('duokan-bleed');
+        projection.declarations.remove('-duokan-bleed');
+      }
       projection.hasIntrinsicContainer |= retained.style.hasIntrinsicWidth;
       projection.left = retained.contentLeft;
       projection.right =

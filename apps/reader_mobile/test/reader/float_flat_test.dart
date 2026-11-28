@@ -433,7 +433,11 @@ Future<void> _expectParentMarginCase(
     expect(flow.last.leadingExtent, scenario.collapsed);
     expect(
       flow.last.block.startCfi,
-      parsed.textNodes.singleWhere((node) => node.text == '正文').cfi.serialize(),
+      parsed.textNodes
+          .singleWhere((node) => node.text == '正文')
+          .cfi
+          .withCharOffset(0)
+          .serialize(),
     );
   }
   _expectRepeatedMarginCollapse(slices.map((slice) => slice.block).toList());

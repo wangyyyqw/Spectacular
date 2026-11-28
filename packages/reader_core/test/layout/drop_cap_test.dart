@@ -48,12 +48,10 @@ void main() {
       'font-family': 'Ahem',
     });
     final layout = TextLayoutEngine.layout(
-      text: '下沉段首字后接正文内容继续排',
+      text: 'ABCDEFGHIJKLMNOP',
       style: style,
       maxWidth: 160,
-      runs: <StyledRun>[
-        StyledRun(start: 0, end: 1, style: big),
-      ],
+      runs: <StyledRun>[StyledRun(start: 0, end: 1, style: big)],
     );
     expect(layout.lineCount, greaterThanOrEqualTo(2));
     // 首行由 32px 字主导：行高 = 48（32 × 1.5）。
@@ -61,7 +59,10 @@ void main() {
     // 后续行回归 24。
     expect(layout.lines[1].height, closeTo(24, 0.5));
     // 基线对齐：首行基线随大字下移（基线 = top + ascent）。
-    expect(layout.lines.first.baseline, greaterThan(layout.lines.first.top + 24));
+    expect(
+      layout.lines.first.baseline,
+      greaterThan(layout.lines.first.top + 24),
+    );
   });
 
   test('纯布局层不自动放大，首字 run 由章节源生成', () {

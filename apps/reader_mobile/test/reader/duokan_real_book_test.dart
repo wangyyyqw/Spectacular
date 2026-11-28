@@ -27,12 +27,13 @@ void main() {
       for (final page in pages) {
         for (final slice in page.slices) {
           final style = slice.block.style;
-          if (style == null) {
+          if (style == null || slice.block.layout.text.isEmpty) {
             continue;
           }
           // 私有属性值为 2em（32px 上下文）时首行缩进应显著非零。
           // 书里 duokan-text-indent: 2em → 17px 上下文约 34px。
-          if (style.textIndent > 20 && style.values.containsKey('text-indent')) {
+          if (style.textIndent > 20 &&
+              style.values.containsKey('text-indent')) {
             found = 1;
             expect(style.textIndent, greaterThan(20));
             expect(slice.block.layout.text.length, greaterThan(0));
