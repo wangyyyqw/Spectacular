@@ -59,5 +59,8 @@ const bookshelfSortKey = 'bookshelf.sort';
 /// 新导入书籍是否排在最前；缺省为开启，书名排序不使用此设置。
 const bookshelfNewBooksFirstKey = 'bookshelf.newBooksFirst';
 
+/// 分组页签的本机顺序，null 表示默认分组。
+const bookshelfGroupOrderKey = 'bookshelf.groupOrder';
+
 /// 书架是否显示书名设置键；缺省为显示。
 const bookshelfShowTitlesKey = 'bookshelf.showTitles';
