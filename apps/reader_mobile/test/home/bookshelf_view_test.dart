@@ -75,7 +75,7 @@ void main() {
         const ValueKey('bookshelf-group-toolbar'),
       );
       final toolbar = tester.getRect(toolbarFinder);
-      final groupCenter = tester.getCenter(find.text('默认分组')).dy;
+      final groupCenter = tester.getCenter(find.text('默认')).dy;
       expect(find.text('全部'), findsNothing);
       final toolbarIcons = tester.widgetList<AppIcon>(
         find.descendant(of: toolbarFinder, matching: find.byType(AppIcon)),

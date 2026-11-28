@@ -150,7 +150,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
   bool _newBooksFirst = true;
   List<String> _pinnedIds = const <String>[];
   List<ShelfGroup> _groups = const <ShelfGroup>[];
-  List<String?> _groupOrder = const [];
+  List<String> _groupOrder = const [];
   Map<String, String> _bookGroups = const <String, String>{};
   List<BookTag> _tags = const [];
   Map<String, Set<String>> _bookTags = const {};
@@ -284,10 +284,10 @@ class _BookshelfPageState extends State<BookshelfPage> {
     final pinned = await widget.library.getSetting(_pinnedKey);
     final showTitles = await widget.library.getSetting(bookshelfShowTitlesKey);
     final order = await widget.library.getSetting(bookshelfGroupOrderKey);
-    List<String?> nextOrder = const [];
+    List<String> nextOrder = const [];
     try {
       final decoded = order == null ? null : jsonDecode(order);
-      if (decoded is List) nextOrder = decoded.whereType<String?>().toList();
+      if (decoded is List) nextOrder = decoded.whereType<String>().toList();
     } on FormatException {
       nextOrder = const [];
     }
@@ -349,8 +349,11 @@ class _BookshelfPageState extends State<BookshelfPage> {
   });
 
   List<String?> get _orderedGroupIds {
-    final remaining = <String?>{null, for (final group in _groups) group.id};
+    final remaining = <String>{for (final group in _groups) group.id};
     return [
+      if (_items?.any((item) => !_bookGroups.containsKey(item.entry.id)) ??
+          false)
+        null,
       for (final id in _groupOrder)
         if (remaining.remove(id)) id,
       ...remaining,
@@ -358,7 +361,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
   }
 
   Future<void> _reorderGroups(int oldIndex, int newIndex) async {
-    final ids = _orderedGroupIds;
+    final ids = _orderedGroupIds.whereType<String>().toList();
     final moved = ids.removeAt(oldIndex);
     ids.insert(newIndex, moved);
     setState(() => _groupOrder = ids);
@@ -368,8 +371,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
   Future<void> _configureTagStacks() async {
     final groupId = _activeGroupId;
     final groupName =
-        _groups.where((group) => group.id == groupId).firstOrNull?.name ??
-        '默认分组';
+        _groups.where((group) => group.id == groupId).firstOrNull?.name ?? '默认';
     final counts = <String, int>{};
     for (final item in _items ?? <_ShelfItem>[]) {
       if (_bookGroups[item.entry.id] != groupId) continue;
@@ -520,7 +522,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
             ReaderOptionTile(
               leading: const AppIcon(AppGlyph.delete),
               title: '删除分组',
-              subtitle: '书籍会移回默认分组',
+              subtitle: '书籍会移回「默认」分组',
               destructive: true,
               onTap: () => Navigator.of(context).pop('delete'),
             ),
@@ -547,15 +549,13 @@ class _BookshelfPageState extends State<BookshelfPage> {
       final confirmed = await showReaderConfirmDialog(
         context: context,
         title: '删除分组「${group.name}」？',
-        message: '只删除分组，书籍会移回默认分组，阅读记录保留。',
+        message: '只删除分组，书籍会移回「默认」分组，阅读记录保留。',
         confirmLabel: '删除',
         destructive: true,
       );
       if (confirmed) {
         await widget.library.deleteGroup(group.id);
-        if (mounted && _activeGroupId == group.id) {
-          _selectGroup(null);
-        }
+        await _reload();
       }
     }
   }
@@ -952,9 +952,9 @@ class _BookshelfPageState extends State<BookshelfPage> {
         _bookGroups = bookGroups;
         _tags = tags;
         _bookTags = bookTags;
-        if (_activeGroupId != null &&
-            !groups.any((group) => group.id == _activeGroupId)) {
-          _activeGroupId = null;
+        final groupIds = _orderedGroupIds;
+        if (!groupIds.contains(_activeGroupId)) {
+          _activeGroupId = groupIds.firstOrNull;
           _expandedStack = null;
         }
         _selectedIds.removeWhere((id) => !validIds.contains(id));
@@ -969,7 +969,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
   Future<void> _preloadCovers() async {
     final items = _items;
     if (items == null || !mounted) return;
-    final ordered = _visible(items);
+    final ordered = _visible(items, groupId: _activeGroupId);
     final generation = ++_coverPreloadGeneration;
     final media = MediaQuery.of(context);
     final width = context.size?.width ?? media.size.width;
@@ -978,7 +978,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
         : 66.0;
     final cardHeight = _grid ? cardWidth / _shelfCoverAspectRatio : 88.0;
     final covers = [
-      for (final stack in _tagStacks(ordered, null))
+      for (final stack in _tagStacks(ordered, _activeGroupId))
         for (final item in stack.books.take(bookStackPreviewCount))
           (
             path: item.entry.coverPath,
@@ -1705,7 +1705,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
         _expandedStack == null &&
         _error == null &&
         items != null &&
-        _groups.isNotEmpty;
+        _orderedGroupIds.length > 1;
     return Column(
       children: [
         if (busy)
@@ -2255,7 +2255,7 @@ class _BookGroupSheetState extends State<_BookGroupSheet> {
         key: const ValueKey('bookshelf-book-group-default'),
         contentPadding: EdgeInsets.zero,
         leading: const AppIcon(AppGlyph.folder),
-        title: const Text('默认分组'),
+        title: const Text('默认'),
         subtitle: widget.showCurrentGroup && widget.currentGroupId == null
             ? const Text('当前分组')
             : null,
@@ -2357,34 +2357,41 @@ class _ShelfGroupBarState extends State<_ShelfGroupBar> {
         }
       },
       child: SizedBox(
+        key: const ValueKey('bookshelf-group-strip'),
         height: 44,
-        child: ReorderableListView.builder(
-          key: const ValueKey('bookshelf-group-strip'),
-          scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          buildDefaultDragHandles: false,
-          proxyDecorator: (child, _, _) =>
-              Material(type: MaterialType.transparency, child: child),
-          itemCount: widget.order.length,
-          onReorderStart: (index) => _heldIndex = index,
-          onReorderEnd: (index) {
-            final held = _heldIndex;
-            _heldIndex = null;
-            if (_moved || held != index || held == null) return;
-            final group = widget.groups[widget.order[held]];
-            if (group != null) widget.onManage(group);
-          },
-          onReorderItem: widget.onReorder,
-          itemBuilder: (_, index) {
-            final id = widget.order[index];
-            return ReorderableDelayedDragStartListener(
-              key: ValueKey(('shelf-drag', id)),
-              index: index,
-              child: _tab(id),
-            );
-          },
-        ),
+        child: _reorderableGroups(),
       ),
+    );
+  }
+
+  Widget _reorderableGroups() {
+    final ids = widget.order.whereType<String>().toList();
+    return ReorderableListView.builder(
+      scrollDirection: Axis.horizontal,
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      // 默认随列表滚动，但不参与拖动及排序索引。
+      header: widget.order.contains(null) ? _tab(null) : null,
+      buildDefaultDragHandles: false,
+      proxyDecorator: (child, _, _) =>
+          Material(type: MaterialType.transparency, child: child),
+      itemCount: ids.length,
+      onReorderStart: (index) => _heldIndex = index,
+      onReorderEnd: (index) {
+        final held = _heldIndex;
+        _heldIndex = null;
+        if (_moved || held != index || held == null) return;
+        final group = widget.groups[ids[held]];
+        if (group != null) widget.onManage(group);
+      },
+      onReorderItem: widget.onReorder,
+      itemBuilder: (_, index) {
+        final id = ids[index];
+        return ReorderableDelayedDragStartListener(
+          key: ValueKey(('shelf-drag', id)),
+          index: index,
+          child: _tab(id),
+        );
+      },
     );
   }
 
@@ -2392,7 +2399,7 @@ class _ShelfGroupBarState extends State<_ShelfGroupBar> {
     final group = widget.groups[id];
     return _ShelfGroupTab(
       key: ValueKey('bookshelf-group-${id ?? 'default'}'),
-      label: group?.name ?? '默认分组',
+      label: group?.name ?? '默认',
       selected: widget.activeGroupId == id,
       onTap: () => widget.onSelect(id),
       onManage: group == null ? null : () => widget.onManage(group),
@@ -2708,7 +2715,7 @@ class _NoMatchesPane extends StatelessWidget {
     title: query.isNotEmpty
         ? '没有找到相关书籍'
         : groupName == null
-        ? '默认分组还没有书'
+        ? '默认还没有书'
         : '这个分组还没有书',
     subtitle: query.isNotEmpty
         ? '没有书名或作者包含“$query”'

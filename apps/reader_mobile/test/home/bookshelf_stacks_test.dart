@@ -99,7 +99,7 @@ void main() {
       expect(stack, findsNothing);
       await tester.tap(find.byKey(const ValueKey('bookshelf-tag-stacks')));
       await tester.pumpAndSettle();
-      expect(find.text('仅应用于「默认分组」'), findsOneWidget);
+      expect(find.text('仅应用于「默认」'), findsOneWidget);
       await tester.tap(find.byKey(ValueKey('stack-tag-option-${tag.id}')));
       await tester.tap(find.byKey(const ValueKey('tag-stacks-save')));
       await tester.pumpAndSettle();

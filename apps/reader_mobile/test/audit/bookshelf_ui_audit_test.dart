@@ -128,7 +128,7 @@ void main() {
       greaterThan(tester.getBottomLeft(cover).dy),
     );
     expect(_key('book-card-meta-${second.id}'), findsNothing);
-    expect(find.text('默认分组'), findsOneWidget);
+    expect(find.text('默认'), findsOneWidget);
     expect(find.text('全部'), findsNothing);
 
     await _tap(tester, _key('bookshelf-group-${group.id}'));

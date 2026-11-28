@@ -132,7 +132,7 @@ void main() {
       await tester.pumpAndSettle();
       await togglePin(books[1], '取消置顶');
       expect(_titles(tester), ['B书', 'A书']);
-      await tester.tap(find.text('默认分组'));
+      await tester.tap(find.text('默认'));
       await tester.pumpAndSettle();
       expect(_titles(tester), ['C书']);
       await library.setBooksGroup(books.take(2).map((book) => book.id));

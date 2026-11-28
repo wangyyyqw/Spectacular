@@ -18,9 +18,15 @@ Future<void> _settle(WidgetTester tester, {int frames = 12}) async {
 }
 
 void main() {
-  testWidgets('分组点击无背景，长按拖动保存顺序并保留选中分组', (tester) async {
+  testWidgets('默认保持首位且不可拖动，旧顺序只用于自定义分组并保留选中项', (tester) async {
     final library = LibraryStore.memory();
-    final group = await library.createGroup('收藏');
+    await tester.runAsync(() async {
+      await library.importBytes(buildTestEpub(title: '默认书籍'));
+    });
+    final first = await library.createGroup('收藏');
+    final second = await library.createGroup('待读');
+    final legacyOrder = [first.id, null, second.id];
+    await library.setSetting(bookshelfGroupOrderKey, jsonEncode(legacyOrder));
     Widget page() => MaterialApp(
       home: BookshelfPage(
         library: library,
@@ -29,39 +35,63 @@ void main() {
     );
     await tester.pumpWidget(page());
     await _settle(tester);
-    final custom = find.text('收藏');
-    final defaultTab = find.text('默认分组');
+    final custom = find.text('待读');
+    final defaultTab = find.text('默认');
+    expect(
+      tester.getCenter(defaultTab).dx,
+      lessThan(tester.getCenter(find.text('收藏')).dx),
+    );
+    expect(
+      find.ancestor(
+        of: defaultTab,
+        matching: find.byType(ReorderableDelayedDragStartListener),
+      ),
+      findsNothing,
+    );
     final ink = tester.widget<InkWell>(
       find.ancestor(of: custom, matching: find.byType(InkWell)).first,
     );
     expect(ink.splashFactory, NoSplash.splashFactory);
     expect(ink.highlightColor, Colors.transparent);
+    Future<void> dragTab(Finder tab, Offset end) async {
+      final start = tester.getCenter(tab);
+      final drag = await tester.startGesture(start);
+      await tester.pump(const Duration(milliseconds: 600));
+      for (var step = 1; step <= 8; step++) {
+        await drag.moveTo(Offset.lerp(start, end, step / 8)!);
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      await tester.pumpAndSettle();
+      await drag.up();
+      await tester.pumpAndSettle();
+    }
+
+    await dragTab(defaultTab, tester.getCenter(custom));
+    expect(
+      jsonDecode((await library.getSetting(bookshelfGroupOrderKey))!),
+      legacyOrder,
+    );
+    expect(find.byType(BottomSheet), findsNothing);
     await tester.tap(custom);
     await _settle(tester);
-    final start = tester.getCenter(custom);
-    final end = tester.getCenter(defaultTab);
-    final drag = await tester.startGesture(start);
-    await tester.pump(const Duration(milliseconds: 600));
-    for (var step = 1; step <= 8; step++) {
-      await drag.moveTo(Offset.lerp(start, end, step / 8)!);
-      await tester.pump(const Duration(milliseconds: 16));
-    }
-    await tester.pumpAndSettle();
-    await drag.up();
-    await tester.pumpAndSettle();
+    await dragTab(custom, tester.getCenter(defaultTab));
     expect(find.byType(BottomSheet), findsNothing);
     expect(
       tester.getCenter(custom).dx,
-      lessThan(tester.getCenter(defaultTab).dx),
+      greaterThan(tester.getCenter(defaultTab).dx),
+    );
+    expect(
+      tester.getCenter(custom).dx,
+      lessThan(tester.getCenter(find.text('收藏')).dx),
     );
     expect(tester.widget<Text>(custom).style?.fontWeight, FontWeight.w600);
     expect(jsonDecode((await library.getSetting(bookshelfGroupOrderKey))!), [
-      group.id,
-      null,
+      second.id,
+      first.id,
     ]);
     await tester.drag(
       find.byKey(const ValueKey('bookshelf-group-pages')),
-      const Offset(-240, 0),
+      const Offset(240, 0),
     );
     await tester.pumpAndSettle();
     expect(tester.widget<Text>(defaultTab).style?.fontWeight, FontWeight.w600);
@@ -70,11 +100,109 @@ void main() {
     await _settle(tester);
     expect(
       tester.getCenter(custom).dx,
-      lessThan(tester.getCenter(defaultTab).dx),
+      greaterThan(tester.getCenter(defaultTab).dx),
+    );
+    expect(
+      tester.getCenter(custom).dx,
+      lessThan(tester.getCenter(find.text('收藏')).dx),
     );
     await tester.longPress(custom);
     await tester.pumpAndSettle();
     expect(find.text('重命名分组'), findsOneWidget);
+  });
+
+  testWidgets('空书架隐藏默认，导入后显示，移走最后一本后切换到首个可见分组', (tester) async {
+    final library = LibraryStore.memory();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: BookshelfPage(
+          library: library,
+          progressStore: MemoryReaderProgressStore(),
+        ),
+      ),
+    );
+    await _settle(tester);
+    final defaultTab = find.byKey(const ValueKey('bookshelf-group-default'));
+    expect(defaultTab, findsNothing);
+    expect(find.text('书架还是空的'), findsOneWidget);
+    late BookEntry book;
+    await tester.runAsync(() async {
+      book = await library.importBytes(buildTestEpub(title: '唯一书籍'));
+    });
+    await _settle(tester);
+    expect(find.text('默认'), findsOneWidget);
+    expect(find.byKey(ValueKey('book-card-${book.id}')), findsOneWidget);
+    final first = await library.createGroup('收藏');
+    final second = await library.createGroup('待读');
+    await library.setSetting(
+      bookshelfGroupOrderKey,
+      jsonEncode([second.id, null, first.id]),
+    );
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpWidget(
+      MaterialApp(
+        home: BookshelfPage(
+          library: library,
+          progressStore: MemoryReaderProgressStore(),
+        ),
+      ),
+    );
+    await _settle(tester);
+    await library.setBooksGroup([book.id], groupId: first.id);
+    await _settle(tester);
+    expect(defaultTab, findsNothing);
+    expect(
+      tester.widget<Text>(find.text('待读')).style?.fontWeight,
+      FontWeight.w600,
+    );
+    expect(find.textContaining('「待读」'), findsOneWidget);
+    final pages = find.byKey(const ValueKey('bookshelf-group-pages'));
+    await tester.drag(pages, const Offset(240, 0));
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<Text>(find.text('待读')).style?.fontWeight,
+      FontWeight.w600,
+    );
+    await tester.drag(pages, const Offset(-240, 0));
+    await tester.pumpAndSettle();
+    expect(find.byKey(ValueKey('book-card-${book.id}')), findsOneWidget);
+    await library.setBooksGroup([book.id]);
+    await _settle(tester);
+    expect(defaultTab, findsOneWidget);
+    expect(
+      tester.widget<Text>(find.text('收藏')).style?.fontWeight,
+      FontWeight.w600,
+    );
+    await tester.tap(defaultTab);
+    await tester.pumpAndSettle();
+    final search = find.byKey(const ValueKey('bookshelf-search-field'));
+    await tester.tap(search);
+    await tester.enterText(search, '不存在');
+    await tester.pumpAndSettle();
+    expect(defaultTab, findsOneWidget, reason: '搜索无结果不等于默认没有书籍');
+    expect(find.text('没有找到相关书籍'), findsOneWidget);
+    await tester.tap(find.byTooltip('关闭搜索'));
+    await tester.pumpAndSettle();
+    await tester.runAsync(() => library.remove(book.id));
+    await _settle(tester);
+    expect(defaultTab, findsNothing);
+    expect(
+      tester.widget<Text>(find.text('待读')).style?.fontWeight,
+      FontWeight.w600,
+    );
+    await tester.longPress(find.text('待读'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('删除分组'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, '删除'));
+    await tester.pumpAndSettle();
+    expect(defaultTab, findsNothing);
+    expect(find.text('待读'), findsNothing);
+    expect(
+      tester.widget<Text>(find.text('收藏')).style?.fontWeight,
+      FontWeight.w600,
+    );
+    expect(tester.takeException(), isNull);
   });
 
   for (final grid in [true, false]) {
@@ -124,10 +252,13 @@ void main() {
       }
 
       await show();
-      expect(find.text('默认分组还没有书'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('bookshelf-group-default')),
+        findsNothing,
+      );
       expect(find.text('全部'), findsNothing);
       expect(find.text('查看全部书籍'), findsNothing);
-      expectBooks([]);
+      expectBooks(books.take(2).toList());
       await select(first.id);
       expectBooks(books.take(2).toList());
       await select(first.id);
@@ -215,6 +346,24 @@ void main() {
     );
     await _settle(tester);
     final pages = find.byKey(const ValueKey('bookshelf-group-pages'));
+    final defaultTab = find.byKey(
+      const ValueKey('bookshelf-group-default'),
+      skipOffstage: false,
+    );
+    final defaultBounds = tester.getRect(defaultTab);
+    final groupBar = find.byKey(const ValueKey('bookshelf-group-strip'));
+    await tester.drag(groupBar, const Offset(-180, 0));
+    await tester.pumpAndSettle();
+    expect(
+      tester.getRect(defaultTab).left,
+      lessThan(defaultBounds.left),
+      reason: '默认与自定义分组共用滚动区域，不固定在屏幕边缘',
+    );
+    expect(find.text('滑动乙'), findsWidgets, reason: '滚动分组栏不改变选中分组');
+    expect(await library.getSetting(bookshelfGroupOrderKey), isNull);
+    await tester.drag(groupBar, const Offset(500, 0));
+    await tester.pumpAndSettle();
+    expect(tester.getRect(defaultTab), defaultBounds);
 
     // 默认分组向右不循环；短距离和纵向滑动不切换。
     for (final offset in [
@@ -305,6 +454,11 @@ void main() {
       );
       expect(tab.left, greaterThanOrEqualTo(bar.left));
       expect(tab.right, lessThanOrEqualTo(bar.right));
+      expect(
+        tester.getRect(defaultTab).left,
+        lessThan(defaultBounds.left),
+        reason: '切换到后面的分组时，默认随分组栏一起滚动',
+      );
     }
     await tester.drag(pages, const Offset(-180, 0));
     await _settle(tester, frames: 3);
@@ -324,6 +478,7 @@ void main() {
       await tester.pumpAndSettle();
     }
     expect(find.text('滑动乙'), findsWidgets);
+    expect(tester.getRect(defaultTab), defaultBounds, reason: '切回默认时自动滚回首位');
     await tester.tap(find.byTooltip('列表视图'));
     await tester.pumpAndSettle();
     await tester.drag(pages, const Offset(-180, 0));
@@ -381,7 +536,7 @@ void main() {
     );
     await _settle(tester);
 
-    expect(find.text('默认分组'), findsOneWidget);
+    expect(find.text('默认'), findsOneWidget);
     expect(find.text('全部'), findsNothing);
     expect(find.text('未读 3'), findsNothing);
     expect(find.text('在读 0'), findsNothing);
