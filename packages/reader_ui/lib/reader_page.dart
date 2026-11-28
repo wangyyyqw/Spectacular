@@ -213,6 +213,7 @@ class ReaderPage extends StatefulWidget {
 
   /// 字体码点与可见字形不一致时，文字操作使用离线 OCR 并禁用装饰。
   final bool ocrRequired;
+  /// 对正式排版裁出的单行图像识别；多行与跨页按阅读顺序调用。
   final Future<String> Function(Uint8List image)? onRecognizeSelection;
 
   /// 章节页来源。

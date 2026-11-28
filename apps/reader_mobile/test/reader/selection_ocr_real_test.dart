@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter/painting.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -10,8 +11,11 @@ import 'package:reader_core/epub/epub_chapter_source.dart';
 import 'package:reader_core/paint/hit_test.dart';
 import 'package:reader_core/paint/page_renderer.dart';
 import 'package:reader_mobile/reader/reader_selection_ocr.dart';
+import 'package:reader_mobile/ocr/local_ocr_worker.dart';
 import 'package:reader_ui/selection/selection.dart';
 import 'package:reader_ui/selection/selection_image.dart';
+
+import 'support/legacy_selection_capture.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -19,6 +23,8 @@ void main() {
   test('用户样书：实际字体复核与真实选区离线 OCR', () async {
     final dir = Directory('dist/selection-ocr');
     await dir.create(recursive: true);
+    final temporary = await dir.createTemp('roundtrip-');
+    addTearDown(() => temporary.delete(recursive: true));
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
           const MethodChannel('plugins.flutter.io/path_provider'),
@@ -38,7 +44,9 @@ void main() {
     );
     addTearDown(source.close);
     final ocr = ReaderSelectionOcr();
+    final watch = Stopwatch()..start();
     expect(await ocr.requiresOcr(source.document), isTrue);
+    final detectionMs = watch.elapsedMilliseconds;
     await source.applyOverrides(const ReaderOverrides(fontSize: 20));
     final pages = await source.loadChapter(14);
     final page = pages.firstWhere(
@@ -60,9 +68,35 @@ void main() {
       hit(lines.last, lines.last.text.length),
       pageIndex: page.pageIndex,
     );
-    final image = await SelectionImage.capture(page, selection);
+    watch.reset();
+    final image = await captureLegacySelection(page, selection);
     await File('${dir.path}/selected.png').writeAsBytes(image);
-    final recognized = await ocr.recognize(image);
+    watch.reset();
+    final baseline = await localOcrWorker.recognize(image);
+    final baselineMs = watch.elapsedMilliseconds;
+    expect(
+      baseline.map((line) => line.text).join(),
+      '《梦中人》是民国时期的著名歌曲，周星驰的电影《功夫》之中，曾以该曲作为插曲，包租公和',
+    );
+    watch.reset();
+    final lineImages = await SelectionImage.captureLines(
+      page,
+      selection,
+    ).toList();
+    final captureMs = watch.elapsedMilliseconds;
+    watch.reset();
+    final recognized = (await Future.wait(lineImages.map(ocr.recognize)))
+        .join();
+    final recognitionMs = watch.elapsedMilliseconds;
+    watch.reset();
+    expect(
+      (await Future.wait(lineImages.map(ocr.recognize))).join(),
+      recognized,
+    );
+    final cachedMs = watch.elapsedMilliseconds;
+    for (var i = 0; i < lineImages.length; i++) {
+      await File('${dir.path}/line-$i.png').writeAsBytes(lineImages[i]);
+    }
     final raw = SelectionOps.textOf(page, selection);
     await File('${dir.path}/result.txt')
         .writeAsString('原码点：$raw\n识别文字：$recognized\n');
@@ -72,9 +106,15 @@ void main() {
       hit(lines.first, 3),
       pageIndex: page.pageIndex,
     );
-    final shortImage = await SelectionImage.capture(page, short);
+    final shortImage = await SelectionImage.captureLines(page, short).single;
     await File('${dir.path}/short.png').writeAsBytes(shortImage);
+    watch.reset();
     expect(await ocr.recognize(shortImage), '梦中');
+    final shortMs = watch.elapsedMilliseconds;
+    final timings =
+        '字体复核：${detectionMs}ms；旧检测识别：${baselineMs}ms；两行截图：${captureMs}ms；两行直接识别：${recognitionMs}ms；缓存：${cachedMs}ms；两字识别：${shortMs}ms';
+    debugPrint(timings);
+    await File('${dir.path}/timings.txt').writeAsString(timings);
     final session = await EpubEditSession.open(File(sample));
     addTearDown(session.close);
     final range = SelectionOps.cfiOf(selection)!;
@@ -87,7 +127,7 @@ void main() {
       sourceText: raw,
     );
     edit.apply('$recognized（本地编辑验证）');
-    final output = File('${dir.path}/edited.epub');
+    final output = File('${temporary.path}/edited.epub');
     await EpubWriter.write(session, output);
     final reopened = await EpubChapterSource.openFile(
       output,

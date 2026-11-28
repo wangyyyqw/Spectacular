@@ -42,8 +42,13 @@ extension _ReaderSelectionText on _ReaderPageState {
           selection,
         );
         if (local == null) continue;
-        final image = await SelectionImage.capture(selectedPage, local);
-        text.write(await recognize(image));
+        await for (final image in SelectionImage.captureLines(
+          selectedPage,
+          local,
+        )) {
+          if (!current()) return null;
+          text.write(await recognize(image));
+        }
       }
       if (!current()) return null;
       if (text.isEmpty) throw const FormatException('未识别到文字，请重新选择');

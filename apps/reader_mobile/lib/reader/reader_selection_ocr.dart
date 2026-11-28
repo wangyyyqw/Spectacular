@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:isolate';
 import 'dart:ui' as ui;
 
@@ -15,12 +16,37 @@ typedef ReaderImageRecognizer = Future<List<LocalOcrLine>> Function(Uint8List);
 /// 封面和选区共用同一个离线 OCR worker；只对可见字形取字，不上传内容。
 class ReaderSelectionOcr {
   ReaderSelectionOcr({ReaderImageRecognizer? recognize})
-    : _recognize = recognize ?? localOcrWorker.recognize;
+    : _recognize = recognize ?? localOcrWorker.recognizeLine;
 
   final ReaderImageRecognizer _recognize;
   static final _fontResults = <String, bool>{};
+  final _lineResults = <String, Future<String>>{};
 
+  /// 图片摘要同时区分选区、字体与字号；只缓存成功结果，不持有图片数据。
+  /// 正在识别的同一行共享任务，失败后可立即重试。
   Future<String> recognize(Uint8List image) async {
+    final key = sha256.convert(image).toString();
+    final existing = _lineResults.remove(key);
+    if (existing != null) {
+      _lineResults[key] = existing;
+      return existing;
+    }
+    final task = _recognizeText(image);
+    _lineResults[key] = task;
+    if (_lineResults.length > 64) {
+      unawaited(_lineResults.remove(_lineResults.keys.first));
+    }
+    try {
+      return await task;
+    } catch (_) {
+      if (identical(_lineResults[key], task)) {
+        unawaited(_lineResults.remove(key));
+      }
+      rethrow;
+    }
+  }
+
+  Future<String> _recognizeText(Uint8List image) async {
     final lines = await _recognize(image);
     if (lines.isEmpty || lines.any((line) => line.confidence < .75)) {
       throw const FormatException('未能可靠识别所选文字，请调整选区后重试');

@@ -24,7 +24,17 @@ class LocalOcrWorker {
   int _nextRequestId = 0;
   final Map<int, Completer<List<LocalOcrLine>>> _pending = {};
 
-  Future<List<LocalOcrLine>> recognize(Uint8List imageBytes) async {
+  Future<List<LocalOcrLine>> recognize(Uint8List imageBytes) =>
+      _request(imageBytes, textLine: false);
+
+  /// 已由阅读排版裁好的单行不再运行检测模型；整行结果无需检测框。
+  Future<List<LocalOcrLine>> recognizeLine(Uint8List imageBytes) =>
+      _request(imageBytes, textLine: true);
+
+  Future<List<LocalOcrLine>> _request(
+    Uint8List imageBytes, {
+    required bool textLine,
+  }) async {
     await _ensureStarted();
     final id = ++_nextRequestId;
     final completer = Completer<List<LocalOcrLine>>();
@@ -32,6 +42,7 @@ class LocalOcrWorker {
     try {
       _commands!.send({
         'id': id,
+        'textLine': textLine,
         'image': TransferableTypedData.fromList([imageBytes]),
       });
     } on Object {
@@ -216,25 +227,11 @@ Future<void> _localOcrWorkerMain(Map<String, Object?> message) async {
         final image = (command['image'] as TransferableTypedData)
             .materialize()
             .asUint8List();
-        final results = await FlutterOnnxOcr.recognizeFromBytes(image);
-        reply.send({
-          'type': 'result',
-          'id': id,
-          'lines': [
-            for (final result in results)
-              if (result.text.trim().isNotEmpty && result.box.isNotEmpty)
-                {
-                  'text': result.text,
-                  'confidence': result.confidence,
-                  'bounds': [
-                    result.box.map((point) => point.dx).reduce(math.min),
-                    result.box.map((point) => point.dy).reduce(math.min),
-                    result.box.map((point) => point.dx).reduce(math.max),
-                    result.box.map((point) => point.dy).reduce(math.max),
-                  ],
-                },
-          ],
-        });
+        final lines = await _recognizeImage(
+          image,
+          textLine: command['textLine'] == true,
+        );
+        reply.send({'type': 'result', 'id': id, 'lines': lines});
       } on Object catch (error) {
         reply.send({'type': 'result_error', 'id': id, 'error': '$error'});
       }
@@ -245,4 +242,38 @@ Future<void> _localOcrWorkerMain(Map<String, Object?> message) async {
     commands.close();
     if (initialized) FlutterOnnxOcr.dispose();
   }
+}
+
+/// 单行用直接识别；封面仍使用完整检测，避免改变封面书名焦点行为。
+Future<List<Map<String, Object>>> _recognizeImage(
+  Uint8List image, {
+  required bool textLine,
+}) async {
+  if (textLine) {
+    final (text, confidence) = await FlutterOnnxOcr.recognizeTextLineFromBytes(
+      image,
+    );
+    return [
+      {
+        'text': text,
+        'confidence': confidence,
+        'bounds': [0.0, 0.0, 0.0, 0.0],
+      },
+    ];
+  }
+  final results = await FlutterOnnxOcr.recognizeFromBytes(image);
+  return [
+    for (final result in results)
+      if (result.text.trim().isNotEmpty && result.box.isNotEmpty)
+        {
+          'text': result.text,
+          'confidence': result.confidence,
+          'bounds': [
+            result.box.map((point) => point.dx).reduce(math.min),
+            result.box.map((point) => point.dy).reduce(math.min),
+            result.box.map((point) => point.dx).reduce(math.max),
+            result.box.map((point) => point.dy).reduce(math.max),
+          ],
+        },
+  ];
 }

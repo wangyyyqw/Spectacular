@@ -233,9 +233,9 @@ void main() {
     expect(calls, 1);
   });
 
-  testWidgets('跨页 OCR 按页顺序拼接，覆盖终页', (tester) async {
+  testWidgets('跨页 OCR 按行顺序拼接，覆盖终页', (tester) async {
     var calls = 0;
-    final layer = await select(tester, (_) async => '第${++calls}页');
+    final layer = await select(tester, (_) async => '第${++calls}行');
     layer.onEdgeDrag!(true);
     await tester.pump(const Duration(milliseconds: 400));
     await pumpReaderUntilComplete(tester, () {
@@ -249,9 +249,30 @@ void main() {
         .selection;
     await tester.tap(find.byKey(const ValueKey('selection-action-copy')));
     await pumpReaderUntilComplete(tester, () => clipboard != null);
-    expect(calls, selected.endPageIndex - selected.startPageIndex + 1);
+    final pages = await pumpReaderTask(tester, session.chapterPages());
+    var expectedLines = 0;
+    for (final page in pages) {
+      final local = SelectionOps.localSelectionOf(
+        page,
+        page.pageIndex,
+        selected,
+      );
+      if (local == null) continue;
+      for (final line in SelectionOps.coveredLines(page, local)) {
+        expectedLines += SelectionOps.lineRectsFor(
+          line.box,
+          line.start,
+          line.end,
+        ).where((rect) => !rect.isEmpty).length;
+      }
+    }
+    expect(calls, expectedLines);
+    expect(
+      calls,
+      greaterThan(selected.endPageIndex - selected.startPageIndex + 1),
+    );
     expect(clipboard, {
-      'text': List.generate(calls, (i) => '第${i + 1}页').join(),
+      'text': List.generate(calls, (i) => '第${i + 1}行').join(),
     });
   });
 }
