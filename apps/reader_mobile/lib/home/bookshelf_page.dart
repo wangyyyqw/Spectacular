@@ -979,24 +979,23 @@ class _BookshelfPageState extends State<BookshelfPage> {
     final cardHeight = _grid ? cardWidth / _shelfCoverAspectRatio : 88.0;
     final covers = [
       for (final stack in _tagStacks(ordered, null))
-        for (final (index, item) in stack.books.take(3).indexed)
-          if (item.entry.coverPath case final path?)
-            (
-              path: path,
-              scale: stack.tag == null
-                  ? 1.0
-                  : index == 0
-                  ? bookStackFrontScale
-                  : bookStackBackScale,
+        for (final item in stack.books.take(bookStackPreviewCount))
+          (
+            path: item.entry.coverPath,
+            size: bookStackCoverSize(
+              Size(cardWidth, cardHeight),
+              stack.books.length,
             ),
+          ),
     ];
     await Future.wait([
       for (final cover in covers.take(12))
-        _precacheCover(
-          cover.path,
-          coverDecodeWidth(cardWidth * cover.scale, media.devicePixelRatio),
-          coverDecodeHeight(cardHeight * cover.scale, media.devicePixelRatio),
-        ),
+        if (cover.path case final path?)
+          _precacheCover(
+            path,
+            coverDecodeWidth(cover.size.width, media.devicePixelRatio),
+            coverDecodeHeight(cover.size.height, media.devicePixelRatio),
+          ),
     ]);
     // 图像解码成功后还需让占位组件完成替换，不能只在 Future 完成时揭开书架。
     await WidgetsBinding.instance.endOfFrame;
@@ -1874,7 +1873,6 @@ class _BookshelfPageState extends State<BookshelfPage> {
     tag: stack.tag!,
     books: [for (final item in stack.books) item.entry],
     grid: _grid,
-    showTitle: _showTitles,
     onOpen: () => setState(() => _expandedStack = stack.tag),
   );
 

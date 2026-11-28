@@ -37,6 +37,7 @@ class BookCoverImage extends StatelessWidget {
     this.height,
     this.showShadow = false,
     this.shadowOpacity = .12,
+    this.showFrame = true,
   });
 
   final BookEntry book;
@@ -45,6 +46,9 @@ class BookCoverImage extends StatelessWidget {
   final bool showShadow;
   final double shadowOpacity;
 
+  /// 拼接时由整组负责裁切，不给单张添加边框和圆角。
+  final bool showFrame;
+
   @override
   Widget build(BuildContext context) => SizedBox(
     width: width,
@@ -52,6 +56,7 @@ class BookCoverImage extends StatelessWidget {
     child: LayoutBuilder(
       builder: (context, constraints) {
         final scheme = Theme.of(context).colorScheme;
+        final borderRadius = BorderRadius.circular(showFrame ? 4 : 0);
         final placeholder = _CoverPlaceholder(
           book: book,
           compact: constraints.maxWidth < 100 || constraints.maxHeight < 140,
@@ -63,17 +68,19 @@ class BookCoverImage extends StatelessWidget {
             color: scheme.surface,
             elevation: showShadow ? 2 : 0,
             shadowColor: scheme.shadow.withValues(alpha: shadowOpacity),
-            borderRadius: BorderRadius.circular(4),
+            borderRadius: borderRadius,
             child: Container(
               clipBehavior: Clip.antiAlias,
               decoration: BoxDecoration(
                 color: scheme.surface,
-                borderRadius: BorderRadius.circular(4),
+                borderRadius: borderRadius,
               ),
-              foregroundDecoration: BoxDecoration(
-                border: Border.all(color: scheme.outlineVariant),
-                borderRadius: BorderRadius.circular(4),
-              ),
+              foregroundDecoration: showFrame
+                  ? BoxDecoration(
+                      border: Border.all(color: scheme.outlineVariant),
+                      borderRadius: borderRadius,
+                    )
+                  : null,
               child: SizedBox.expand(
                 child: book.coverPath == null
                     ? placeholder

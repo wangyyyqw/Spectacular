@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:reader_mobile/home/book_cover_stack.dart';
 import 'package:reader_mobile/home/bookshelf_page.dart';
 import 'package:reader_mobile/home/bookshelf_stacks.dart';
 import 'package:reader_mobile/library/library_store.dart';
@@ -103,7 +104,7 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('tag-stacks-save')));
       await tester.pumpAndSettle();
       expect(stack, findsOneWidget);
-      expect(find.text('小说 · 2 本'), findsOneWidget);
+      expect(find.text('小说 · 2 本'), findsNothing);
       expect(book(books[0]), findsNothing);
       expect(book(books[1]), findsNothing);
       expect(book(books[2]), findsNothing);
@@ -163,7 +164,7 @@ void main() {
     });
   }
 
-  testWidgets('隐藏书名仍显示堆叠标签，键盘展开及收起可用', (tester) async {
+  testWidgets('隐藏书名时堆叠无标签和书数横条，保留语义及键盘展开收起', (tester) async {
     final library = LibraryStore.memory();
     late BookTag tag;
     await tester.runAsync(() async {
@@ -193,9 +194,14 @@ void main() {
       );
       await tester.pumpAndSettle();
       final stack = find.byKey(ValueKey('book-stack-${tag.id}'));
-      expect(find.text('文学 · 2 本'), findsOneWidget);
+      expect(find.text('文学 · 2 本'), findsNothing);
       expect(find.bySemanticsLabel('文学 · 2 本，点击展开'), findsOneWidget);
-      final target = Focus.of(tester.element(find.text('文学 · 2 本')));
+      final cover = find.descendant(
+        of: stack,
+        matching: find.byType(BookCoverStack),
+      );
+      expect(tester.getSize(cover).aspectRatio, closeTo(3 / 4, .001));
+      final target = Focus.of(tester.element(cover));
       for (var attempt = 0; attempt < 12 && !target.hasFocus; attempt++) {
         await tester.sendKeyEvent(LogicalKeyboardKey.tab);
         await tester.pump();
