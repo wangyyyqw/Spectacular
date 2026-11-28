@@ -109,7 +109,8 @@ class IsolatedManifestTest(unittest.TestCase):
                 "dev_dependencies:\n  integration_test:\n    sdk: flutter\n",
             )
 
-            perf.prepare(workspace, None)
+            with patch.object(perf, "prepare_workspace"):
+                perf.prepare(workspace, None)
 
             root = ET.parse(manifest).getroot()
             android = "{http://schemas.android.com/apk/res/android}"

@@ -282,7 +282,7 @@
     {"groups": ["resources"], "paths": ["packages/reader_core/lib/txt.dart", "packages/reader_core/lib/txt/*"]},
     {"groups": ["resources", "position"], "paths": ["packages/reader_core/lib/editing/epub_rechapter*.dart"]},
     {"groups": ["ui", "storage"], "paths": ["apps/reader_mobile/lib/txt/*", "apps/reader_mobile/integration_test/txt_import_rechapter_desktop_test.dart"]},
-    {"groups": ["tooling"], "paths": ["tool/run_tests.py", "tool/test_groups.json", "tool/run_all.sh", "tool/build_apk.sh", "tool/generate_release_plugins.dart", "tool/css_parity/*", "tool/device_reader_perf*.py", "tool/device_engine_verify.py", "tool/build_performance_epub.py"]},
+    {"groups": ["tooling"], "paths": ["tool/run_tests.py", "tool/test_groups.json", "tool/run_all.sh", "tool/run_audit.sh", "tool/build_apk.sh", "tool/generate_release_plugins.dart", "tool/css_parity/*", "tool/device_reader_perf*.py", "tool/device_engine_verify.py", "tool/build_performance_epub.py"]},
     {"groups": ["layout", "position"], "paths": ["packages/reader_core/lib/text/text_offsets.dart"]},
     {"groups": ["resources", "position"], "paths": ["packages/reader_core/lib/parser/document_parser.dart", "packages/reader_core/lib/parser/xhtml_input.dart"]},
     {"groups": ["css", "resources"], "paths": ["packages/reader_core/lib/css/book_font_loader.dart", "packages/reader_core/lib/css/stylesheet_loader.dart"]},
