@@ -383,7 +383,9 @@ class _SyncPageState extends State<SyncPage> {
                       '设备 ${version.device.substring(0, version.device.length.clamp(0, 6))}',
                     ),
                     subtitle: Text(
-                      '${version.data['note'] ?? version.data['content'] ?? version.data['locator_cfi'] ?? version.data['content_revision'] ?? version.data['title'] ?? ''}',
+                      version.deleted
+                          ? '已删除'
+                          : '${version.data['note'] ?? version.data['content'] ?? version.data['locator_cfi'] ?? version.data['content_revision'] ?? version.data['title'] ?? version.data['value'] ?? version.data['display_name'] ?? ''}',
                     ),
                     trailing: TextButton(
                       onPressed: enabled
@@ -407,7 +409,9 @@ class _SyncPageState extends State<SyncPage> {
                 TextButton(
                   onPressed: enabled
                       ? () => unawaited(
-                          _run(() => widget.controller.resolve(entry.key, null)),
+                          _run(
+                            () => widget.controller.resolve(entry.key, null),
+                          ),
                         )
                       : null,
                   child: const Text('保留本机当前内容'),

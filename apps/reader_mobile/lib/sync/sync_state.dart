@@ -16,6 +16,16 @@ class SyncState {
   final pending = <Map<String, dynamic>>[];
   final objects = <String>{};
   final conflicts = <String, Map<String, SyncRecord>>{};
+  final deferred = <String, List<SyncRecord>>{};
+
+  /// 暂停类别保留未应用的因果分支，不能提前并入本机已观察版本。
+  void defer(SyncRecord incoming) {
+    clock = max(clock, incoming.clock);
+    final records = deferred.putIfAbsent(incoming.key, () => []);
+    if (records.any((record) => record.covers(incoming))) return;
+    records.removeWhere(incoming.covers);
+    records.add(incoming);
+  }
 
   SyncRecord change(SyncEntity entity) {
     final previous = heads[entity.key];
@@ -34,7 +44,7 @@ class SyncState {
   }
 
   /// 因果较旧的副本不能覆盖较新数据；并发删除优先，恢复须是新操作。
-  bool receive(SyncRecord incoming) {
+  bool receive(SyncRecord incoming, {bool preserveConcurrent = false}) {
     clock = max(clock, incoming.clock);
     final current = heads[incoming.key];
     if (current == null || incoming.covers(current)) {
@@ -54,7 +64,15 @@ class SyncState {
       winner,
       (merged, record) => merged.observed(record),
     );
-    if (versions.values.any((record) => _needsChoice(winner, record))) {
+    final keepChoice =
+        preserveConcurrent ||
+        (conflicts.containsKey(incoming.key) &&
+            const {'setting', 'user_fonts'}.contains(incoming.type));
+    if (versions.values.any(
+      (record) => keepChoice
+          ? winner.digest != record.digest
+          : _needsChoice(winner, record),
+    )) {
       conflicts[incoming.key] = versions;
       return false;
     }
@@ -121,6 +139,10 @@ class SyncState {
     'cursors': cursors,
     'pending': pending,
     'objects': objects.toList(),
+    'deferred': deferred.map(
+      (key, records) =>
+          MapEntry(key, records.map((record) => record.toJson()).toList()),
+    ),
     'conflicts': conflicts.map(
       (key, values) => MapEntry(
         key,
@@ -146,6 +168,13 @@ class SyncState {
       (json['pending'] as List).cast<Map<String, dynamic>>(),
     );
     state.objects.addAll((json['objects'] as List).cast<String>());
+    for (final entry
+        in (json['deferred'] as Map<String, dynamic>? ?? {}).entries) {
+      state.deferred[entry.key] = [
+        for (final record in entry.value as List)
+          SyncRecord.fromJson(record as Map<String, dynamic>),
+      ];
+    }
     for (final entry in (json['conflicts'] as Map<String, dynamic>).entries) {
       state.conflicts[entry.key] = (entry.value as Map<String, dynamic>).map(
         (key, value) =>

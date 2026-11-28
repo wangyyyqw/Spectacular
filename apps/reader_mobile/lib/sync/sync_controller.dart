@@ -203,7 +203,7 @@ class SyncController extends ChangeNotifier {
       await library.setSetting('sync.collection.v1', engine.collection);
       await library.setSetting('sync.lastAt.v1', lastSync!.toIso8601String());
       message = outcome.message;
-      if (outcome.downloaded > 0) dataRevision++;
+      if (outcome.downloaded > 0 || outcome.restored) dataRevision++;
       return outcome;
     } catch (error) {
       message = '同步失败，未发送数据与下载游标已保留：$error';

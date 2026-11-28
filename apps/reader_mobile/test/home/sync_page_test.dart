@@ -14,6 +14,7 @@ import 'package:reader_mobile/sync/sync_page.dart';
 import 'package:reader_mobile/sync/sync_secrets.dart';
 import 'package:reader_mobile/sync/sync_storage.dart';
 import 'package:reader_mobile/sync/sync_engine.dart';
+import 'package:reader_mobile/sync/sync_state.dart';
 
 import '../support/test_epub.dart';
 import '../support/reader_pump.dart';
@@ -175,6 +176,43 @@ void main() {
     expect(controller.message, contains('同步完成'));
   });
 
+  testWidgets('偏好同步冲突展示可区分的值与删除状态', (tester) async {
+    final controller = _WidgetController();
+    addTearDown(controller.dispose);
+    const key = 'setting/reader.fontSize';
+    controller.state = SyncState(device: 'device-local')
+      ..conflicts[key] = {
+        'local': const SyncRecord(
+          key,
+          {'value': '32'},
+          device: 'device-local',
+          clock: 2,
+          vector: {'device-local': 2},
+        ),
+        'remote': const SyncRecord(
+          key,
+          {'value': '24'},
+          deleted: true,
+          device: 'device-remote',
+          clock: 2,
+          vector: {'device-remote': 2},
+        ),
+      };
+    await tester.pumpWidget(
+      MaterialApp(home: SyncPage(controller: controller)),
+    );
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.text(key),
+      180,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(find.text(key));
+    await tester.pumpAndSettle();
+    expect(find.text('32'), findsOneWidget);
+    expect(find.text('已删除'), findsOneWidget);
+  });
+
   test('凭证和恢复密钥不进入 settings，重复保存保留基线', () async {
     final (controller, secrets, _) = await _controller();
     await controller.library.importBytes(buildTestEpub());
@@ -232,6 +270,38 @@ void main() {
     expect(await controller.synchronize(), isNull);
     expect(controller.message, contains('同步失败'));
     expect(controller.lastSync, isNull);
+  });
+
+  test('重新开启偏好同步应用缓存值时通知宿主刷新，即使没有新下载批次', () async {
+    final (sender, _, cloud) = await _controller();
+    final (receiver, _, _) = await _controller(cloud: cloud);
+    const enabled = SyncProfile(
+      provider: SyncProvider.webdav,
+      endpoint: 'http://localhost',
+      automatic: false,
+      preferences: true,
+    );
+    await sender.library.setSetting('app.themeMode', 'light');
+    await sender.createLibrary(
+      enabled,
+      const SyncCredentials(),
+      encrypted: false,
+    );
+    await sender.synchronize();
+    await receiver.join(enabled, const SyncCredentials());
+    await receiver.synchronize();
+    await receiver.saveProfile(_profile, const SyncCredentials());
+    await sender.library.setSetting('app.themeMode', 'dark');
+    await sender.synchronize();
+    await receiver.synchronize();
+    expect(await receiver.library.getSetting('app.themeMode'), 'light');
+    final before = receiver.dataRevision;
+    await receiver.saveProfile(enabled, const SyncCredentials());
+    final restored = (await receiver.synchronize())!;
+    expect(restored.downloaded, 0);
+    expect(restored.restored, isTrue);
+    expect(receiver.dataRevision, before + 1);
+    expect(await receiver.library.getSetting('app.themeMode'), 'dark');
   });
 
   for (final pauseBeforeCompletion in [false, true]) {

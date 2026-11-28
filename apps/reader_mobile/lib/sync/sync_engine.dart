@@ -18,11 +18,13 @@ class SyncOutcome {
     required this.downloaded,
     required this.conflicts,
     this.deferred = false,
+    this.restored = false,
   });
   final int uploaded;
   final int downloaded;
   final int conflicts;
   final bool deferred;
+  final bool restored;
   String get message => deferred
       ? '本机变更已上传，退出阅读或编辑后接收远端更新'
       : '同步完成：发送 $uploaded 批，接收 $downloaded 批'
@@ -118,7 +120,7 @@ class SyncEngine {
 
   Future<SyncOutcome> sync() async {
     await connect();
-    await _restoreNewScopes();
+    final restored = await _restoreNewScopes();
     onStatus?.call('收集本机变更…');
     await _capture();
     final uploaded = await _push();
@@ -128,6 +130,7 @@ class SyncEngine {
         downloaded: 0,
         conflicts: state.conflicts.length,
         deferred: true,
+        restored: restored,
       );
     }
     final downloaded = await _pull();
@@ -136,6 +139,7 @@ class SyncEngine {
       downloaded: downloaded,
       conflicts: state.conflicts.length,
       deferred: repository.busy,
+      restored: restored,
     );
   }
 
@@ -297,8 +301,12 @@ class SyncEngine {
     await _capture();
     final accepted = <SyncRecord>[];
     for (final record in records) {
+      if (!syncKeyEnabled(record.key, profile)) {
+        state.defer(record);
+        continue;
+      }
       final changed = state.receive(record);
-      if (changed && syncKeyEnabled(record.key, profile)) {
+      if (changed) {
         accepted.add(state.heads[record.key]!);
       }
     }
@@ -369,24 +377,85 @@ class SyncEngine {
     }
   }
 
-  Future<void> _restoreNewScopes() async {
-    if (repository.busy) return;
+  Future<bool> _restoreNewScopes() async {
+    if (repository.busy) return false;
+    final restored = await _restoreDeferredScopes();
     final snapshot = await repository.snapshot(profile, assets);
+    final legacy = _legacyScopeChanges(snapshot);
     final restore = state.heads.values
         .where(
           (record) =>
               syncKeyEnabled(record.key, profile) &&
-              !state.baselines.containsKey(record.key) &&
-              !snapshot.containsKey(record.key) &&
+              ((!state.baselines.containsKey(record.key) &&
+                      !snapshot.containsKey(record.key)) ||
+                  legacy.contains(record.key)) &&
               !state.conflicts.containsKey(record.key),
         )
         .toList();
-    if (restore.isEmpty) return;
+    if (restore.isEmpty) {
+      if (legacy.isNotEmpty) await repository.save(collection, state);
+      return restored;
+    }
     for (final record in restore.where((record) => !record.deleted)) {
       for (final ref in assets.references(record.data)) {
         await assets.download(ref, storage);
       }
     }
     await repository.apply(collection, restore, state, assets, profile);
+    return true;
+  }
+
+  Set<String> _legacyScopeChanges(Map<String, SyncEntity> snapshot) {
+    final restore = <String>{};
+    for (final record in state.heads.values.toList()) {
+      if (!const {'setting', 'user_fonts'}.contains(record.type) ||
+          !syncKeyEnabled(record.key, profile) ||
+          state.conflicts.containsKey(record.key) ||
+          !state.baselines.containsKey(record.key) ||
+          state.baselines[record.key] == record.digest) {
+        continue;
+      }
+      final local = snapshot[record.key];
+      restore.add(record.key);
+      if (local?.digest == state.baselines[record.key]) {
+        continue;
+      }
+      // 旧状态没有暂停前的版本向量；本机同期修改交给显式冲突选择。
+      state.heads.remove(record.key);
+      final changed = state.change(
+        local ?? SyncEntity(record.key, record.data, deleted: true),
+      );
+      state.enqueue([changed]);
+      state.receive(record, preserveConcurrent: true);
+    }
+    return restore;
+  }
+
+  Future<bool> _restoreDeferredScopes() async {
+    final records = [
+      for (final entry in state.deferred.entries)
+        if (syncKeyEnabled(entry.key, profile)) ...entry.value,
+    ];
+    if (records.isEmpty) return false;
+    for (final record in records.where((record) => !record.deleted)) {
+      for (final ref in assets.references(record.data)) {
+        await assets.download(ref, storage);
+      }
+    }
+    // 下载期间的本机修改仍以暂停前版本为基线，重新启用不能静默覆盖。
+    await _capture();
+    final changed = <String>{};
+    for (final record in records) {
+      if (state.receive(record, preserveConcurrent: true)) {
+        changed.add(record.key);
+      }
+      state.deferred.remove(record.key);
+    }
+    final accepted = [
+      for (final key in changed)
+        if (!state.conflicts.containsKey(key)) state.heads[key]!,
+    ];
+    await repository.apply(collection, accepted, state, assets, profile);
+    return accepted.isNotEmpty;
   }
 }

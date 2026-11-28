@@ -29,6 +29,13 @@ const _profile = SyncProfile(
   automatic: false,
 );
 
+const _preferencesProfile = SyncProfile(
+  provider: SyncProvider.webdav,
+  endpoint: 'http://localhost',
+  automatic: false,
+  preferences: true,
+);
+
 class _Cloud implements SyncStorage {
   final objects = <String, Uint8List>{};
   final uploads = <String, int>{};
@@ -787,6 +794,127 @@ void main() {
     );
     expect((await b.library.list()).single.title, '乙版');
   });
+
+  test('偏好同步暂停后重新开启应用最新远端版本，重启后仍保留待接收内容', () async {
+    final cloud = _Cloud();
+    final a = await _device(cloud);
+    final b = await _device(cloud);
+    await a.library.setSetting('reader.fontSize', '24');
+    await a.engine().create(encrypted: false);
+    await a.engine(profile: _preferencesProfile).sync();
+    await b.engine(profile: _preferencesProfile).sync();
+    expect(await b.library.getSetting('reader.fontSize'), '24');
+    for (final value in ['28', '30']) {
+      await a.library.setSetting('reader.fontSize', value);
+      await a.engine(profile: _preferencesProfile).sync();
+      await b.engine().sync();
+    }
+    final pending = b.engine();
+    await pending.connect();
+    expect(pending.state.deferred.values.single, hasLength(1));
+    expect(await b.library.getSetting('reader.fontSize'), '24');
+    final restored = b.engine(profile: _preferencesProfile);
+    await restored.sync();
+    expect(await b.library.getSetting('reader.fontSize'), '30');
+    expect(restored.state.deferred, isEmpty);
+    expect((await b.engine(profile: _preferencesProfile).sync()).uploaded, 0);
+  });
+
+  test('偏好暂停期间的本机修改与远端修改形成冲突，采用版本后可继续同步', () async {
+    final cloud = _Cloud();
+    final a = await _device(cloud);
+    final b = await _device(cloud);
+    await a.library.setSetting('reader.fontSize', '24');
+    await a.engine().create(encrypted: false);
+    await a.engine(profile: _preferencesProfile).sync();
+    await b.engine(profile: _preferencesProfile).sync();
+    await a.library.setSetting('reader.fontSize', '28');
+    await a.engine(profile: _preferencesProfile).sync();
+    await b.engine().sync();
+    await b.library.setSetting('reader.fontSize', '32');
+    final receiver = b.engine(profile: _preferencesProfile);
+    expect((await receiver.sync()).conflicts, 1);
+    expect(await b.library.getSetting('reader.fontSize'), '32');
+    final versions = receiver.state.conflicts['setting/reader.fontSize']!;
+    expect(versions.values.map((record) => record.data['value']), {'28', '32'});
+    final remote = versions.values.firstWhere(
+      (record) => record.data['value'] == '28',
+    );
+    await b.engine(profile: _preferencesProfile).resolve(remote.key, remote);
+    await b.engine(profile: _preferencesProfile).sync();
+    await a.engine(profile: _preferencesProfile).sync();
+    expect(await b.library.getSetting('reader.fontSize'), '28');
+    expect(await a.library.getSetting('reader.fontSize'), '28');
+  });
+
+  test('重新开启偏好同步接收暂停期间的删除，随后恢复值仍可传播', () async {
+    final cloud = _Cloud();
+    final a = await _device(cloud);
+    final b = await _device(cloud);
+    await a.library.setSetting('reader.fontSize', '24');
+    await a.engine().create(encrypted: false);
+    await a.engine(profile: _preferencesProfile).sync();
+    await b.engine(profile: _preferencesProfile).sync();
+    await a.db.customStatement(
+      "DELETE FROM settings WHERE key = 'reader.fontSize'",
+    );
+    await a.engine(profile: _preferencesProfile).sync();
+    await b.engine().sync();
+    expect(await b.library.getSetting('reader.fontSize'), '24');
+    await b.engine(profile: _preferencesProfile).sync();
+    expect(await b.library.getSetting('reader.fontSize'), isNull);
+    await b.library.setSetting('reader.fontSize', '26');
+    await b.engine(profile: _preferencesProfile).sync();
+    await a.engine(profile: _preferencesProfile).sync();
+    expect(await a.library.getSetting('reader.fontSize'), '26');
+  });
+
+  for (final localChanged in [false, true]) {
+    test('旧同步状态已漏应用的偏好${localChanged ? '保留本机改动为冲突' : '恢复远端新值'}', () async {
+      final cloud = _Cloud();
+      final a = await _device(cloud);
+      final b = await _device(cloud);
+      await a.library.setSetting('reader.fontSize', '24');
+      await a.engine().create(encrypted: false);
+      await a.engine(profile: _preferencesProfile).sync();
+      await b.engine(profile: _preferencesProfile).sync();
+      await a.library.setSetting('reader.fontSize', '28');
+      await a.engine(profile: _preferencesProfile).sync();
+      final paused = b.engine();
+      await paused.sync();
+      for (final records in paused.state.deferred.values) {
+        for (final record in records) {
+          paused.state.receive(record);
+        }
+      }
+      paused.state.deferred.clear();
+      final legacy = jsonDecode(paused.state.encode()) as Map<String, dynamic>
+        ..remove('deferred');
+      await b.library.setSetting(
+        'sync.state.${paused.collection}',
+        jsonEncode(legacy),
+      );
+      if (localChanged) await b.library.setSetting('reader.fontSize', '32');
+      final restored = b.engine(profile: _preferencesProfile);
+      expect((await restored.sync()).conflicts, localChanged ? 1 : 0);
+      expect(
+        await b.library.getSetting('reader.fontSize'),
+        localChanged ? '32' : '28',
+      );
+      if (localChanged) {
+        expect(
+          restored.state.conflicts.values.single.values.map(
+            (record) => record.data['value'],
+          ),
+          {'28', '32'},
+        );
+        expect(
+          (await b.engine(profile: _preferencesProfile).sync()).conflicts,
+          1,
+        );
+      }
+    });
+  }
 
   test('后开启阅读偏好与素材同步时恢复已接收的选项，不要求重新安装', () async {
     final cloud = _Cloud();
