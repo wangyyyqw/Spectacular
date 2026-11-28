@@ -34,7 +34,7 @@ class BookResources {
   static const imageHeaderProbeBytes = 256 * 1024;
   static const imageIntrinsicCacheLimit = 512;
   static const chapterIndexCacheLimit = 3;
-  final EpubDocumentImpl document;
+  EpubDocumentImpl document;
   final _imageIntrinsicCache = BoundedCache<String, ImageIntrinsicSize>(
     imageIntrinsicCacheLimit,
   );
@@ -239,6 +239,16 @@ class BookResources {
     _parsed.clear();
     _preparing.cancelAll();
     _preparingFootnotes.cancelAll();
+  }
+
+  /// 段落写回只替换归档和原文；图片尺寸、网络资源与已加载字体继续复用。
+  void acceptSavedDocument(EpubDocumentImpl next) {
+    final previous = document;
+    clearParsed();
+    _footnoteReferenceCache.clear();
+    _spinePaths = null;
+    document = next;
+    previous.archive.close();
   }
 
   void close() {

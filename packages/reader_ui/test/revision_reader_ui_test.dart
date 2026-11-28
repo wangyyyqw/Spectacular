@@ -106,7 +106,7 @@ class _Source implements ReaderChapterSource {
         )
         .pages;
   }
-  late final List<PageContent> pages;
+  late List<PageContent> pages;
   @override
   int get chapterCount => 1;
   @override
@@ -230,6 +230,66 @@ Future<void> _openRecord(WidgetTester tester, String tab, String row) async {
 }
 
 void main() {
+  test('保存刷新保留旧页到新页就绪，采用已迁移位置且不写入过渡状态', () async {
+    final store = MemoryReaderProgressStore();
+    final source = _Source();
+    final session = ReaderSession(
+      source: source,
+      store: store,
+      bookId: 'saved',
+      contentRevision: 'old',
+    );
+    addTearDown(session.dispose);
+    await session.open();
+    final oldPage = session.page;
+    const cfi = 'epubcfi(/6/2!/4/2/1:100)';
+    const saved = ReaderProgress(
+      spineIndex: 0,
+      pageIndex: 0,
+      cfi: cfi,
+      contentRevision: 'new',
+    );
+    await store.save('saved', saved);
+    await session.refreshContent(
+      revision: 'new',
+      prepare: () async {
+        expect(session.page, same(oldPage));
+        await session.flushProgress();
+        expect(await store.load('saved'), saved);
+        source.pages = _Source(baseOffset: 100).pages;
+      },
+    );
+    expect(session.page, isNot(same(oldPage)));
+    expect(session.contentRevision, 'new');
+    expect(session.progress!.cfi, cfi);
+    await session.flushProgress();
+    expect((await store.load('saved'))!.contentRevision, 'new');
+  });
+
+  test('刷新失败保持旧版写入凭据，不能用旧页覆盖新版迁移位置', () async {
+    final session = ReaderSession(
+      source: _Source(),
+      store: MemoryReaderProgressStore(),
+      bookId: 'failed-refresh',
+      contentRevision: 'old',
+    );
+    addTearDown(session.dispose);
+    await session.open();
+    final before = session.page;
+    await expectLater(
+      session.refreshContent(
+        revision: 'new',
+        prepare: () async {
+          throw StateError('刷新失败');
+        },
+      ),
+      throwsStateError,
+    );
+    expect(session.contentRevision, 'old');
+    expect(session.page, same(before));
+    expect(session.loading, isFalse);
+  });
+
   test('未读完进度恢复到末页后，重排不标记读完，离开再返回才读完', () async {
     final source = _ResizableSource();
     final last = source.source.pages.last;

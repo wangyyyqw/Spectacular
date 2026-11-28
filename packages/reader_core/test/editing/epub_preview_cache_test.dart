@@ -39,6 +39,39 @@ void main() {
     return source;
   }
 
+  test('段落保存复用来源，刷新正文、搜索和锚点并取消旧排版', () async {
+    final source = await EpubChapterSource.openFile(
+      session.baseFile,
+      contentVersion: session.baseDigest,
+    );
+    sources.add(source);
+    final oldPages = await source.loadChapter(0);
+    final oldAnchor = await source.loadAnchorChapter(0);
+    final oldProgress = source.progressIndex;
+    expect(source.chapterPlainText(0), contains('第0章正文'));
+    final oldDocument = source.document;
+    _replace(session, 'OPS/c0.xhtml', '第0章正文', '第0章保存后的正文');
+    final file = File('${directory.path}/saved.epub');
+    final written = await EpubWriter.write(session, file);
+    final pending = source.scheduleChapter(1);
+    final cancelled = expectLater(
+      pending.result,
+      throwsA(isA<ChapterLoadCancelled>()),
+    );
+    await source.acceptSavedChapter(file, contentVersion: written.digest);
+    await cancelled;
+    expect(source.isClosed, isFalse);
+    expect(source.document, isNot(same(oldDocument)));
+    expect(source.progressIndex, isNot(same(oldProgress)));
+    expect(source.chapterPlainText(0), contains('第0章保存后的正文'));
+    final pages = await source.loadChapter(0);
+    expect(pages, isNot(same(oldPages)));
+    final anchor = await source.loadAnchorChapter(0);
+    expect(anchor, isNot(same(oldAnchor)));
+    expect(anchor.text, contains('第0章保存后的正文'));
+    expect(source.chapterPlainText(1), contains('第1章正文'));
+  });
+
   test('正文仅失效本章，旧 source 关闭后其他章结构与页面仍复用', () async {
     final original = await session.baseFile.readAsBytes();
     final old = await preview();

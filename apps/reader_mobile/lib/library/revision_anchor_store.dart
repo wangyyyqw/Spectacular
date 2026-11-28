@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:reader_core/position/cfi.dart';
+import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/position/location_anchor.dart';
 import 'package:reader_core/epub/epub_document.dart';
 import 'package:reader_core/position/book_progress_index.dart';
@@ -110,6 +111,21 @@ Future<void Function()> bindReadingAnchorSource(
   return () {
     if (identical(sources[bookId], binding)) sources.remove(bookId);
   };
+}
+
+/// 编辑迁移借用当前阅读章的原文证据；没有匹配会话时由调用方读文件。
+Future<({AnchorBook book, double width, ComputedStyle style})?>
+borrowReadingAnchorBook(AppDatabase db, BookRow row, int spineIndex) async {
+  final binding = _readingSources[db]?[row.uuid];
+  if (binding == null || !binding.matches(row)) return null;
+  final book = await binding.index(spineIndex, spineIndex);
+  return book == null
+      ? null
+      : (
+          book: book,
+          width: binding.source.contentWidth,
+          style: binding.source.baseStyle,
+        );
 }
 
 /// 日常保存只索引起止 CFI 之间的章节；完整索引仅供覆盖更新迁移使用。

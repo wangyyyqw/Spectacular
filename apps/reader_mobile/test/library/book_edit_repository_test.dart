@@ -235,6 +235,8 @@ void main() {
       epub: buildRevisionTestEpub(chapters: chapters),
     );
     final old = await fixture.book;
+    final beforeSpines = await fixture.db.select(fixture.db.spineItems).get();
+    final beforeToc = await fixture.db.select(fixture.db.chapters).get();
     final note = await fixture.db.select(fixture.db.annotations).getSingle();
     final beforeProgress = await fixture.db
         .select(fixture.db.readingProgress)
@@ -269,6 +271,26 @@ void main() {
     expect(stages, ['正在写入 EPUB…', '正在更新书库和阅读位置…']);
     final saved = await fixture.book;
     expect(saved.charCount, old.charCount + 2);
+    final afterSpines = await fixture.db.select(fixture.db.spineItems).get();
+    expect(afterSpines.map((row) => row.id), beforeSpines.map((row) => row.id));
+    expect(
+      (await fixture.db.select(fixture.db.chapters).get()).map(
+        (row) => row.toJson(),
+      ),
+      beforeToc.map((row) => row.toJson()),
+      reason: '段落编辑不重新插入整书目录',
+    );
+    for (final row in afterSpines) {
+      final before = beforeSpines.singleWhere((item) => item.id == row.id);
+      expect(
+        row.charCount,
+        before.charCount! + (row.spineIndex == target ? 2 : 0),
+      );
+      expect(
+        row.charStart,
+        before.charStart! + (row.spineIndex > target ? 2 : 0),
+      );
+    }
     final newIndex = await buildRevisionAnchorBookFile(
       File(saved.sourcePath!),
       revision: saved.contentRevision,
@@ -424,6 +446,52 @@ void main() {
     final saved = await fixture.book;
     expect(saved.title, '书架别名');
     expect(saved.contentRevision, isNot(entry.contentRevision));
+  });
+
+  test('复用写出校验时仍拒绝被替换的暂存文件，失败可以重新保存', () async {
+    final fixture = await _fixture();
+    final before = await fixture.book;
+    final note = await fixture.db.select(fixture.db.annotations).getSingle();
+    final edit = await fixture.repository.openParagraph(
+      before.uuid,
+      before.contentRevision,
+      File(before.sourcePath!),
+      0,
+      note.startCfi,
+      note.endCfi,
+    );
+    addTearDown(edit.session.close);
+    await expectLater(
+      fixture.repository.saveParagraph(
+        before.uuid,
+        edit,
+        '修改后的段落',
+        onStage: (stage) {
+          if (stage != '正在更新书库和阅读位置…') return;
+          final versions = Directory(
+            '${fixture.root.path}/books/${before.uuid}/versions',
+          );
+          final file = versions
+              .listSync(recursive: true)
+              .whereType<File>()
+              .singleWhere(
+                (file) =>
+                    file.path.endsWith('source.epub') &&
+                    file.path != before.sourcePath,
+              );
+          file.writeAsBytesSync([1], mode: FileMode.append);
+        },
+      ),
+      throwsA(isA<LibraryImportException>()),
+    );
+    await _expectUnchanged(fixture, before);
+    expect(edit.session.changedPaths, isEmpty);
+    final saved = await fixture.repository.saveParagraph(
+      before.uuid,
+      edit,
+      '修改后的段落',
+    );
+    expect(saved!.contentRevision, isNot(before.contentRevision));
   });
 
   test('正文和元数据保存保持书籍身份、迁移位置，原版与最近版可以恢复', () async {

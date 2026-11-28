@@ -2,6 +2,7 @@ import 'dart:typed_data';
 import 'dart:io';
 
 import 'package:crypto/crypto.dart';
+import 'package:reader_core/css/computed_style.dart';
 import 'package:reader_core/position/location_anchor.dart';
 
 import 'package:reader_core/epub/epub_chapter_source.dart';
@@ -32,8 +33,14 @@ Future<AnchorBook> buildRevisionAnchorBookFile(
   File file, {
   required String revision,
   int? spineIndex,
+  double contentWidth = 320,
+  ComputedStyle? style,
 }) async {
-  final source = await EpubChapterSource.openFile(file);
+  final source = await EpubChapterSource.openFile(
+    file,
+    contentWidth: contentWidth,
+    style: style,
+  );
   try {
     final chapters = [
       if (spineIndex != null)

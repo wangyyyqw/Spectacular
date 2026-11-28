@@ -105,7 +105,7 @@ void main() {
     }),
   );
 
-  testWidgets('手机阅读选区编辑校验失败保留输入，修正保存后阅读新版', (tester) async {
+  testWidgets('手机选区保存保留阅读会话，失败保留输入且支持连续编辑', (tester) async {
     late Directory temporary;
     late AppDatabase db;
     late LibraryStore library;
@@ -143,6 +143,10 @@ void main() {
     final opened = opener.open(key.currentContext!, entry);
     await pumpReaderUntil(tester, find.byType(ReaderPageFooter));
     await _pumpFrames(tester);
+    final readerState = tester.state(find.byType(ReaderPage));
+    final originalReader = tester.widget<ReaderPage>(find.byType(ReaderPage));
+    final originalSource = originalReader.source as EpubChapterSource;
+    final originalImages = originalReader.imageCache;
     final layer = find.byType(ReaderSemanticsLayer);
     final page = tester.widget<ReaderSemanticsLayer>(layer).page;
     final line = TextHitTester.lineBoxes(page)
@@ -189,7 +193,7 @@ void main() {
       () => tester
           .widgetList<ReaderPage>(find.byType(ReaderPage))
           .any((reader) => reader.contentRevision != entry.contentRevision),
-      description: '重新打开修改后的段落',
+      description: '在当前阅读页刷新修改后的段落',
       maxFrames: 240,
     );
     await pumpReaderUntil(tester, layer);
@@ -198,6 +202,56 @@ void main() {
     ).map((line) => line.text).join();
     expect(lines, contains('修改强调'));
     expect(lines, contains('不要修改的段落'));
+    expect(tester.state(find.byType(ReaderPage)), same(readerState));
+    expect(
+      tester.widget<ReaderPage>(find.byType(ReaderPage)).source,
+      same(originalSource),
+    );
+    expect(
+      tester.widget<ReaderPage>(find.byType(ReaderPage)).imageCache,
+      same(originalImages),
+    );
+    expect(originalSource.isClosed, isFalse);
+    await tester.pumpAndSettle();
+    final current = tester.widget<ReaderPage>(find.byType(ReaderPage));
+    final revised = await pumpReaderTask(
+      tester,
+      originalSource.loadAnchorChapter(0),
+    );
+    final nextCfi = revised.cfiAt(revised.text.indexOf('修改'))!;
+    current.onEditTarget!(
+      ReaderEditTarget(
+        spineIndex: 0,
+        cfi: nextCfi,
+        endCfi: nextCfi,
+        contentRevision: current.contentRevision,
+      ),
+    );
+    await pumpReaderUntil(tester, field);
+    expect(
+      tester.widget<TextField>(field).controller!.text,
+      '<p>修改<em>强调</em></p>',
+    );
+    await tester.enterText(field, '<p>再次保存<em>强调</em></p>');
+    await tester.tap(find.text('保存'));
+    await pumpReaderUntilComplete(
+      tester,
+      () =>
+          tester.widget<ReaderPage>(find.byType(ReaderPage)).contentRevision !=
+          current.contentRevision,
+      description: '连续保存使用新文件和新版本',
+      maxFrames: 240,
+    );
+    await tester.pumpAndSettle();
+    expect(tester.state(find.byType(ReaderPage)), same(readerState));
+    expect(originalSource.chapterPlainText(0), contains('再次保存强调'));
+    expect(
+      (await pumpReaderTask(
+        tester,
+        library.bookById(entry.id),
+      ))!.contentRevision,
+      tester.widget<ReaderPage>(find.byType(ReaderPage)).contentRevision,
+    );
     tester.state<NavigatorState>(find.byType(Navigator).first).pop();
     await pumpReaderTask(tester, opened);
   }, variant: TargetPlatformVariant.only(TargetPlatform.android));

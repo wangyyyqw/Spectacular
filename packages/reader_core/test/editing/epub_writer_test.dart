@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
+import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/editing.dart';
 import 'package:reader_core/epub/epub_document.dart';
@@ -31,7 +32,13 @@ void main() {
     );
     final output = File('${directory.path}/saved.epub');
     try {
-      await EpubWriter.write(session, output);
+      final written = await EpubWriter.write(session, output);
+      expect(written.path, output.absolute.path);
+      expect(
+        written.digest,
+        sha256.convert(await output.readAsBytes()).toString(),
+      );
+      expect(written.report.ok, isTrue);
       final reopened = await openEpubFile(output, verifyCrc: true);
       expect(reopened.ok, isTrue);
       final document = reopened.document!;
@@ -256,6 +263,32 @@ void main() {
         throwsA(isA<EpubEditException>()),
       );
       expect(output.existsSync(), isFalse);
+    } finally {
+      session.close();
+    }
+  });
+
+  test('大书并行校验的基线失败仍返回编辑错误，等待校验结束后清理文件', () async {
+    final input = await createEditingFixture(directory);
+    final archive = ZipDecoder().decodeBytes(await input.readAsBytes())
+      ..addFile(
+        ArchiveFile.noCompress(
+          'large.bin',
+          8 * 1024 * 1024,
+          Uint8List(8 * 1024 * 1024),
+        ),
+      );
+    await input.writeAsBytes(ZipEncoder().encodeBytes(archive));
+    final session = await EpubEditSession.open(input);
+    try {
+      await input.writeAsBytes([1], mode: FileMode.append);
+      final output = File('${directory.path}/large-rejected.epub');
+      await expectLater(
+        EpubWriter.write(session, output),
+        throwsA(isA<EpubEditException>()),
+      );
+      expect(output.existsSync(), isFalse);
+      expect(directory.listSync().whereType<Directory>(), isEmpty);
     } finally {
       session.close();
     }

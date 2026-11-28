@@ -225,6 +225,38 @@ class EpubChapterSource
     cancelPendingLayouts();
   }
 
+  /// 已经书库校验和提交的段落版本，在原来源内换档，不重新加载字体与图片。
+  /// 仅适用于章节正文修改；包结构、共享样式或资源变化仍须重新打开来源。
+  Future<void> acceptSavedChapter(
+    File file, {
+    required String contentVersion,
+  }) async {
+    final opened = await openEpubFile(file);
+    final next = opened.document;
+    if (next == null) {
+      throw StateError(opened.report.message ?? '保存后的 EPUB 无法读取');
+    }
+    final previousSpine = document.spine;
+    final nextSpine = next.spine;
+    if (_closed ||
+        next.opfPath != document.opfPath ||
+        nextSpine.length != previousSpine.length ||
+        nextSpine.indexed.any(
+          (item) => item.$2.href != previousSpine[item.$1].href,
+        )) {
+      next.archive.close();
+      throw StateError('段落保存后书籍结构已变化，需重新打开书籍');
+    }
+    setContentVersion(contentVersion);
+    _structures.clear();
+    _styles.invalidateChapters();
+    _positions.clearContent();
+    _resources.acceptSavedDocument(next);
+    _preparerEpoch += 1;
+    _preparerTasks.clear();
+    _lastSnapshots.clear();
+  }
+
   /// 目录（P4-11）：每项自带目标 spine 序号。
   @override
   List<TocEntry> get toc => _positions.toc;

@@ -38,7 +38,8 @@ import '../storage/reading_session_store.dart';
 import 'import_analysis.dart';
 import 'book_edit_models.dart';
 import 'revision_anchor_index.dart';
-import 'revision_anchor_store.dart' show requireAnchorRecord, resolveBookRow;
+import 'revision_anchor_store.dart'
+    show requireAnchorRecord, resolveBookRow, borrowReadingAnchorBook;
 import '../sync/sync_assets.dart';
 import '../sync/sync_layout.dart';
 import '../sync/sync_models.dart';

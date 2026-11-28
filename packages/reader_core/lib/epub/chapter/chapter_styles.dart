@@ -484,16 +484,22 @@ class ChapterStyles {
     });
   }
 
+  /// 段落可包含行内样式；重新收集章节规则，保留未改动的外部样式表。
+  void invalidateChapters() {
+    _preparing.cancelAll();
+    _chapterSheets.clear();
+    _dependencies.clear();
+    _baseCache.clear();
+    _fontCache.clear();
+  }
+
   /// 宿主关闭书籍时释放本服务缓存，不关闭共享资源或字体服务。
   void close() {
     if (_closed) return;
     _closed = true;
     _preparing.close();
     _sheetCache.clear();
-    _chapterSheets.clear();
-    _dependencies.clear();
-    _baseCache.clear();
-    _fontCache.clear();
+    invalidateChapters();
   }
 }
 

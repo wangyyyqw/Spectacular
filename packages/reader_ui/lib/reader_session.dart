@@ -284,7 +284,7 @@ class ReaderSession extends ChangeNotifier {
     required this.store,
     required this.bookId,
     this.persistInterval = defaultPersistInterval,
-    this.contentRevision,
+    this._contentRevision,
     this.layoutDependency,
     this.autoFinish = true,
   });
@@ -302,7 +302,8 @@ class ReaderSession extends ChangeNotifier {
   final String bookId;
 
   /// 原 EPUB 文件的内容摘要，用于拒绝旧会话覆盖新版位置。
-  final String? contentRevision;
+  String? _contentRevision;
+  String? get contentRevision => _contentRevision;
 
   /// 宿主额外提供的排版依赖（文字缩放、运行时字体版本等）。
   final String? layoutDependency;
@@ -831,6 +832,7 @@ class ReaderSession extends ChangeNotifier {
   _OverrideRequest? _pendingOverride;
   Future<void>? _overridesTask;
   Future<void>? _reloadTask;
+  bool _refreshingContent = false;
   ReaderAnchor? _contentSizePreviewAnchor;
   ReaderProgress? _contentSizePreviewProgress;
   (double?, double?, double, ContentSideInsets?)? _contentSizeBeforePreview;
@@ -1840,6 +1842,66 @@ class ReaderSession extends ChangeNotifier {
     return generation == _generation && _error == null;
   }
 
+  /// 书库已保存并迁移位置后，保留阅读会话，在旧页上完成新章排版。
+  /// 调用方须在提交书库前 flushProgress，避免旧版位置晚于迁移写入。
+  Future<void> refreshContent({
+    required String revision,
+    required Future<void> Function() prepare,
+  }) async {
+    await _waitForReload();
+    if (_disposed || page == null) return;
+    await (_reloadTask = _refreshContent(revision, prepare));
+  }
+
+  Future<void> _refreshContent(
+    String revision,
+    Future<void> Function() prepare,
+  ) async {
+    final current = page!;
+    final previousRevision = _contentRevision;
+    final generation = ++_generation;
+    _cancelChapterWaiters();
+    _pager?.cancelPendingNavigation();
+    _persistTimer?.cancel();
+    _persistTimer = null;
+    _dirty = false;
+    _refreshingContent = true;
+    _loading = true;
+    _notify();
+    try {
+      await prepare();
+      if (_disposed) return;
+      if (generation != _generation) throw const ChapterLoadCancelled();
+      _contentRevision = revision;
+      final saved = await store.load(bookId);
+      if (_disposed) return;
+      if (generation != _generation) throw const ChapterLoadCancelled();
+      _restoredFinished = saved?.finished ?? false;
+      _suppressRestoredFinished = !_restoredFinished;
+      _restoredApproximate = saved?.approximate ?? false;
+      await _reloadChapter(
+        generation: generation,
+        spine: saved?.spineIndex ?? current.spineIndex,
+        anchor: ReaderAnchor(cfi: saved?.cfi),
+        pageIndex: saved?.cfi == null ? current.pageIndex : null,
+      );
+      if (_disposed) return;
+      if (generation != _generation) throw const ChapterLoadCancelled();
+      if (_error != null) throw _error!;
+    } catch (error) {
+      _contentRevision = previousRevision;
+      _error = error;
+      rethrow;
+    } finally {
+      _refreshingContent = false;
+      if (generation == _generation) {
+        _loading = false;
+        _notify();
+        if (_error == null) _persist();
+      }
+    }
+  }
+
   /// 应用新的正文区尺寸（旋转/窗口变化，P2-31）。
   ///
   /// 只重排当前章，其他章仍在导航到该章时加载；在途请求合并到最新尺寸。
@@ -2378,6 +2440,7 @@ class ReaderSession extends ChangeNotifier {
   }
 
   ReaderProgress? get _progressToPersist {
+    if (_refreshingContent) return null;
     final preview = _contentSizePreviewProgress;
     if (preview != null) return preview;
     final staged = _stagedViewport;

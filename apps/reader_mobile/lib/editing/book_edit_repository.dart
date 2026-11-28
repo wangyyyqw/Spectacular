@@ -72,7 +72,7 @@ class BookEditRepository {
     }
   }
 
-  Future<void> saveParagraph(
+  Future<BookEntry?> saveParagraph(
     String bookId,
     EpubParagraphEdit edit,
     String input, {

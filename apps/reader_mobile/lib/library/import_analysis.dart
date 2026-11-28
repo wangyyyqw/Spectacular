@@ -9,6 +9,7 @@ import 'package:reader_core/epub/epub_document.dart';
 import 'package:reader_core/epub/opf.dart';
 import 'package:reader_core/epub/archive_reader.dart';
 import 'package:reader_core/editing/edit_change_classifier.dart';
+import 'package:reader_core/editing/epub_writer.dart';
 
 /// isolate 可安全传回的新书导入摘要。
 ///
@@ -258,10 +259,14 @@ Future<ImportAnalysis> _analyzeFile(
   List<int>? knownCounts,
   int? recountSpine,
   bool includeCover = true,
+  ImportReport? verifiedReport,
 }) async {
   revision ??= await _sha256File(path);
   // 导入做完整 CRC 校验；惰性 ZIP 逐条解压，内存有界。
-  final parsed = await openEpubFile(File(path), verifyCrc: true);
+  final parsed = await openEpubFile(
+    File(path),
+    verifyCrc: verifiedReport == null,
+  );
   final document = parsed.document;
   if (document == null) return ImportAnalysis(revision, parsed, null);
   try {
@@ -275,7 +280,7 @@ Future<ImportAnalysis> _analyzeFile(
     final coverPath = includeCover ? document.coverResourcePath : null;
     return ImportAnalysis(
       revision,
-      EpubOpenResult(report: parsed.report),
+      EpubOpenResult(report: verifiedReport ?? parsed.report),
       counts,
       summary: ImportBookSummary(
         meta: document.meta,
@@ -304,13 +309,19 @@ Future<({ImportAnalysis analysis, bool cssOnly})> analyzeEditedFile(
   required List<int> knownCounts,
   int? recountSpine,
   bool includeCover = true,
+  EpubWriteResult? verifiedWrite,
 }) => Isolate.run(() async {
+  if (verifiedWrite != null && verifiedWrite.path != File(path).absolute.path) {
+    throw ArgumentError('校验结果与待提交文件不一致');
+  }
   final onlyCss = cssOnly && await _verifiedCssOnly(oldPath, path);
   final analysis = await _analyzeFile(
     path,
+    revision: verifiedWrite?.digest,
     knownCounts: onlyCss || recountSpine != null ? knownCounts : null,
     recountSpine: recountSpine,
     includeCover: includeCover,
+    verifiedReport: verifiedWrite?.report,
   );
   return (analysis: analysis, cssOnly: onlyCss);
 });

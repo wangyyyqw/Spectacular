@@ -204,6 +204,7 @@ class _EpubReaderPageState extends State<EpubReaderPage>
     filePrefix: 'bookmark',
   );
   String _contentRevision = '';
+  late String? _sourcePath = widget.sourcePath;
   List<ReaderFontOption> _customFonts = const [];
   bool _reportedClosingProgressFailure = false;
   final _chineseConverter = ReaderChineseConverter();
@@ -1644,7 +1645,7 @@ class _EpubReaderPageState extends State<EpubReaderPage>
 
   bool get _canEditParagraph =>
       widget.bookEditorRepository?.library.supportsPersistence == true &&
-      widget.sourcePath != null;
+      _sourcePath != null;
 
   Future<void> _editParagraph(
     BuildContext panelContext,
@@ -1653,10 +1654,10 @@ class _EpubReaderPageState extends State<EpubReaderPage>
     if (_editorOpen || _closing) return;
     final repository = widget.bookEditorRepository!;
     final bookId = widget.bookId;
-    final source = File(widget.sourcePath!);
+    final source = File(_sourcePath!);
     _editorOpen = true;
     _syncReadingActivity();
-    var updated = false;
+    var reopen = false;
     try {
       final saved = await showReaderDrawer<bool>(
         context: panelContext,
@@ -1681,25 +1682,69 @@ class _EpubReaderPageState extends State<EpubReaderPage>
               sourceText: target.sourceText,
             );
           },
-          save: (edit, input, onStage) =>
-              repository.saveParagraph(bookId, edit, input, onStage: onStage),
+          save: (edit, input, onStage) async {
+            await _readerSession?.flushProgress();
+            final updated = await repository.saveParagraph(
+              bookId,
+              edit,
+              input,
+              onStage: onStage,
+            );
+            if (updated == null || !mounted) return;
+            onStage('正在刷新当前章节…');
+            try {
+              await _refreshSavedParagraph(updated);
+            } catch (error, stackTrace) {
+              // 文件已经保存；只在就地刷新失败时重新开书，不能再次提交同一编辑。
+              reopen = true;
+              recordAppError(
+                'paragraph_edit_refresh_failed',
+                error,
+                stackTrace: stackTrace,
+              );
+            }
+          },
         ),
       );
-      updated = saved == true;
-      if (updated && mounted) {
+      if (saved == true && reopen && mounted) {
         Navigator.of(context).pop(EpubReaderExit.contentUpdated);
       }
     } finally {
-      if (!updated) {
+      if (!reopen) {
         _editorOpen = false;
         if (mounted) _syncReadingActivity();
       }
     }
   }
 
+  Future<void> _refreshSavedParagraph(BookEntry book) async {
+    final source = _source!;
+    final session = _readerSession!;
+    final revision = book.contentRevision!;
+    await _ttsController?.stop();
+    await session.refreshContent(
+      revision: revision,
+      prepare: () async {
+        await source.acceptSavedChapter(
+          File(book.filePath),
+          contentVersion: revision,
+        );
+        final binding = _anchorBinding;
+        if (binding != null) (await binding)();
+        if (widget.store case DriftProgressStore store) {
+          _anchorBinding = store.bindSource(widget.bookId, source, revision);
+          await _anchorBinding;
+        }
+        _sourcePath = book.filePath;
+        _contentRevision = revision;
+      },
+    );
+    if (mounted) setState(() {});
+  }
+
   bool get _canEditBook =>
       widget.bookEditorRepository != null &&
-      widget.sourcePath != null &&
+      _sourcePath != null &&
       switch (defaultTargetPlatform) {
         TargetPlatform.macOS || TargetPlatform.windows => true,
         _ => false,
@@ -1708,7 +1753,7 @@ class _EpubReaderPageState extends State<EpubReaderPage>
   Future<void> _openEditor() async {
     if (!_canEditBook || _editorOpen) return;
     final repository = widget.bookEditorRepository;
-    final path = widget.sourcePath;
+    final path = _sourcePath;
     if (repository == null || path == null) return;
     _editorOpen = true;
     _syncReadingActivity();

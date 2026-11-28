@@ -170,11 +170,13 @@ class ChapterPositions {
 
   void clearCoordinates() => _coordinates.clear();
 
-  void close() {
+  void clearContent() {
     _coordinates.clear();
     _plainTexts.clear();
     _knownMissing.clear();
     _progress = null;
     _toc = null;
   }
+
+  void close() => clearContent();
 }

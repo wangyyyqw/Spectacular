@@ -34,6 +34,7 @@
         "apps/reader_mobile/test/real_book_sweep_test.dart",
         "apps/reader_mobile/test/diagnostics/*_test.dart",
         "apps/reader_mobile/test/reader/memory_budget_test.dart",
+        "apps/reader_mobile/test/reader/paragraph_save_real_test.dart",
         "apps/reader_mobile/test/reader/real_book_navigation_benchmark_test.dart",
         "apps/reader_mobile/test/reader/trace_integration_test.dart"
       ]

@@ -1,13 +1,13 @@
 part of 'library_store.dart';
 
 extension LibraryEditingOperations on LibraryStore {
-  Future<void> commitParagraphEdit(
+  Future<BookEntry?> commitParagraphEdit(
     String bookId,
     EpubParagraphEdit edit,
     String input, {
     void Function(String)? onStage,
   }) async {
-    if (input == edit.initialText) return;
+    if (input == edit.initialText) return null;
     final session = edit.session;
     if (session.changedPaths.isNotEmpty) {
       throw const EpubEditException('段落编辑会话已变化，请重新打开编辑');
@@ -16,11 +16,11 @@ extension LibraryEditingOperations on LibraryStore {
     edit.apply(input);
     final revision = session.revision;
     try {
-      await _editQueue(() async {
+      return await _editQueue(() async {
         final paths = session.spinePaths;
         final spine = paths.indexOf(edit.first.path);
         var writeFinishedMs = 0;
-        await _commitEditedFile(
+        final saved = await _commitEditedFile(
           bookId,
           session.baseDigest,
           (target) async {
@@ -30,10 +30,11 @@ extension LibraryEditingOperations on LibraryStore {
               throw const EpubEditException('段落编辑会话已变化，请重新打开编辑');
             }
             onStage?.call('正在写入 EPUB…');
-            await EpubWriter.write(session, target);
+            final written = await EpubWriter.write(session, target);
             await _flushEditFile(target);
             writeFinishedMs = timer.elapsedMilliseconds;
             onStage?.call('正在更新书库和阅读位置…');
+            return written;
           },
           EpubEditSummary(changedPaths: {edit.first.path}, cssOnly: false),
           editedSpine: spine >= 0 && paths.lastIndexOf(edit.first.path) == spine
@@ -50,6 +51,7 @@ extension LibraryEditingOperations on LibraryStore {
             'library_ms': timer.elapsedMilliseconds - writeFinishedMs,
           },
         );
+        return saved;
       });
     } catch (_) {
       if (!session.isClosed && session.revision == revision) session.undo();
@@ -105,7 +107,7 @@ extension LibraryEditingOperations on LibraryStore {
   Future<BookEntry> _commitEditedFile(
     String bookId,
     String expectedRevision,
-    Future<void> Function(File) writeStage,
+    Future<EpubWriteResult?> Function(File) writeStage,
     EpubEditSummary summary, {
     int? editedSpine,
     bool preserveTextPositions = false,
@@ -124,11 +126,12 @@ extension LibraryEditingOperations on LibraryStore {
     var committed = false;
     try {
       final file = File(p.join(stage.path, 'source.epub'));
-      await writeStage(file);
+      final verifiedWrite = await writeStage(file);
       committed = await _saveEditedStage(
         old,
         file,
         summary,
+        verifiedWrite: verifiedWrite,
         editedSpine: editedSpine,
         preserveTextPositions: preserveTextPositions,
         preserveBookMetadata: preserveBookMetadata,
@@ -152,6 +155,7 @@ extension LibraryEditingOperations on LibraryStore {
     BookRow old,
     File file,
     EpubEditSummary summary, {
+    EpubWriteResult? verifiedWrite,
     int? editedSpine,
     bool preserveTextPositions = false,
     bool preserveBookMetadata = false,
@@ -159,10 +163,19 @@ extension LibraryEditingOperations on LibraryStore {
     bool requireNoDraft = false,
     bool Function()? isCancelled,
   }) async {
-    final analyzed = await _analyzeEdit(old, file, summary, editedSpine);
+    final timer = Stopwatch()..start();
+    final analyzed = await _analyzeEdit(
+      old,
+      file,
+      summary,
+      editedSpine,
+      verifiedWrite,
+    );
+    final analyzeMs = timer.elapsedMilliseconds;
     _checkImportCancelled(isCancelled);
     if (analyzed.analysis.revision == old.contentRevision) return false;
     final parsed = await openAnalyzedFile(file.path, analyzed.analysis);
+    final openMs = timer.elapsedMilliseconds;
     try {
       if (parsed.document == null) {
         throw LibraryImportException(
@@ -183,14 +196,25 @@ extension LibraryEditingOperations on LibraryStore {
         elementCfiMap: elementCfiMap,
       );
       final commit = await _editCommit(parsed, file, analyzed.analysis);
+      final migrateMs = timer.elapsedMilliseconds;
       await _commitEditedRevision(
         migration,
         commit,
         analyzed.cssOnly,
         summary,
+        editedSpine: verifiedWrite == null ? null : editedSpine,
         preserveBookMetadata: preserveBookMetadata || preserveTextPositions,
         requireNoDraft: requireNoDraft,
         isCancelled: isCancelled,
+      );
+      recordAppEvent(
+        'edit_revision_saved',
+        fields: {
+          'analyze_ms': analyzeMs,
+          'open_ms': openMs - analyzeMs,
+          'migration_ms': migrateMs - openMs,
+          'commit_ms': timer.elapsedMilliseconds - migrateMs,
+        },
       );
       return true;
     } finally {
@@ -218,9 +242,10 @@ extension LibraryEditingOperations on LibraryStore {
     await stage.delete(recursive: true);
   }
 
-  Future<void> _copyEditFile(File input, File target) async {
+  Future<EpubWriteResult?> _copyEditFile(File input, File target) async {
     await input.copy(target.path);
     await _flushEditFile(target);
+    return null;
   }
 
   Future<void> _flushEditFile(File target) async {
@@ -237,6 +262,7 @@ extension LibraryEditingOperations on LibraryStore {
     File file,
     EpubEditSummary summary,
     int? editedSpine,
+    EpubWriteResult? verifiedWrite,
   ) async {
     final spine =
         await (_db!.select(_db.spineItems)
@@ -256,6 +282,7 @@ extension LibraryEditingOperations on LibraryStore {
           ? editedSpine
           : null,
       includeCover: editedSpine == null,
+      verifiedWrite: verifiedWrite,
     );
   }
 
@@ -307,18 +334,27 @@ extension LibraryEditingOperations on LibraryStore {
         data.hasRangeAcross(editedSpine, old.contentRevision)) {
       editedSpine = null;
     }
-    final oldBook = await buildRevisionAnchorBookFile(
-      File(old.sourcePath!),
-      revision: old.contentRevision,
-      spineIndex: editedSpine,
-    );
-    final next = await buildRevisionAnchorBookFile(
-      file,
-      revision: revision,
-      spineIndex: editedSpine,
-    );
+    final borrowed = editedSpine == null
+        ? null
+        : await borrowReadingAnchorBook(_db!, old, editedSpine);
+    final books = await Future.wait([
+      borrowed == null
+          ? buildRevisionAnchorBookFile(
+              File(old.sourcePath!),
+              revision: old.contentRevision,
+              spineIndex: editedSpine,
+            )
+          : Future.value(borrowed.book),
+      buildRevisionAnchorBookFile(
+        file,
+        revision: revision,
+        spineIndex: editedSpine,
+        contentWidth: borrowed?.width ?? 320,
+        style: borrowed?.style,
+      ),
+    ]);
     return _migrateRevisionUserData(
-      _RevisionBooks(old, oldBook, next),
+      _RevisionBooks(old, books[0], books[1]),
       data,
       editedSpine: editedSpine,
       preserveTextPositions: preserveTextPositions,
@@ -345,6 +381,7 @@ extension LibraryEditingOperations on LibraryStore {
     _RevisionCommit commit,
     bool cssOnly,
     EpubEditSummary summary, {
+    int? editedSpine,
     bool preserveBookMetadata = false,
     bool requireNoDraft = false,
     bool Function()? isCancelled,
@@ -378,7 +415,14 @@ extension LibraryEditingOperations on LibraryStore {
             : Value(commit.restoredCover),
       ),
     );
-    await _writeRevisionStructure(migration.old.id, commit);
+    if (editedSpine == null ||
+        !await _updateParagraphStructure(
+          migration.old.id,
+          commit,
+          editedSpine,
+        )) {
+      await _writeRevisionStructure(migration.old.id, commit);
+    }
     if (cssOnly) {
       await _writeCssRevisionUserData(migration);
     } else {
@@ -389,6 +433,89 @@ extension LibraryEditingOperations on LibraryStore {
     )..where((t) => t.bookId.equals(migration.old.id))).go();
     _checkImportCancelled(isCancelled);
   });
+
+  /// 段落编辑不改变 spine 和目录；只更新变化的字数与后续累计，避免千章删写。
+  Future<bool> _updateParagraphStructure(
+    int bookId,
+    _RevisionCommit commit,
+    int editedSpine,
+  ) async {
+    final db = _db!;
+    final rows =
+        await (db.select(db.spineItems)
+              ..where((row) => row.bookId.equals(bookId))
+              ..orderBy([(row) => OrderingTerm.asc(row.spineIndex)]))
+            .get();
+    final spine = commit.parsed.document!.spine;
+    if (rows.length != spine.length ||
+        rows.indexed.any(
+          (entry) =>
+              entry.$1 != entry.$2.spineIndex ||
+              entry.$2.href != spine[entry.$1].href ||
+              entry.$2.charCount == null ||
+              entry.$2.charStart == null,
+        )) {
+      return false;
+    }
+    if (!await _updateParagraphCounts(bookId, rows, commit, editedSpine)) {
+      return false;
+    }
+    // NAV 有时也是正文 spine；编辑该文档时需要同步更新目录。
+    final document = commit.parsed.document!;
+    if (document.package.manifest.any(
+      (item) =>
+          item.href == spine[editedSpine].href &&
+          item.properties.contains('nav'),
+    )) {
+      await (db.delete(
+        db.chapters,
+      )..where((row) => row.bookId.equals(bookId))).go();
+      await _writeRevisionToc(bookId, commit.parsed.document!);
+    }
+    await (db.delete(
+      db.importReports,
+    )..where((row) => row.bookId.equals(bookId))).go();
+    await _writeImportReports(bookId, commit.parsed.report);
+    return true;
+  }
+
+  Future<bool> _updateParagraphCounts(
+    int bookId,
+    List<SpineItemRow> rows,
+    _RevisionCommit commit,
+    int editedSpine,
+  ) async {
+    final delta = commit.weights.excluded.contains(editedSpine)
+        ? 0
+        : commit.counts[editedSpine] - rows[editedSpine].charCount!;
+    for (final row in rows) {
+      final index = row.spineIndex;
+      if ((index != editedSpine && row.charCount != commit.counts[index]) ||
+          row.charStart! + (index > editedSpine ? delta : 0) !=
+              commit.weights.charStarts[index]) {
+        return false;
+      }
+    }
+    final db = _db!;
+    await (db.update(
+      db.spineItems,
+    )..where((row) => row.id.equals(rows[editedSpine].id))).write(
+      SpineItemsCompanion(charCount: Value(commit.counts[editedSpine])),
+    );
+    if (delta != 0) {
+      await (db.update(db.spineItems)..where(
+            (row) =>
+                row.bookId.equals(bookId) &
+                row.spineIndex.isBiggerThanValue(editedSpine),
+          ))
+          .write(
+            SpineItemsCompanion.custom(
+              charStart: db.spineItems.charStart + Variable(delta),
+            ),
+          );
+    }
+    return true;
+  }
 
   Future<void> _retainEditHistory(BookRow old, EpubEditSummary summary) async {
     final now = DateTime.now().millisecondsSinceEpoch;
