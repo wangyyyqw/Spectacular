@@ -12,6 +12,7 @@ import '../src/api/interfaces.dart';
 import 'archive_reader.dart';
 import 'container.dart';
 import 'epub_exception.dart';
+import 'encryption_metadata.dart';
 import 'extension.dart';
 import 'footnote.dart';
 import '../parser/cfi_binder.dart';
@@ -71,6 +72,11 @@ Future<EpubOpenResult> _openWith(
   var archiveOwnedByResult = false;
   try {
     archive = await create();
+    final encryption = EpubEncryptionMetadata.read(archive);
+    encryption.requireReadable();
+    if (encryption.fonts.parseFailed) {
+      warnings.add('E_FONT_OBFUSCATION_FAILED: 加密声明损坏，无法完整判断加密状态');
+    }
     final ocf = archive.validateOcf();
     if (!ocf.ok) {
       return EpubOpenResult(
@@ -118,6 +124,7 @@ Future<EpubOpenResult> _openWith(
         package: fallbackPackage,
         opfPath: 'fallback.opf',
         warnings: warnings,
+        fontEncryption: encryption.fonts,
       );
       archiveOwnedByResult = result.document != null;
       return result;
@@ -150,6 +157,7 @@ Future<EpubOpenResult> _openWith(
         package: fallbackPackage,
         opfPath: container.rootfilePath,
         warnings: warnings,
+        fontEncryption: encryption.fonts,
       );
       archiveOwnedByResult = result.document != null;
       return result;
@@ -161,7 +169,7 @@ Future<EpubOpenResult> _openWith(
       package: package,
       opfPath: container.rootfilePath,
       warnings: warnings,
-      opfString: opfString,
+      fontEncryption: encryption.fonts,
     );
     archiveOwnedByResult = result.document != null;
     return result;
@@ -210,7 +218,7 @@ Future<EpubOpenResult> _finishOpen({
   required OpfPackage package,
   required String opfPath,
   required List<String> warnings,
-  String? opfString,
+  required FontEncryptionMap fontEncryption,
 }) async {
   {
     var effectivePackage = package;
@@ -250,8 +258,9 @@ Future<EpubOpenResult> _finishOpen({
       opfPath: opfPath,
     );
     warnings.addAll(tocResult.warnings);
-    // 字体混淆信息（P3-05）：encryption.xml + FairPlay 检测。
-    final fontEncryption = _parseFontEncryption(archive, resources, warnings);
+    final resolvedEncryption = fontEncryption.resolvePaths(
+      (uri) => resources.resolve(uri, baseDir: ''),
+    );
     final extensionConfig = DuokanExtensionParser.parse(
       archive.readString(DuokanExtensionParser.path),
     );
@@ -292,7 +301,7 @@ Future<EpubOpenResult> _finishOpen({
       opfPath: opfPath,
       toc: tocResult.entries,
       tocSource: tocResult.source,
-      fontEncryption: fontEncryption,
+      fontEncryption: resolvedEncryption,
       extensionConfig: extensionConfig,
       report: ImportReport(
         ok: true,
@@ -311,45 +320,6 @@ abstract final class EpubDocumentFactory {
 
   /// 从文件打开 EPUB（惰性读取，不常驻整本字节）。
   static Future<EpubOpenResult> openFile(File file) => openEpubFile(file);
-}
-
-/// 解析 `META-INF/encryption.xml` 与 FairPlay 标记（P3-05）。
-///
-/// 诊断走码表：`E_FAIRPLAY_ENCRYPTION`（检测到不解密）、
-/// `E_FONT_OBFUSCATION_FAILED` 不在此处（读取期失败才升码）。
-FontEncryptionMap _parseFontEncryption(
-  EpubArchive archive,
-  ResourceIndex resources,
-  List<String> warnings,
-) {
-  final encryptionXml = archive.readString('META-INF/encryption.xml');
-  if (encryptionXml == null) {
-    return const FontEncryptionMap.empty();
-  }
-  if (archive.readBytes('META-INF/sinf.xml') != null) {
-    warnings.add(
-      'E_FAIRPLAY_ENCRYPTION: 检测到 Apple FairPlay 加密'
-      '（META-INF/sinf.xml），不支持解密，相关资源按原样读取',
-    );
-  }
-  final map = FontEncryptionMap.parse(
-    encryptionXml,
-    resolvePath: (uri) => resources.resolve(uri, baseDir: ''),
-  );
-  if (map.isEmpty) {
-    warnings.add(
-      'E_FONT_OBFUSCATION_FAILED: encryption.xml 解析失败，'
-      '字体混淆信息不可用',
-    );
-    return map;
-  }
-  for (final uri in map.unknownAlgorithms) {
-    warnings.add(
-      'E_FONT_OBFUSCATION_FAILED: encryption.xml 含不支持'
-      '的加密算法 $uri，对应资源按原样读取',
-    );
-  }
-  return map;
 }
 
 /// [EpubDocument] 的默认实现。

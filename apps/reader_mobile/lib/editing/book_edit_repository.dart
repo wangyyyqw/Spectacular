@@ -45,8 +45,10 @@ class BookEditRepository {
     File source,
     int spineIndex,
     String startCfi,
-    String endCfi,
-  ) async {
+    String endCfi, {
+    String? recognizedText,
+    String? sourceText,
+  }) async {
     await verifyRevision(bookId, revision);
     if (await openDraft(bookId) != null) {
       throw const EpubEditException('本书有未完成的编辑草稿，请先在编辑器保存或放弃草稿');
@@ -61,6 +63,8 @@ class BookEditRepository {
         spineIndex,
         startCfi,
         endCfi,
+        recognizedText: recognizedText,
+        sourceText: sourceText,
       );
     } catch (_) {
       session.close();

@@ -41,6 +41,7 @@ class DriftAnnotationStore
     required String startCfi,
     required String endCfi,
     required String quote,
+    String? sourceQuote,
     String? contextBefore,
     String? contextAfter,
     int? color,
@@ -57,11 +58,14 @@ class DriftAnnotationStore
     }
     final bookId = book.id;
     final anchor = await _captureSelection(book, startCfi, endCfi, (
-      quote: quote,
+      quote: sourceQuote ?? quote,
       before: contextBefore ?? '',
       after: contextAfter ?? '',
     ));
     final now = DateTime.now();
+    if (sourceQuote != null && (anchor == null || !anchor.isResolved)) {
+      throw const FormatException('OCR 引用的原文位置无法核验，请重新选择');
+    }
     final id =
         'an-${now.millisecondsSinceEpoch}-'
         '${math.Random().nextInt(0x7FFFFFFF).toRadixString(36)}';
@@ -97,6 +101,7 @@ class DriftAnnotationStore
           style: style,
           opacity: opacity,
           note: thought,
+          recognizedQuote: sourceQuote == null ? null : quote,
         );
       }
       await _db
@@ -134,6 +139,7 @@ class DriftAnnotationStore
     int? color,
     double? opacity,
     String? note,
+    String? recognizedQuote,
   }) async {
     final original = existing.first;
     final hasThought =
@@ -143,6 +149,9 @@ class DriftAnnotationStore
     )..where((table) => table.id.equals(original.id))).write(
       AnnotationsCompanion(
         type: Value(hasThought ? original.type : type.storageValue),
+        quote: recognizedQuote == null
+            ? const Value.absent()
+            : Value(recognizedQuote),
         color: Value(color),
         style: Value(style.storageValue),
         opacity: Value(_validOpacity(opacity)),

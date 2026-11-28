@@ -27,12 +27,20 @@ extension _ReaderDecorationActions on _ReaderPageState {
     PageContent page,
     ReaderSelection selection,
   ) async {
+    final originalSelection = _selection;
+    final revision = _session.layoutRevision;
     final pages = selection.isMultiPage
         ? await _session.chapterPages()
         : [page];
+    if (!mounted ||
+        !identical(originalSelection, _selection) ||
+        revision != _session.layoutRevision) {
+      return null;
+    }
     var supported = ReaderSelectionSupport.capture(pages, selection);
     final source = widget.source;
     if (supported != null &&
+        !widget.ocrRequired &&
         widget.chineseMode != ReaderChineseMode.original &&
         source is AnchorChapterSource) {
       final chapter = await source.loadAnchorChapter(page.spineIndex);
@@ -55,6 +63,18 @@ extension _ReaderDecorationActions on _ReaderPageState {
           ),
         );
       }
+    }
+    if (supported != null && widget.ocrRequired) {
+      final text = await _selectionText(page, selection);
+      if (text == null) return null;
+      supported = ReaderSupportedSelection(
+        startCfi: supported.startCfi,
+        endCfi: supported.endCfi,
+        quote: text,
+        sourceQuote: supported.quote,
+        contextBefore: supported.contextBefore,
+        contextAfter: supported.contextAfter,
+      );
     }
     if (mounted && supported == null) _showToast('当前位置不支持标注');
     return supported;
@@ -82,6 +102,7 @@ extension _ReaderDecorationActions on _ReaderPageState {
     PageContent page,
     ReaderSelection selection,
   ) async {
+    if (widget.ocrRequired) return;
     final store = widget.decorations;
     if (store == null) {
       _showToast('当前位置不支持标注');
@@ -129,6 +150,7 @@ extension _ReaderDecorationActions on _ReaderPageState {
   }
 
   Future<void> _editDecoration(ReaderDecoration decoration) async {
+    if (widget.ocrRequired) return;
     final style = await _decorationEditor(decoration.quote, decoration.style);
     if (!mounted || style == null) return;
     try {
@@ -172,6 +194,7 @@ extension _ReaderDecorationActions on _ReaderPageState {
   }
 
   Future<void> _openDecorationRules() async {
+    if (widget.ocrRequired) return;
     final store = widget.decorationRules;
     if (store == null) {
       _showToast('当前书籍暂不支持自动装饰');

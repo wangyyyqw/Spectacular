@@ -17,6 +17,7 @@ import 'package:reader_mobile/editing/book_editor_source.dart';
 import 'package:reader_mobile/editing/book_editor_inspector.dart';
 import 'package:reader_mobile/theme/app_theme.dart';
 import 'package:reader_mobile/reader/reader_settings.dart';
+import 'package:reader_mobile/reader/paragraph_edit_sheet.dart';
 import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/reader_view.dart';
@@ -120,6 +121,57 @@ Future<void> _show(
 }
 
 void main() {
+  testWidgets('编辑器接收 OCR 选区后保存明文，弹层退出不关闭草稿会话', (tester) async {
+    final editor = await _open(tester);
+    await _show(tester, editor, const Size(1360, 900));
+    final parsed = DocumentParser.parse(
+      xhtml: editor.session.readText(_chapter),
+      spineIndex: 0,
+    );
+    final text = parsed.textNodes.firstWhere(
+      (node) => node.text.contains('原始正文'),
+    );
+    tester
+        .widget<BookEditorPreview>(find.byType(BookEditorPreview))
+        .onEditTarget(
+          ReaderEditTarget(
+            spineIndex: 0,
+            cfi: text.cfi.withCharOffset(0).serialize(),
+            endCfi: text.cfi.withCharOffset(4).serialize(),
+            contentRevision: 'editor-${editor.previewRevision}',
+            recognizedText: '正确正文',
+            sourceText: '原始正文',
+          ),
+        );
+    await pumpReaderUntil(tester, find.byType(ParagraphEditSheet));
+    final input = find.descendant(
+      of: find.byType(ParagraphEditSheet),
+      matching: find.byType(TextField),
+    );
+    await pumpReaderUntil(tester, input);
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(tester.widget<TextField>(input).controller!.text, '正确正文');
+    await tester.enterText(input, '校对正文');
+    await tester.pump();
+    await tester.tap(
+      find.descendant(
+        of: find.byType(ParagraphEditSheet),
+        matching: find.text('保存'),
+      ),
+    );
+    await pumpReaderUntilComplete(
+      tester,
+      () =>
+          find.byType(ParagraphEditSheet).evaluate().isEmpty &&
+          !editor.previewLoading,
+    );
+    expect(editor.session.readText(_chapter), contains('校对正文'));
+    expect(editor.dirty, isTrue);
+    editor.undo();
+    expect(editor.session.readText(_chapter), contains('原始正文'));
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets('CRLF 源码首次打开保留换行且不触发修改和构建期通知', (tester) async {
     final editor = await _open(
       tester,

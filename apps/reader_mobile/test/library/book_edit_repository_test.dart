@@ -176,6 +176,52 @@ Future<void> _removeReimportedOriginal(_Fixture f, BookEntry current) async {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  test('OCR 选区编辑经书库保存，保留邻文、原版本和已有笔记', () async {
+    final fixture = await _fixture();
+    final before = await fixture.book;
+    final original = await File(before.sourcePath!).readAsBytes();
+    final index = await buildRevisionAnchorBookFile(
+      File(before.sourcePath!),
+      revision: before.contentRevision,
+    );
+    final chapter = index.chapter(0)!;
+    final offset = chapter.text.indexOf(revisionQuote);
+    final raw = chapter.text.substring(offset, offset + 3);
+    final edit = await fixture.repository.openParagraph(
+      before.uuid,
+      before.contentRevision,
+      File(before.sourcePath!),
+      0,
+      chapter.cfiAt(offset)!,
+      chapter.cfiAt(offset + 3)!,
+      recognizedText: '识别文字',
+      sourceText: raw,
+    );
+    addTearDown(edit.session.close);
+    expect(edit.initialText, '识别文字');
+    await fixture.repository.saveParagraph(before.uuid, edit, '校对后的文字');
+    final after = await fixture.book;
+    final updated = await buildRevisionAnchorBookFile(
+      File(after.sourcePath!),
+      revision: after.contentRevision,
+    );
+    expect(
+      updated.chapter(0)!.text,
+      chapter.text.replaceRange(offset, offset + 3, '校对后的文字'),
+    );
+    expect(await File(before.sourcePath!).readAsBytes(), original);
+    expect(
+      (await fixture.db.select(fixture.db.annotations).getSingle()).note,
+      '不能丢失的笔记',
+    );
+    final reopened = await EpubEditSession.open(File(after.sourcePath!));
+    addTearDown(reopened.close);
+    expect(
+      reopened.readText(reopened.spinePaths.first),
+      contains('font-family: serif !important'),
+    );
+  });
+
   test('千章书段落保存只迁移修改章，未改章的进度和笔记保留原文位置', () async {
     const target = 901;
     final chapters = [

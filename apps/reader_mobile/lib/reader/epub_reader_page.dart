@@ -48,6 +48,8 @@ import 'package:reader_core/epub/epub_format_opener.dart';
 
 import 'reading_session_tracker.dart';
 import 'paragraph_edit_sheet.dart';
+import 'reader_selection_ocr.dart';
+
 import 'reader_settings.dart';
 import 'reader_chinese_converter.dart';
 import 'reader_background_store.dart';
@@ -1012,6 +1014,8 @@ class _EpubReaderPageState extends State<EpubReaderPage>
   bool _readable = false;
   bool _readyNotified = false;
   bool _readyScheduled = false;
+  bool _ocrRequired = false;
+  final _selectionOcr = ReaderSelectionOcr();
 
   bool get _openingCancelled => _closing || _openingFailed;
 
@@ -1058,7 +1062,7 @@ class _EpubReaderPageState extends State<EpubReaderPage>
       ], eagerError: true);
       if (!mounted || _closing) return;
       final mode = _settings.chineseMode;
-      if (mode != ReaderChineseMode.original) {
+      if (!_ocrRequired && mode != ReaderChineseMode.original) {
         try {
           _source!.applyTextConversion(await _chineseConverter.load(mode));
         } catch (error, stackTrace) {
@@ -1149,6 +1153,8 @@ class _EpubReaderPageState extends State<EpubReaderPage>
     final source = await _sourceTask;
     if (_openingCancelled) return;
     _source = source;
+    _ocrRequired = await _selectionOcr.requiresOcr(source.document) != false;
+    if (_openingCancelled) return;
     source.bookIdForTrace = widget.bookId;
     unawaited(_logParsedSource(source, watch));
     _contentRevision = await revision;
@@ -1401,8 +1407,10 @@ class _EpubReaderPageState extends State<EpubReaderPage>
       onPickBookmarkImage: _bookmarkImages.pick,
       bookmarkImageLoader: _bookmarkImages.load,
       annotations: widget.annotations,
-      decorations: widget.decorations,
-      decorationRules: widget.decorationRules,
+      ocrRequired: _ocrRequired,
+      onRecognizeSelection: _selectionOcr.recognize,
+      decorations: _ocrRequired ? null : widget.decorations,
+      decorationRules: _ocrRequired ? null : widget.decorationRules,
       decorationImages: widget.decorationImages,
       onDictionary: widget.dictionaryStore == null
           ? null
@@ -1436,8 +1444,12 @@ class _EpubReaderPageState extends State<EpubReaderPage>
       onToggleDayNight: AppThemeScope.maybeOf(context) == null
           ? null
           : _toggleDayNight,
-      chineseMode: settings.chineseMode,
-      onChineseModeChanged: (mode) => unawaited(_changeChineseMode(mode)),
+      chineseMode: _ocrRequired
+          ? ReaderChineseMode.original
+          : settings.chineseMode,
+      onChineseModeChanged: _ocrRequired
+          ? null
+          : (mode) => unawaited(_changeChineseMode(mode)),
       chineseConversionBusy: _chineseConversionBusy,
       onBackgroundChanged: (backgroundId) =>
           _changeSettings(_settings.copyWithBackground(backgroundId)),
@@ -1665,6 +1677,8 @@ class _EpubReaderPageState extends State<EpubReaderPage>
               target.spineIndex,
               target.cfi,
               target.endCfi ?? target.cfi,
+              recognizedText: target.recognizedText,
+              sourceText: target.sourceText,
             );
           },
           save: (edit, input, onStage) =>

@@ -145,7 +145,7 @@ class EpubArchive {
       }
     }
     await source.close();
-    // 仅 ZIP64/加密/特殊编码等异常容器走整本兜底；正常 EPUB 不进入。
+    // 仅 ZIP64/特殊编码等异常容器走整本兜底；正常 EPUB 不进入。
     if (await file.length() > limits.maxArchiveBytes) {
       throw const EpubException('E_ARCHIVE', '归档格式不受支持且文件过大，无法安全打开');
     }
@@ -270,6 +270,10 @@ class EpubArchive {
     final budget = EpubDecodeBudget(limits);
     for (final header in directory.fileHeaders) {
       final file = header.file!;
+      if (header.generalPurposeBitFlag & 1 != 0 ||
+          file.flags & 1 != 0 || header.compressionMethod == 99) {
+        throw const EpubException('E_ZIP_ENCRYPTED', 'EPUB 压缩包使用了密码加密');
+      }
       final headerFailure = limits.entryFailure(
         header.filename,
         header.compressedSize,

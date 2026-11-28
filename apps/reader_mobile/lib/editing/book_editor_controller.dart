@@ -8,6 +8,7 @@ import 'package:reader_core/position/cfi.dart';
 import 'package:reader_ui/reader_page.dart';
 
 import '../reader/reader_settings.dart';
+import '../reader/reader_selection_ocr.dart';
 
 class EditorExportCancelled implements Exception {
   const EditorExportCancelled();
@@ -99,6 +100,8 @@ class BookEditorController extends ChangeNotifier {
   bool busy = false;
   bool previewLoading = false;
   EpubChapterSource? previewSource;
+  bool previewRequiresOcr = false;
+  final selectionOcr = ReaderSelectionOcr();
   int previewRevision = -1;
   ReaderEditTarget? previewTarget;
   int previewNavigation = 0;
@@ -396,12 +399,15 @@ class BookEditorController extends ChangeNotifier {
       final source = await session.createPreviewSource(
         includeUnlistedHtml: true,
       );
+      final requiresOcr =
+          await selectionOcr.requiresOcr(source.document) != false;
       if (_disposed || token != _previewToken) {
         source.close();
         return;
       }
       final old = previewSource;
       previewSource = source;
+      previewRequiresOcr = requiresOcr;
       previewRevision = revision;
       previewTarget ??= initialTarget;
       if (old != null) {

@@ -40,11 +40,20 @@ enum FontObfuscationAlgorithm {
 class FontEncryptionMap {
   static const _xmlEncryptionNamespace = 'http://www.w3.org/2001/04/xmlenc#';
 
-  /// 空表（无加密声明或解析失败）。
+  /// 空表（无加密声明）。
   const FontEncryptionMap.empty()
     : this._(const <String, FontObfuscationAlgorithm>{}, const <String>[]);
 
-  const FontEncryptionMap._(this.entries, this.unknownAlgorithms);
+  /// 存在声明但无法读取或解析，不能当成未加密。
+  const FontEncryptionMap.invalid()
+    : this._(const {}, const [], parseFailed: true);
+
+  const FontEncryptionMap._(
+    this.entries,
+    this.unknownAlgorithms, {
+    this.encryptedResources = const [],
+    this.parseFailed = false,
+  });
 
   /// 已识别的混淆资源（ZIP 内路径，原样大小写）。
   final Map<String, FontObfuscationAlgorithm> entries;
@@ -52,14 +61,18 @@ class FontEncryptionMap {
   /// encryption.xml 里出现但本引擎不支持的算法 URI。
   final List<String> unknownAlgorithms;
 
-  /// 是否为空（无任何加密声明）。
-  bool get isEmpty => entries.isEmpty && unknownAlgorithms.isEmpty;
+  /// 使用非字体混淆算法的资源声明；不能作为普通字体直接读取。
+  final List<String> encryptedResources;
 
-  /// 解析 `META-INF/encryption.xml`；[xml] 为空/解析失败返回空表。
+  /// 声明损坏或结构不完整，不能将空表解释为未加密。
+  final bool parseFailed;
+
+  /// 是否为空（无任何加密声明）。
+  bool get isEmpty => entries.isEmpty && encryptedResources.isEmpty;
+
+  /// 解析 `META-INF/encryption.xml`；解析失败返回带 [parseFailed] 的空表。
   ///
-  /// 只认 EncryptedData → CipherReference/@URI + EncryptionMethod/@Algorithm
-  /// 的扁平结构；EncryptedKey 包裹的密文（真加密 DRM）不在此列，其
-  /// EncryptionMethod 不带 CipherReference 子结构时自然跳过。
+  /// 区分字体混淆与资源加密，不将 EncryptedKey 的密钥算法当作资源算法。
   /// [resolvePath] 由容器资源索引解析 URI，复用根相对及百分号解码规则。
   static FontEncryptionMap parse(
     String xml, {
@@ -67,40 +80,76 @@ class FontEncryptionMap {
   }) {
     try {
       final document = XmlDocument.parse(xml);
-      final entries = <String, FontObfuscationAlgorithm>{};
-      final unknown = <String>[];
-      for (final data in document.findAllElements(
-        'EncryptedData',
-        namespaceUri: _xmlEncryptionNamespace,
-      )) {
-        final reference = _referencesOf(data);
-        if (reference.isEmpty) {
-          continue;
-        }
-        final algorithmUri = _algorithmUriOf(data);
-        final algorithm = algorithmUri == null
-            ? null
-            : FontObfuscationAlgorithm.fromUri(algorithmUri);
-        if (algorithm == null) {
-          if (algorithmUri != null && algorithmUri.isNotEmpty) {
-            unknown.add(algorithmUri);
-          }
-          continue;
-        }
-        for (final uri in reference) {
-          final path = resolvePath == null
-              ? (uri.startsWith('/') ? uri.substring(1) : uri)
-              : resolvePath(uri);
-          if (path != null) entries[path] = algorithm;
-        }
+      final root = document.rootElement;
+      if (root.name.local != 'encryption' ||
+          root.namespaceUri !=
+              'urn:oasis:names:tc:opendocument:xmlns:container') {
+        return const FontEncryptionMap.invalid();
       }
-      return FontEncryptionMap._(
-        Map.unmodifiable(entries),
-        List.unmodifiable(unknown),
-      );
-    } catch (_) {
-      return const FontEncryptionMap.empty();
+      final map = _parseData(root);
+      return resolvePath == null ? map : map.resolvePaths(resolvePath);
+    } on FormatException {
+      return const FontEncryptionMap.invalid();
     }
+  }
+
+  static FontEncryptionMap _parseData(XmlElement root) {
+    final entries = <String, FontObfuscationAlgorithm>{};
+    final unknown = <String>[];
+    final encrypted = <String>[];
+    final dataElements = root.findElements(
+      'EncryptedData',
+      namespaceUri: _xmlEncryptionNamespace,
+    );
+    var invalid =
+        root.childElements.any(
+          (element) =>
+              element.name.local == 'EncryptedData' &&
+              element.namespaceUri != _xmlEncryptionNamespace,
+        ) ||
+        (dataElements.isEmpty && root.childElements.isNotEmpty);
+    for (final data in dataElements) {
+      final reference = _referencesOf(data);
+      final uri = _algorithmUriOf(data);
+      final algorithm = uri == null
+          ? null
+          : FontObfuscationAlgorithm.fromUri(uri);
+      if (algorithm == null) {
+        if (uri != null && uri.isNotEmpty) unknown.add(uri);
+        encrypted.addAll(reference.isEmpty ? ['未注明资源路径'] : reference);
+        continue;
+      }
+      if (reference.isEmpty) invalid = true;
+      for (final uri in reference) {
+        entries[uri.startsWith('/') ? uri.substring(1) : uri] = algorithm;
+      }
+    }
+    return FontEncryptionMap._(
+      Map.unmodifiable(entries),
+      List.unmodifiable(unknown),
+      encryptedResources: List.unmodifiable(encrypted),
+      parseFailed: invalid,
+    );
+  }
+
+  /// 打开 OPF 后复用资源索引解析路径，避免再次解析加密声明。
+  FontEncryptionMap resolvePaths(String? Function(String) resolve) {
+    final resolved = <String, FontObfuscationAlgorithm>{};
+    var missing = false;
+    for (final entry in entries.entries) {
+      final path = resolve(entry.key);
+      if (path == null) {
+        missing = true;
+      } else {
+        resolved[path] = entry.value;
+      }
+    }
+    return FontEncryptionMap._(
+      Map.unmodifiable(resolved),
+      unknownAlgorithms,
+      encryptedResources: encryptedResources,
+      parseFailed: parseFailed || missing,
+    );
   }
 
   static String? _algorithmUriOf(XmlElement data) => data
@@ -110,7 +159,13 @@ class FontEncryptionMap {
       ?.trim();
 
   static Iterable<String> _referencesOf(XmlElement data) => data
-      .findAllElements('CipherReference', namespaceUri: _xmlEncryptionNamespace)
+      .findElements('CipherData', namespaceUri: _xmlEncryptionNamespace)
+      .expand(
+        (cipher) => cipher.findElements(
+          'CipherReference',
+          namespaceUri: _xmlEncryptionNamespace,
+        ),
+      )
       .map((element) => element.getAttribute('URI')?.trim())
       .whereType<String>()
       .where((uri) => uri.isNotEmpty);

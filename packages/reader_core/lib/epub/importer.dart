@@ -335,9 +335,15 @@ abstract final class EpubRejectionMessages {
           suggestion: '这本书的章节列表为空，请换一个版本试试',
         );
       case 'E_FAIRPLAY_ENCRYPTION':
+      case 'E_EPUB_ENCRYPTED':
         return const RejectionMessage(
-          title: '本书受版权保护（DRM），无法打开',
-          suggestion: '请在购买该书的平台阅读',
+          title: '本书含有加密资源，暂不支持打开',
+          suggestion: '请在购买平台或支持该加密方式的阅读器中打开',
+        );
+      case 'E_ZIP_ENCRYPTED':
+        return const RejectionMessage(
+          title: 'EPUB 压缩包已设置密码，暂不支持打开',
+          suggestion: '请提供未设置压缩密码的 EPUB 文件',
         );
       case 'E_INTERNAL':
       default:

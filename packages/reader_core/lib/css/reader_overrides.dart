@@ -54,6 +54,17 @@ class ReaderOverrides {
   /// 页面背景色。
   final Color? backgroundColor;
 
+  /// 字体映射混淆书籍依赖书内字形，仅移除本次排版的字体覆盖。
+  ReaderOverrides get preservingBookFonts => ReaderOverrides(
+    fontSize: fontSize,
+    lineHeight: lineHeight,
+    paragraphSpacing: paragraphSpacing,
+    textAlign: textAlign,
+    padding: padding,
+    textColor: textColor,
+    backgroundColor: backgroundColor,
+  );
+
   /// 是否没有任何设置。
   bool get isEmpty =>
       fontSize == null &&

@@ -1,13 +1,45 @@
 import 'dart:io';
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
+import 'package:archive/archive.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/library/import_analysis.dart';
 
 import '../support/test_epub.dart';
 
 void main() {
+  test('加密导入在内存和后台文件分析中保留具体拒绝原因', () async {
+    final archive = ZipDecoder().decodeBytes(buildTestEpub());
+    final declaration = utf8.encode('''
+<encryption xmlns="urn:oasis:names:tc:opendocument:xmlns:container"
+ xmlns:enc="http://www.w3.org/2001/04/xmlenc#">
+ <enc:EncryptedData><enc:EncryptionMethod Algorithm="http://www.w3.org/2001/04/xmlenc#aes128-cbc"/>
+ <enc:CipherData><enc:CipherReference URI="OEBPS/c1.xhtml"/></enc:CipherData>
+ </enc:EncryptedData></encryption>''');
+    archive.addFile(
+      ArchiveFile('META-INF/encryption.xml', declaration.length, declaration),
+    );
+    final bytes = ZipEncoder().encodeBytes(archive);
+    final dir = await Directory.systemTemp.createTemp('encrypted-import-');
+    addTearDown(() => dir.delete(recursive: true));
+    final file = await File('${dir.path}/book.epub').writeAsBytes(bytes);
+    final analyses = [
+      await analyzeImport(bytes),
+      (await analyzeImportFileUnlessKnown(
+        file.path,
+        shouldSkip: (_) async => false,
+      ))!,
+    ];
+    for (final analysis in analyses) {
+      expect(analysis.report.errorCode, 'E_EPUB_ENCRYPTED');
+      expect(analysis.report.ok, isFalse);
+      expect(analysis.charCounts, isNull);
+      expect(analysis.summary, isNull);
+    }
+  });
+
   test('阈值内使用当前线程分析，结果包含哈希和 CRC 报告', () async {
     final bytes = Uint8List(importAnalysisIsolateThreshold - 1);
     final analysis = await analyzeImport(bytes);

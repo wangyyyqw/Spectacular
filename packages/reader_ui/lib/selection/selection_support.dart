@@ -15,12 +15,16 @@ class ReaderSupportedSelection {
     required this.quote,
     this.contextBefore,
     this.contextAfter,
+    this.sourceQuote,
   });
 
   /// 原文区间与未插入排版空格的引用。
   final String startCfi;
   final String endCfi;
   final String quote;
+
+  /// OCR 显示文字对应的原始码点证据；定位始终使用原文，不使用识别文字。
+  final String? sourceQuote;
 
   /// 区间前后的原文上下文。
   final String? contextBefore;

@@ -164,8 +164,9 @@ class _FileZipSource implements ZipByteSource {
 
 /// 惰性 ZIP 索引：解析中央目录，按需解压单个条目。
 ///
-/// 不支持的变体（ZIP64、加密、bzip2/zstd）返回 null，由调用方回退到
+/// 不支持的变体（ZIP64、bzip2/zstd）返回 null，由调用方回退到
 /// `package:archive`，保证既有兼容行为不倒退。
+/// ZIP 密码加密单独拒绝，不把解密失败当成损坏恢复。
 class ZipIndex {
   ZipIndex._(
     this._source,
@@ -256,9 +257,10 @@ class ZipIndex {
       final extraLength = directoryData.getUint16(cursor + 30, Endian.little);
       final commentLength = directoryData.getUint16(cursor + 32, Endian.little);
       final localOffset = directoryData.getUint32(cursor + 42, Endian.little);
-      if (flags & 0x1 != 0 ||
-          method == 99 ||
-          (method != 0 && method != 8) ||
+      if (flags & 0x1 != 0 || method == 99) {
+        throw const EpubException('E_ZIP_ENCRYPTED', 'EPUB 压缩包使用了密码加密');
+      }
+      if ((method != 0 && method != 8) ||
           compressedSize == 0xFFFFFFFF ||
           uncompressedSize == 0xFFFFFFFF ||
           localOffset == 0xFFFFFFFF) {

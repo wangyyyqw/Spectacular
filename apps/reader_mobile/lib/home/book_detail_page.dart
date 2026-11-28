@@ -16,6 +16,7 @@ import '../library/library_store.dart';
 import '../txt/txt_book_service.dart';
 import '../txt/txt_chapter_rule_page.dart';
 import 'book_cover_image.dart';
+import 'book_encryption_tile.dart';
 import 'book_lists_view.dart';
 import 'book_rating.dart';
 import 'book_reading_chart.dart';
@@ -727,6 +728,11 @@ class _BookDetailPageState extends State<BookDetailPage> {
                 : '${_formatReadingCharacters(_characterCount!)} 字',
             key: const ValueKey('book-detail-character-count'),
           ),
+        ),
+        BookEncryptionTile(
+          key: ValueKey('book-encryption-${_entry.id}-${_entry.contentRevision}'),
+          entry: _entry,
+          library: widget.library,
         ),
       ],
     ),

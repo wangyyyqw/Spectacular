@@ -162,6 +162,7 @@ class _Annotations
     required String startCfi,
     required String endCfi,
     required String quote,
+    String? sourceQuote,
     String? contextBefore,
     String? contextAfter,
     int? color,

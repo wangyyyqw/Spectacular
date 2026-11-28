@@ -12,6 +12,7 @@
     "tooling": "本地 Python 工具回归"
   },
   "test_rules": [
+    {"group": "ui", "paths": ["apps/reader_mobile/test/reader/reader_selection_ocr_test.dart"]},
     {"group": "ui", "paths": ["apps/reader_mobile/test/cloud/cloud_page_test.dart"]},
     {"group": "integration", "paths": ["apps/reader_mobile/test/cloud/*_test.dart"]},
     {
@@ -276,6 +277,7 @@
     }
   ],
   "source_rules": [
+    {"groups": ["ui", "resources"], "paths": ["apps/reader_mobile/lib/ocr/*"]},
     {"groups": ["ui", "integration"], "paths": ["apps/reader_mobile/lib/cloud/*_page.dart"]},
     {"groups": ["integration"], "paths": ["apps/reader_mobile/lib/cloud/*"]},
     {"groups": ["resources"], "paths": ["packages/epub_toolkit/lib/*", "packages/epub_toolkit/assets/*", "packages/epub_toolkit/test/support/*"]},

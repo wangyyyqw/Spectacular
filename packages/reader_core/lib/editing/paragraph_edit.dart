@@ -4,22 +4,41 @@ import 'package:xml/xml_events.dart';
 import 'editable_document.dart';
 import 'element_commands.dart';
 import 'epub_edit_session.dart';
+import 'recognized_text_edit.dart';
 
 class EpubParagraphEdit {
-  EpubParagraphEdit._(this.session, this.first, this.last);
+  EpubParagraphEdit._(this.session, this.first, this.last, [this._recognized]);
 
   factory EpubParagraphEdit.fromSelection(
     EpubEditSession session,
     int spineIndex,
     String startCfi,
-    String endCfi,
-  ) {
+    String endCfi, {
+    String? recognizedText,
+    String? sourceText,
+    bool preview = false,
+  }) {
     final targets = session.resolveEditableElements(spineIndex, [
       startCfi,
       endCfi,
-    ]);
+    ], preview: preview);
     final first = _paragraph(targets.first);
     final last = _paragraph(targets.last);
+    if (recognizedText != null) {
+      if (sourceText == null) throw const EpubEditException('缺少选区原文证据');
+      if (first.start != last.start) {
+        throw const EpubEditException('OCR 编辑请分段选择文字；同一段落可跨页选择');
+      }
+      return EpubParagraphEdit._(
+        session,
+        first,
+        last,
+        RecognizedTextEdit.capture(session, spineIndex, startCfi, endCfi, (
+          text: recognizedText,
+          sourceText: sourceText,
+        ), preview: preview),
+      );
+    }
     if (first.parent != last.parent || first.start > last.start) {
       throw const EpubEditException('选区跨越了不同的段落容器，请分段编辑');
     }
@@ -29,11 +48,16 @@ class EpubParagraphEdit {
   final EpubEditSession session;
   final EditableElementRef first;
   final EditableElementRef last;
+  final RecognizedTextEdit? _recognized;
+  bool get isRecognized => _recognized != null;
 
-  bool get isHtml => first != last || first.children.isNotEmpty;
-  late final String initialText = isHtml
-      ? first.document.source.substring(first.start, last.end)
-      : first.text;
+  bool get isHtml =>
+      !isRecognized && (first != last || first.children.isNotEmpty);
+  late final String initialText =
+      _recognized?.initialText ??
+      (isHtml
+          ? first.document.source.substring(first.start, last.end)
+          : first.text);
 
   static EditableElementRef _paragraph(EditableElementRef target) {
     const tags = {
@@ -68,6 +92,10 @@ class EpubParagraphEdit {
   void apply(String input) {
     session.checkElement(first);
     if (input == initialText) return;
+    if (_recognized case final edit?) {
+      edit.apply(session, input);
+      return;
+    }
     if (!isHtml) {
       session.replaceText(first, input);
       return;

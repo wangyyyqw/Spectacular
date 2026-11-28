@@ -49,6 +49,8 @@ abstract final class EpubCodeTable {
     // ---- 打开期：致命（§55.3 拒绝路径，L4 无效 EPUB）----
     EpubCodeSpec('E_OCF', EpubErrorCategory.opening, EpubErrorSeverity.fatal, '§5.1/§55.3 非法 OCF 容器'),
     EpubCodeSpec('E_ARCHIVE', EpubErrorCategory.opening, EpubErrorSeverity.fatal, '§55.3 非 ZIP/ZIP 解析失败'),
+    EpubCodeSpec('E_ZIP_ENCRYPTED', EpubErrorCategory.opening, EpubErrorSeverity.fatal, 'EPUB 检测：ZIP 密码加密'),
+    EpubCodeSpec('E_EPUB_ENCRYPTED', EpubErrorCategory.opening, EpubErrorSeverity.fatal, 'EPUB 检测：DRM 或非字体混淆的资源加密'),
     EpubCodeSpec('E_CRC', EpubErrorCategory.opening, EpubErrorSeverity.fatal, '§5.1 CRC 校验失败'),
     EpubCodeSpec('E_CONTAINER_MISSING', EpubErrorCategory.opening, EpubErrorSeverity.fatal, '§55.3 缺 container.xml'),
     EpubCodeSpec('E_CONTAINER_XML', EpubErrorCategory.opening, EpubErrorSeverity.fatal, '§55.3 container.xml 损坏'),

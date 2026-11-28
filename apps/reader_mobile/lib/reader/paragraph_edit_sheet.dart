@@ -7,7 +7,15 @@ import 'package:reader_ui/theme/reader_sheet_form.dart';
 import 'package:reader_ui/theme/reader_ui_style.dart';
 
 class ParagraphEditSheet extends StatefulWidget {
-  const ParagraphEditSheet({super.key, required this.open, required this.save});
+  const ParagraphEditSheet({
+    super.key,
+    required this.open,
+    required this.save,
+    this.ownsSession = true,
+  });
+
+  /// 完整编辑器复用其草稿会话，弹层关闭时不释放宿主会话。
+  final bool ownsSession;
 
   final Future<EpubParagraphEdit> Function() open;
   final Future<void> Function(
@@ -42,7 +50,7 @@ class _ParagraphEditSheetState extends State<ParagraphEditSheet> {
     try {
       final edit = await widget.open();
       if (!mounted) {
-        edit.session.close();
+        if (widget.ownsSession) edit.session.close();
         return;
       }
       _edit = edit;
@@ -105,7 +113,7 @@ class _ParagraphEditSheetState extends State<ParagraphEditSheet> {
   @override
   void dispose() {
     _timer?.cancel();
-    _edit?.session.close();
+    if (widget.ownsSession) _edit?.session.close();
     _input.dispose();
     super.dispose();
   }
@@ -123,7 +131,7 @@ class _ParagraphEditSheetState extends State<ParagraphEditSheet> {
         alignment: Alignment.topCenter,
         children: [
           ReaderSheetForm(
-            title: const Text('编辑段落'),
+            title: Text(edit?.isRecognized == true ? '编辑选中文字' : '编辑段落'),
             onClose: _cancel,
             closeEnabled: !_saving,
             content: _openError != null
@@ -146,6 +154,9 @@ class _ParagraphEditSheetState extends State<ParagraphEditSheet> {
                         : null,
                     decoration: InputDecoration(
                       labelText: edit.isHtml ? 'HTML 源码' : '正文',
+                      helperText: edit.isRecognized
+                          ? '已识别可见文字，请校对后保存；仅替换选区并使用普通字体。'
+                          : null,
                       alignLabelWithHint: true,
                     ),
                   ),

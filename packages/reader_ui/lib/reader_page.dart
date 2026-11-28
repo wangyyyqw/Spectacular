@@ -70,6 +70,7 @@ import 'page_furniture/corner_info.dart';
 import 'theme/reader_environment.dart';
 import 'theme/reader_panel_theme.dart';
 import 'selection/selection.dart';
+import 'selection/selection_image.dart';
 import 'selection/selection_menu.dart';
 import 'selection/selection_support.dart';
 import 'selection/text_range_geometry.dart';
@@ -88,6 +89,7 @@ import 'theme/reader_frosted_popup.dart';
 import 'reader_ui_diagnostics.dart';
 
 part 'reader_annotation_controller.dart';
+part 'reader_selection_text.dart';
 part 'reader_decoration_controller.dart';
 part 'reader_decoration_actions.dart';
 part 'reader_gallery_controller.dart';
@@ -104,12 +106,16 @@ class ReaderEditTarget {
     required this.cfi,
     this.endCfi,
     this.contentRevision,
+    this.recognizedText,
+    this.sourceText,
   });
 
   final int spineIndex;
   final String cfi;
   final String? endCfi;
   final String? contentRevision;
+  final String? recognizedText;
+  final String? sourceText;
 }
 
 /// 最小可运行的阅读页：打开、分页、绘制、翻页与进度恢复。
@@ -190,6 +196,8 @@ class ReaderPage extends StatefulWidget {
     this.volumeKeyPaging = false,
     this.onVolumeKeyPagingChanged,
     this.onDictionary,
+    this.ocrRequired = false,
+    this.onRecognizeSelection,
   });
 
   /// 编辑预览中单击正文直接请求编辑；普通阅读仍保留翻页和脚注语义。
@@ -202,6 +210,10 @@ class ReaderPage extends StatefulWidget {
 
   /// 词典由宿主配置服务，UI 只交付选中的原文。
   final Future<void> Function(String text)? onDictionary;
+
+  /// 字体码点与可见字形不一致时，文字操作使用离线 OCR 并禁用装饰。
+  final bool ocrRequired;
+  final Future<String> Function(Uint8List image)? onRecognizeSelection;
 
   /// 章节页来源。
   final ReaderChapterSource source;
@@ -391,6 +403,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       widget.paragraphCache ?? ParagraphCache(maxEntries: 128);
   late final bool _ownsParagraphCache = widget.paragraphCache == null;
   late PagePainter _painter = _buildPainter();
+  bool _selectionTextBusy = false;
   final Map<String, ({int index, String? anchor, int generation})>
   _gallerySelections = {};
   final _galleryPositions = <String, double>{};
@@ -743,7 +756,9 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
 
   /// 设置与主题合并后的有效覆盖（主题补正文/背景色，设置优先）。
   ReaderOverrides _effectiveOverrides() {
-    final base = _overrides;
+    final base = widget.ocrRequired
+        ? _overrides.preservingBookFonts
+        : _overrides;
     final theme = _effectiveTheme;
     if (theme == null) {
       return base;
@@ -1203,6 +1218,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       _painter = _buildPainter();
     }
     if (oldWidget.decorations != widget.decorations ||
+        oldWidget.ocrRequired != widget.ocrRequired ||
         oldWidget.decorationRules != widget.decorationRules) {
       unawaited(_reloadDecorations());
     }
@@ -1253,6 +1269,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
       _paragraphCache.clear();
     }
     if (oldWidget.overrides != widget.overrides ||
+        oldWidget.ocrRequired != widget.ocrRequired ||
         oldWidget.pageBrightness != widget.pageBrightness ||
         oldWidget.theme != widget.theme) {
       unawaited(_session.applyOverrides(_effectiveOverrides()));
@@ -1645,6 +1662,10 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
 
   /// 复制一段（P4-29 无障碍动作）。
   void _copyBlock(String text) {
+    if (widget.ocrRequired) {
+      unawaited(_showOcrFailure('本书需要文字识别，请选择文字后使用复制'));
+      return;
+    }
     if (text.isEmpty) {
       return;
     }
@@ -1772,6 +1793,12 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   /// 应用排版设置（P4-21）：立即重排 + 通知外部持久化。
   void _applyOverrides(ReaderOverrides next) {
     if (!mounted || next.fingerprint == _overrides.fingerprint) {
+      return;
+    }
+    if (widget.ocrRequired &&
+        (next.fontFamily != _overrides.fontFamily ||
+            next.overrideEmbeddedFonts != _overrides.overrideEmbeddedFonts)) {
+      unawaited(_showOcrFailure('本书的文字依赖书内字体，暂不支持更换字体'));
       return;
     }
     setState(() => _overrides = next);
@@ -2560,6 +2587,10 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
   }
 
   void _requestTextEdit(int spineIndex, String cfi) {
+    if (widget.ocrRequired) {
+      unawaited(_showOcrFailure('本书需要文字识别，请选中文字后使用编辑'));
+      return;
+    }
     // 排版块可合并多个行内文本节点；编辑定位只传节点路径，不能把
     // 块内累加字符偏移当作原始 XML 文本节点内的偏移。
     final parsed = EpubCfi.parse(cfi);
@@ -2605,10 +2636,8 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     PageContent page,
     ReaderSelection selection,
   ) async {
-    final text = selection.isMultiPage
-        ? SelectionOps.textAcrossPages(await _session.chapterPages(), selection)
-        : SelectionOps.textOf(page, selection);
-    if (text.isEmpty) {
+    final text = await _selectionText(page, selection);
+    if (text == null || text.isEmpty) {
       return;
     }
     await Clipboard.setData(ClipboardData(text: text));
@@ -3073,7 +3102,7 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                 ),
             ],
             // 翻页/重排时保留旧页，只在顶部显示细进度条（P2-27）。
-            if (_session.loading)
+            if (_session.loading || _selectionTextBusy)
               Positioned(
                 top: 0,
                 left: 0,
@@ -3165,7 +3194,9 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
                       onBookmarkStyle: () => unawaited(_openBookmarkStyle()),
                       annotations: widget.annotations,
                       annotationItems: _annotations,
-                      decorations: widget.decorations,
+                      decorations: widget.ocrRequired
+                          ? null
+                          : widget.decorations,
                       decorationItems: _decorations,
                       decorationRuleCount: _decorationRules.length,
                       decorationRulesEnabled: _hasEnabledDecorationRules,

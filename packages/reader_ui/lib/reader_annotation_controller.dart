@@ -204,6 +204,9 @@ extension _ReaderAnnotationController on _ReaderPageState {
       startCfi: annotation.startCfi,
       endCfi: annotation.endCfi,
       quote: annotation.quote,
+      sourceQuote: widget.ocrRequired
+          ? AnchorRecord.decode(annotation.anchorData)?.effective.quote
+          : null,
       contextBefore: annotation.contextBefore,
       contextAfter: annotation.contextAfter,
       color: annotation.color,
@@ -225,10 +228,12 @@ extension _ReaderAnnotationController on _ReaderPageState {
           _selectionAction(
             'edit-source',
             '编辑原文',
-            () => _requestTextEdit(
-              page.spineIndex,
-              SelectionOps.cfiOf(selection)!.start,
-            ),
+            () => widget.ocrRequired
+                ? unawaited(_editSelection(page, selection))
+                : _requestTextEdit(
+                    page.spineIndex,
+                    SelectionOps.cfiOf(selection)!.start,
+                  ),
           ),
         _selectionAction(
           'copy',
@@ -272,28 +277,23 @@ extension _ReaderAnnotationController on _ReaderPageState {
         '想法',
         () => unawaited(_addNote(page, selection)),
       ),
-      _selectionAction(
-        'decoration',
-        '装饰',
-        () => unawaited(_addDecoration(page, selection)),
-      ),
+      if (!widget.ocrRequired)
+        _selectionAction(
+          'decoration',
+          '装饰',
+          () => unawaited(_addDecoration(page, selection)),
+        ),
       _selectionAction(
         'dictionary',
         '词典',
         () => unawaited(_lookupDictionary(page, selection)),
       ),
       if (edit != null && range != null)
-        _selectionAction('edit-source', '编辑', () {
-          _clearSelection();
-          edit(
-            ReaderEditTarget(
-              spineIndex: page.spineIndex,
-              cfi: range.start,
-              endCfi: range.end,
-              contentRevision: widget.contentRevision,
-            ),
-          );
-        }),
+        _selectionAction(
+          'edit-source',
+          '编辑',
+          () => unawaited(_editSelection(page, selection)),
+        ),
     ];
   }
 
@@ -314,13 +314,10 @@ extension _ReaderAnnotationController on _ReaderPageState {
     }
     _changeReaderState(() => _hideSelectionMenu = true);
     try {
-      final text = selection.isMultiPage
-          ? SelectionOps.textAcrossPages(
-              await _session.chapterPages(),
-              selection,
-            )
-          : SelectionOps.textOf(page, selection);
-      if (mounted && text.trim().isNotEmpty) await lookup(text.trim());
+      final text = await _selectionText(page, selection);
+      if (mounted && text != null && text.trim().isNotEmpty) {
+        await lookup(text.trim());
+      }
     } catch (_) {
       if (mounted) _showToast('词典打开失败，请重试');
     } finally {
@@ -386,6 +383,7 @@ extension _ReaderAnnotationController on _ReaderPageState {
     startCfi: range.startCfi,
     endCfi: range.endCfi,
     quote: range.quote,
+    sourceQuote: range.sourceQuote,
     contextBefore: range.contextBefore,
     contextAfter: range.contextAfter,
     color: appearance?.color ?? _markSettings.lastColor,

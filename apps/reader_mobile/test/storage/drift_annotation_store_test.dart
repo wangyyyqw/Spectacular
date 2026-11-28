@@ -4,7 +4,11 @@ import 'package:drift/drift.dart' show driftRuntimeOptions;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/library/library_store.dart';
+import 'package:reader_mobile/library/revision_anchor_index.dart';
 import 'package:reader_mobile/storage/db.dart';
+import 'package:reader_core/position/location_anchor.dart';
+import 'package:reader_core/css/reader_overrides.dart';
+import 'package:reader_ui/annotations/relocator.dart';
 import 'package:reader_ui/annotations/annotation.dart';
 
 import '../support/test_epub.dart';
@@ -242,5 +246,77 @@ void main() {
     final items = await secondLibrary.annotationStore(entry.id)!.list();
     expect(items, hasLength(1));
     expect(items.single.quote, '重启后仍可见');
+  });
+
+  test('OCR 引用落盘重开后保留原码点锚点，重排仍可定位，重复划线保留想法', () async {
+    final bytes = buildTestEpub(paragraphs: ['甲乙丙丁戊己庚辛壬癸，邻文保留。']);
+    final file = File('${dir.path}/ocr.sqlite');
+    final first = AppDatabase(NativeDatabase(file));
+    final initialLibrary = LibraryStore(
+      database: first,
+      directoryProvider: () async => dir,
+    );
+    final entry = await initialLibrary.importBytes(bytes);
+    final index = await buildRevisionAnchorBook(
+      bytes,
+      revision: entry.contentRevision,
+    );
+    final chapter = index.chapter(0)!;
+    final offset = chapter.text.indexOf('丙丁戊');
+    final start = chapter.cfiAt(offset)!;
+    final end = chapter.cfiAt(offset + 3)!;
+    final store = initialLibrary.annotationStore(entry.id)!;
+    final created = (await store.add(
+      type: ReaderAnnotationType.thought,
+      startCfi: start,
+      endCfi: end,
+      quote: '可见文字',
+      sourceQuote: '丙丁戊',
+      note: '用户笔记',
+    ))!;
+    await expectLater(
+      store.add(
+        type: ReaderAnnotationType.mark,
+        startCfi: start,
+        endCfi: end,
+        quote: '不能写入',
+        sourceQuote: '错误证据',
+      ),
+      throwsFormatException,
+    );
+    await first.close();
+    final reopened = AppDatabase(NativeDatabase(file));
+    addTearDown(reopened.close);
+    final next = LibraryStore(
+      database: reopened,
+      directoryProvider: () async => dir,
+    ).annotationStore(entry.id)!;
+    final saved = (await next.list()).single;
+    expect(saved.quote, '可见文字');
+    expect(AnchorRecord.decode(saved.anchorData)!.effective.quote, '丙丁戊');
+    expect(saved.note, '用户笔记');
+    final source = await openTestChapterSource(bytes);
+    addTearDown(source.close);
+    await source.applyOverrides(const ReaderOverrides(fontSize: 28));
+    final pages = await source.loadChapter(0);
+    final relocated = AnnotationRelocator.relocate(
+      annotations: [saved],
+      pages: pages,
+      contentRevision: entry.contentRevision,
+    ).single;
+    expect(relocated.isResolved, isTrue);
+    expect(relocated.resolved.quote, '可见文字');
+    final updated = await next.add(
+      type: ReaderAnnotationType.mark,
+      startCfi: start,
+      endCfi: end,
+      quote: '再次识别文字',
+      sourceQuote: '丙丁戊',
+    );
+    expect(updated!.id, created.id);
+    expect(updated.note, '用户笔记');
+    expect(updated.type, ReaderAnnotationType.thought);
+    expect(updated.quote, '再次识别文字');
+    expect(await next.list(), hasLength(1));
   });
 }

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:reader_core/epub/epub_chapter_source.dart';
@@ -29,6 +30,8 @@ class BookEditorPreview extends StatefulWidget {
     this.navigation = 0,
     this.onSessionReady,
     this.bookTitle = '点击段落编辑原文',
+    this.ocrRequired = false,
+    this.onRecognizeSelection,
   });
   final EpubChapterSource source;
   final int revision;
@@ -39,6 +42,8 @@ class BookEditorPreview extends StatefulWidget {
   final int navigation;
   final ValueChanged<ReaderSession>? onSessionReady;
   final String bookTitle;
+  final bool ocrRequired;
+  final Future<String> Function(Uint8List)? onRecognizeSelection;
 
   @override
   State<BookEditorPreview> createState() => _BookEditorPreviewState();
@@ -155,6 +160,8 @@ class _BookEditorPreviewState extends State<BookEditorPreview> {
     inkMode: widget.settings?.inkMode ?? false,
     bookTitle: widget.bookTitle,
     editMode: true,
+    ocrRequired: widget.ocrRequired,
+    onRecognizeSelection: widget.onRecognizeSelection,
     onEditTarget: widget.onEditTarget,
     onSessionReady: _ready,
     pageTurnMode: PageTurnMode.slideHorizontal,

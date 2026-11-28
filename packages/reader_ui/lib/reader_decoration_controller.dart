@@ -385,13 +385,17 @@ extension _ReaderDecorationController on _ReaderPageState {
   }
 
   Future<bool> _readDecorationStores(int generation) async {
-    final itemsTask = widget.decorations?.list();
-    final groupsTask = widget.decorationRules?.listGroups();
-    final rulesTask = widget.decorationRules?.listRules();
+    final itemsTask = widget.ocrRequired ? null : widget.decorations?.list();
+    final groupsTask = widget.ocrRequired
+        ? null
+        : widget.decorationRules?.listGroups();
+    final rulesTask = widget.ocrRequired
+        ? null
+        : widget.decorationRules?.listRules();
     final items = await itemsTask ?? const <ReaderDecoration>[];
     final groups = await groupsTask ?? const <ReaderDecorationRuleGroup>[];
     final rules = await rulesTask ?? const <ReaderDecorationRule>[];
-    final preferences = widget.decorationRules;
+    final preferences = widget.ocrRequired ? null : widget.decorationRules;
     final selection = preferences is ReaderDecorationRulePreferences
         ? await (preferences as ReaderDecorationRulePreferences)
               .loadGlobalRuleSelection()

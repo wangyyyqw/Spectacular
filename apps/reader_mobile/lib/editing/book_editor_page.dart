@@ -1,4 +1,9 @@
 import 'dart:async';
+
+import 'package:reader_core/editing/paragraph_edit.dart';
+
+import '../reader/paragraph_edit_sheet.dart';
+
 import 'dart:ui' show AppExitResponse;
 
 import 'package:flutter/material.dart';
@@ -198,6 +203,34 @@ class _BookEditorPageState extends State<BookEditorPage> {
     if (_elementOpen) return;
     try {
       final element = editor.resolveTarget(target);
+      if (target.recognizedText != null) {
+        _elementOpen = true;
+        try {
+          await showReaderBottomSheet<bool>(
+            context: context,
+            isScrollControlled: true,
+            useSafeArea: true,
+            builder: (_) => ParagraphEditSheet(
+              ownsSession: false,
+              open: () async => EpubParagraphEdit.fromSelection(
+                editor.session,
+                target.spineIndex,
+                target.cfi,
+                target.endCfi!,
+                recognizedText: target.recognizedText,
+                sourceText: target.sourceText,
+                preview: true,
+              ),
+              save: (edit, input, _) async {
+                edit.apply(input);
+              },
+            ),
+          );
+        } finally {
+          _elementOpen = false;
+        }
+        return;
+      }
       editor.openDocument(element.path, offset: element.sourceStart);
       final doc = editor.activeDocument!;
       final start = doc.code.selection;
@@ -844,6 +877,8 @@ class _BookEditorPageState extends State<BookEditorPage> {
                       : null,
                   onLocationChanged: editor.rememberPreviewLocation,
                   onEditTarget: (target) => unawaited(_editTarget(target)),
+                  ocrRequired: editor.previewRequiresOcr,
+                  onRecognizeSelection: editor.selectionOcr.recognize,
                 ),
         ),
       ],

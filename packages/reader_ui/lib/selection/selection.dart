@@ -333,6 +333,12 @@ abstract final class SelectionOps {
     );
   }
 
+  /// 选区覆盖的正式排版行及各行的原文字符区间。
+  static List<({PageLineBox box, int start, int end})> coveredLines(
+    PageContent page,
+    ReaderSelection selection,
+  ) => _coveredLines(TextHitTester.lineBoxes(page), selection);
+
   /// 选区纯文本（跨行拼接；跨行且接拉丁字母时补空格）。
   static String textOf(PageContent page, ReaderSelection selection) {
     final boxes = TextHitTester.lineBoxes(page);

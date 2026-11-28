@@ -14,6 +14,7 @@ import '../layout/text_spacing.dart';
 import '../text/reader_text_overlay.dart';
 import 'background_image.dart';
 import 'background_tiles.dart';
+import 'hit_test.dart';
 import 'line_spans.dart';
 import 'paragraph_cache.dart';
 import 'text_emphasis.dart';
@@ -69,6 +70,50 @@ class PageSelection {
 
 /// 按页绘制文本与背景。
 class PagePainter {
+  /// OCR 复用正式行的字体、字距、基线和行内盒位移，只画文字墨迹。
+  /// 不带入作者背景、装饰线、阴影、列表标记或用户标注。
+  static void paintRecognitionLine(Canvas canvas, PageLineBox box) {
+    if (box.isVertical) {
+      throw const FormatException('暂不支持竖排选区识别，请选择横排文字');
+    }
+    final layout = box.slice.block.layout;
+    final line = layout.lines[box.lineIndex];
+    final style = box.slice.block.style ?? ComputedStyle(const {});
+    TextStyle plain(ComputedStyle value) =>
+        TextLayoutEngine.textStyleFor(value).copyWith(
+          color: const Color(0xff000000),
+          decoration: TextDecoration.none,
+          shadows: const [],
+        );
+    final base = plain(style);
+    final painter = TextPainter(
+      text: buildLineSpan(
+        layout: layout,
+        line: line,
+        baseStyle: base,
+        styleOf: plain,
+        punctCompression:
+            style.textSpacingTrim == CssTextSpacingTrim.trimAdjacent,
+        textAutospace: style.textAutospace == CssTextAutospace.normal,
+      ),
+      textDirection: layout.isRtl ? TextDirection.rtl : TextDirection.ltr,
+    )..layout();
+    const PagePainter()._paintLineText(
+      canvas,
+      painter,
+      box.text,
+      const PagePainter()._lineRuns(layout, line),
+      base,
+      box.rect.left + textLineJustifyOffset(line, painter),
+      (box.textTop ?? box.rect.top) +
+          textLineBaselineOffset(layout, line, painter),
+      line: line,
+      textAlign: style.textAlign,
+      isRtl: layout.isRtl,
+    );
+    painter.dispose();
+  }
+
   /// 列表标记 gutter（P3-23）：标记距文本左缘的距离（UA li margin-left
   /// 40px 的内半区）。
   static const double markerGutter = 20;

@@ -371,7 +371,7 @@ void main() {
       expect(restored, fontBytes);
     });
 
-    test('FairPlay 检测进诊断且不解密', () async {
+    test('FairPlay 在解析章节前明确拒绝且不解密', () async {
       final obfuscated = FontObfuscator.obfuscate(
         fontBytes,
         identifier: _identifier,
@@ -383,11 +383,9 @@ void main() {
         sinf: true,
       );
       final result = await openEpub(epubBytes);
-      expect(result.ok, isTrue);
-      expect(
-        result.report.warnings.any((w) => w.contains('E_FAIRPLAY_ENCRYPTION')),
-        isTrue,
-      );
+      expect(result.ok, isFalse);
+      expect(result.report.errorCode, 'E_EPUB_ENCRYPTED');
+      expect(result.report.message, contains('Apple FairPlay'));
     });
 
     test('DirectoryFontCache：命中不重复解密', () async {
