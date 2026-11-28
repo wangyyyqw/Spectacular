@@ -714,4 +714,31 @@ Future<void> _rekeyBook(
   await (db.update(db.bookTagLinks)
         ..where((table) => table.bookUuid.equals(row.uuid)))
       .write(BookTagLinksCompanion(bookUuid: Value(id)));
+  await _rekeyBookLists(db, row.uuid, id);
+}
+
+Future<void> _rekeyBookLists(
+  AppDatabase db,
+  String previous,
+  String next,
+) async {
+  final setting =
+      await (db.select(db.settingsTable)
+            ..where((table) => table.key.equals(BookListStore.settingKey)))
+          .getSingleOrNull();
+  if (setting == null) return;
+  final lists = jsonDecode(setting.value) as List;
+  var changed = false;
+  for (final list in lists) {
+    if (list is! Map<String, dynamic> || list['bookIds'] is! List) continue;
+    final ids = list['bookIds'] as List;
+    if (!ids.contains(previous)) continue;
+    list['bookIds'] = {for (final id in ids) id == previous ? next : id}
+        .toList();
+    changed = true;
+  }
+  if (!changed) return;
+  await (db.update(db.settingsTable)..whereSamePrimaryKey(setting)).write(
+    SettingsTableCompanion(value: Value(jsonEncode(lists))),
+  );
 }

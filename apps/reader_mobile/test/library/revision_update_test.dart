@@ -10,6 +10,7 @@ import 'package:path/path.dart' as p;
 import 'package:reader_core/epub/book_identity.dart';
 import 'package:reader_core/position/location_anchor.dart';
 import 'package:reader_mobile/library/library_store.dart';
+import 'package:reader_mobile/library/book_list_store.dart';
 import 'package:reader_mobile/library/revision_anchor_index.dart';
 import 'package:reader_mobile/storage/book_review_store.dart';
 import 'package:reader_mobile/storage/db.dart';
@@ -627,6 +628,62 @@ void main() {
     expect(File(old.filePath).existsSync(), isFalse);
   });
 
+  test('连续强制改 ID 迁移所有书单归属、保持顺序并合并重复项', () async {
+    final old = await library.importBytes(original);
+    final store = library.bookListStore();
+    final first = await store.create(name: '在读', description: '保留简介');
+    final second = await store.create(name: '计划');
+    final unrelated = await store.create(name: '其他');
+    final next = generateBookId(
+      title: '新版书名',
+      author: revisionAuthor,
+      identifier: revisionIdentifier,
+    );
+    await store.addBooks(first.id, ['前一本', old.id, next, '后一本']);
+    await store.addBooks(second.id, [old.id]);
+    await store.addBooks(unrelated.id, ['其他书']);
+    final updated = await library.updateBytes(
+      old.id,
+      buildRevisionTestEpub(title: '新版书名'),
+    );
+    expect(updated.id, next);
+    final finalBook = await library.updateBytes(
+      updated.id,
+      buildRevisionTestEpub(title: '再次修订书名'),
+    );
+    final lists = await store.list();
+    expect(lists[0].bookIds, ['前一本', finalBook.id, '后一本']);
+    expect(lists[0].description, first.description);
+    expect(lists[0].createdAt, first.createdAt);
+    expect(lists[1].bookIds, [finalBook.id]);
+    expect(lists[2].toJson(), {
+      ...unrelated.toJson(),
+      'bookIds': ['其他书'],
+    });
+    expect(await store.listIdsForBook(finalBook.id), {first.id, second.id});
+  });
+
+  test('重键事务失败时书单归属与书籍版本一并回滚', () async {
+    final old = await library.importBytes(original);
+    final store = library.bookListStore();
+    final list = await store.create(name: '保留书单');
+    await store.addBooks(list.id, [old.id]);
+    final saved = await library.getSetting(BookListStore.settingKey);
+    await db.customStatement('''
+CREATE TEMP TRIGGER reject_rekey AFTER UPDATE OF value ON settings
+WHEN NEW.key = 'booklists.v1'
+BEGIN SELECT RAISE(ABORT, '模拟书单提交失败'); END
+''');
+    await expectLater(
+      library.updateBytes(old.id, buildRevisionTestEpub(title: '未完成新版')),
+      throwsA(isA<Exception>()),
+    );
+    expect(await library.getSetting(BookListStore.settingKey), saved);
+    expect((await library.list()).single.id, old.id);
+    expect(await File(old.filePath).readAsBytes(), original);
+    expect(await db.select(db.bookIdAliases).get(), isEmpty);
+  });
+
   test('新 ID 已属于另一条书架记录则拒绝强制更新，两本原书均保留', () async {
     final old = await library.importBytes(original);
     await _seedData(db, library, old, original);
@@ -1145,8 +1202,10 @@ void main() {
       result.id,
     );
     expect(
-      (await library.decorationRuleStore(result.id)!.listRules()).single.id,
-      'stable-rule',
+      (await library.decorationRuleStore(result.id)!.listRules())
+          .singleWhere((rule) => rule.id == 'stable-rule')
+          .groupId,
+      group.id,
     );
     final snapshot = await _snapshot(db);
     await oldStore.update(decoration.id, style: const ReaderDecorationStyle());
