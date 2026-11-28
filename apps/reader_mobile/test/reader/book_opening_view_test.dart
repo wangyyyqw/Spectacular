@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show MethodChannel;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_core/editing.dart';
+import 'package:reader_core/paint/hit_test.dart';
 import 'package:reader_mobile/editing/book_editor_page.dart';
 import 'package:reader_mobile/editing/book_edit_repository.dart';
 import 'package:reader_mobile/diagnostics/reader_log.dart';
@@ -66,7 +67,7 @@ Future<void> _pumpFrames(WidgetTester tester, {int frames = 12}) async {
 
 void main() {
   testWidgets(
-    '手机阅读菜单与选区不提供 EPUB 编辑入口',
+    '手机只读来源不提供段落编辑或完整编辑器',
     (tester) async {
       late Directory temporary;
       late File epub;
@@ -103,6 +104,103 @@ void main() {
       TargetPlatform.iOS,
     }),
   );
+
+  testWidgets('手机阅读选区编辑校验失败保留输入，修正保存后阅读新版', (tester) async {
+    late Directory temporary;
+    late AppDatabase db;
+    late LibraryStore library;
+    late BookEntry entry;
+    await tester.runAsync(() async {
+      temporary = await Directory.systemTemp.createTemp(
+        'reader-paragraph-test-',
+      );
+      db = AppDatabase(NativeDatabase.memory());
+      library = LibraryStore(
+        database: db,
+        directoryProvider: () async => temporary,
+      );
+      entry = await library.importBytes(
+        buildTestEpub(paragraphs: ['前<em>强调</em>后', '不要修改的段落']),
+      );
+    });
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox());
+      await tester.runAsync(() async {
+        await db.close();
+        await temporary.delete(recursive: true);
+      });
+    });
+    final opener = BookOpener(
+      library: library,
+      progressStore: DriftProgressStore(db),
+    );
+    final key = GlobalKey();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(body: SizedBox(key: key)),
+      ),
+    );
+    final opened = opener.open(key.currentContext!, entry);
+    await pumpReaderUntil(tester, find.byType(ReaderPageFooter));
+    await _pumpFrames(tester);
+    final layer = find.byType(ReaderSemanticsLayer);
+    final page = tester.widget<ReaderSemanticsLayer>(layer).page;
+    final line = TextHitTester.lineBoxes(page)
+        .firstWhere((line) => line.text.contains('强调'));
+    await tester.longPressAt(tester.getTopLeft(layer) + line.rect.center);
+    await tester.pumpAndSettle();
+    expect(find.text('全选'), findsNothing);
+    await tester.tap(find.text('编辑'));
+    final field = find.byType(TextField);
+    await pumpReaderUntil(tester, field);
+    expect(
+      tester.widget<TextField>(field).controller!.text,
+      '<p>前<em>强调</em>后</p>',
+    );
+    const invalid = '<p>修改<em>强调</p>';
+    await tester.enterText(field, invalid);
+    await tester.tap(find.byTooltip('关闭'));
+    await tester.pumpAndSettle();
+    expect(find.text('放弃段落修改？'), findsOneWidget);
+    await tester.tap(find.text('继续编辑'));
+    await tester.pumpAndSettle();
+    expect(tester.widget<TextField>(field).controller!.text, invalid);
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.text('放弃段落修改？'), findsOneWidget);
+    await tester.tap(find.text('继续编辑'));
+    await tester.pumpAndSettle();
+    expect(tester.widget<TextField>(field).controller!.text, invalid);
+    await tester.tap(find.text('保存'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('标签未正确闭合'), findsOneWidget);
+    expect(tester.widget<TextField>(field).controller!.text, invalid);
+    expect(
+      (await pumpReaderTask(
+        tester,
+        library.bookById(entry.id),
+      ))!.contentRevision,
+      entry.contentRevision,
+    );
+    await tester.enterText(field, '<p>修改<em>强调</em></p>');
+    await tester.tap(find.text('保存'));
+    await pumpReaderUntilComplete(
+      tester,
+      () => tester
+          .widgetList<ReaderPage>(find.byType(ReaderPage))
+          .any((reader) => reader.contentRevision != entry.contentRevision),
+      description: '重新打开修改后的段落',
+      maxFrames: 240,
+    );
+    await pumpReaderUntil(tester, layer);
+    final lines = TextHitTester.lineBoxes(
+      tester.widget<ReaderSemanticsLayer>(layer).page,
+    ).map((line) => line.text).join();
+    expect(lines, contains('修改强调'));
+    expect(lines, contains('不要修改的段落'));
+    tester.state<NavigatorState>(find.byType(Navigator).first).pop();
+    await pumpReaderTask(tester, opened);
+  }, variant: TargetPlatformVariant.only(TargetPlatform.android));
 
   testWidgets('保存编辑后自动重开新版本并保留设置书签和已迁移进度', (tester) async {
     late Directory temporary;
@@ -190,7 +288,9 @@ void main() {
       isTrue,
     );
     await tester.pump(const Duration(milliseconds: 300));
-    await tester.tap(find.byTooltip('保存书籍'));
+    await tester.tap(find.widgetWithText(SubmenuButton, '文件'));
+    await pumpReaderUntil(tester, find.text('保存并退出编辑').hitTestable());
+    await tester.tap(find.text('保存并退出编辑'));
     await pumpReaderUntilComplete(
       tester,
       () => find.byType(BookEditorPage).evaluate().isEmpty,

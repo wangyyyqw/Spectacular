@@ -31,13 +31,17 @@ Future<AnchorBook> buildRevisionAnchorBook(
 Future<AnchorBook> buildRevisionAnchorBookFile(
   File file, {
   required String revision,
+  int? spineIndex,
 }) async {
   final source = await EpubChapterSource.openFile(file);
   try {
-    final chapters = <AnchorChapter>[];
-    for (var index = 0; index < source.chapterCount; index++) {
-      chapters.add(await source.loadAnchorChapter(index));
-    }
+    final chapters = [
+      if (spineIndex != null)
+        await source.loadAnchorChapter(spineIndex)
+      else
+        for (var index = 0; index < source.chapterCount; index++)
+          await source.loadAnchorChapter(index),
+    ];
     return AnchorBook(revision: revision, chapters: chapters);
   } finally {
     source.close();

@@ -39,6 +39,42 @@ class BookEditRepository {
 
   Future<void> discardDraft(String bookId) => library.discardEditDraft(bookId);
 
+  Future<EpubParagraphEdit> openParagraph(
+    String bookId,
+    String revision,
+    File source,
+    int spineIndex,
+    String startCfi,
+    String endCfi,
+  ) async {
+    await verifyRevision(bookId, revision);
+    if (await openDraft(bookId) != null) {
+      throw const EpubEditException('本书有未完成的编辑草稿，请先在编辑器保存或放弃草稿');
+    }
+    final session = await EpubEditSession.open(source);
+    try {
+      if (session.baseDigest != revision) {
+        throw const EpubEditException('书籍文件已变化，请重新打开书籍');
+      }
+      return EpubParagraphEdit.fromSelection(
+        session,
+        spineIndex,
+        startCfi,
+        endCfi,
+      );
+    } catch (_) {
+      session.close();
+      rethrow;
+    }
+  }
+
+  Future<void> saveParagraph(
+    String bookId,
+    EpubParagraphEdit edit,
+    String input, {
+    void Function(String)? onStage,
+  }) => library.commitParagraphEdit(bookId, edit, input, onStage: onStage);
+
   Future<BookEntry> commitEditedFile(
     String bookId,
     String expectedRevision,

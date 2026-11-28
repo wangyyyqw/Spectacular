@@ -256,6 +256,8 @@ Future<ImportAnalysis> _analyzeFile(
   String path, {
   String? revision,
   List<int>? knownCounts,
+  int? recountSpine,
+  bool includeCover = true,
 }) async {
   revision ??= await _sha256File(path);
   // 导入做完整 CRC 校验；惰性 ZIP 逐条解压，内存有界。
@@ -263,8 +265,14 @@ Future<ImportAnalysis> _analyzeFile(
   final document = parsed.document;
   if (document == null) return ImportAnalysis(revision, parsed, null);
   try {
-    final counts = knownCounts ?? await document.countChapterCharacters();
-    final coverPath = document.coverResourcePath;
+    final counts =
+        knownCounts != null && knownCounts.length == document.spine.length
+        ? [...knownCounts]
+        : await document.countChapterCharacters();
+    if (recountSpine != null && knownCounts?.length == counts.length) {
+      counts[recountSpine] = document.characterCountOf(recountSpine);
+    }
+    final coverPath = includeCover ? document.coverResourcePath : null;
     return ImportAnalysis(
       revision,
       EpubOpenResult(report: parsed.report),
@@ -277,7 +285,9 @@ Future<ImportAnalysis> _analyzeFile(
           document.progressExcludedSpineIndexes,
         ),
         identifier: originalEpubIdentifier(document),
-        coverBytes: document.readCoverBytes(),
+        coverBytes: coverPath == null
+            ? null
+            : document.archive.readBytes(coverPath),
         coverExtension: _coverExtension(coverPath),
       ),
     );
@@ -292,11 +302,15 @@ Future<({ImportAnalysis analysis, bool cssOnly})> analyzeEditedFile(
   required String oldPath,
   required bool cssOnly,
   required List<int> knownCounts,
+  int? recountSpine,
+  bool includeCover = true,
 }) => Isolate.run(() async {
   final onlyCss = cssOnly && await _verifiedCssOnly(oldPath, path);
   final analysis = await _analyzeFile(
     path,
-    knownCounts: onlyCss ? knownCounts : null,
+    knownCounts: onlyCss || recountSpine != null ? knownCounts : null,
+    recountSpine: recountSpine,
+    includeCover: includeCover,
   );
   return (analysis: analysis, cssOnly: onlyCss);
 });

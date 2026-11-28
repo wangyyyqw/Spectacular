@@ -16,7 +16,7 @@ const _menuLabels = <String, String>{
   'thought': '想法',
   'decoration': '装饰',
   'dictionary': '词典',
-  'select-all': '全选',
+  'edit-source': '编辑',
 };
 
 List<SelectionAction> _menuActions(ValueChanged<String> onTap) => [
@@ -411,15 +411,12 @@ void main() {
       expect(positions.toSet(), hasLength(1));
       await tester.drag(scroll, const Offset(-400, 0));
       await tester.pumpAndSettle();
-      final selectAll = find.byKey(
-        const ValueKey<String>('selection-action-select-all'),
+      final edit = find.byKey(
+        const ValueKey<String>('selection-action-edit-source'),
       );
-      expect(
-        tester.getRect(menu).contains(tester.getCenter(selectAll)),
-        isTrue,
-      );
-      await tester.tap(selectAll);
-      expect(selected, ['select-all']);
+      expect(tester.getRect(menu).contains(tester.getCenter(edit)), isTrue);
+      await tester.tap(edit);
+      expect(selected, ['edit-source']);
       expect(tester.takeException(), isNull);
     });
 

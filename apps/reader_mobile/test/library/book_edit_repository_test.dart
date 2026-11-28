@@ -4,13 +4,17 @@ import 'dart:io';
 import 'package:archive/archive.dart';
 import 'package:drift/drift.dart' hide isNull, isNotNull;
 import 'package:drift/native.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path/path.dart' as p;
 import 'package:reader_core/editing.dart';
 import 'package:reader_core/position/location_anchor.dart';
 import 'package:reader_mobile/editing/book_edit_repository.dart';
 import 'package:reader_mobile/library/import_analysis.dart';
 import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/library/revision_anchor_index.dart';
+import 'package:reader_mobile/library/revision_anchor_store.dart'
+    show requireAnchorRecord;
 import 'package:reader_mobile/storage/db.dart';
 
 import 'fixtures/revision_epub.dart';
@@ -37,7 +41,7 @@ class _Fixture {
           .writeAsBytes(bytes);
 }
 
-Future<_Fixture> _fixture({bool css = false}) async {
+Future<_Fixture> _fixture({bool css = false, Uint8List? epub}) async {
   final root = await Directory.systemTemp.createTemp('book-edit-test-');
   final db = AppDatabase(NativeDatabase.memory());
   final library = LibraryStore(
@@ -48,7 +52,8 @@ Future<_Fixture> _fixture({bool css = false}) async {
     await db.close();
     await root.delete(recursive: true);
   });
-  final bytes = css ? _styled('p { color: black; }') : buildRevisionTestEpub();
+  final bytes =
+      epub ?? (css ? _styled('p { color: black; }') : buildRevisionTestEpub());
   final entry = await library.importBytes(bytes);
   final fixture = _Fixture(root, db, library, entry);
   await _seedPosition(fixture);
@@ -60,6 +65,7 @@ Future<void> _seedPosition(_Fixture fixture) async {
   final index = await buildRevisionAnchorBookFile(
     File(book.sourcePath!),
     revision: book.contentRevision,
+    spineIndex: 0,
   );
   final chapter = index.chapter(0)!;
   final cfi = chapter.cfiAt(chapter.text.indexOf(revisionQuote))!;
@@ -136,7 +142,10 @@ Future<void> _expectUnchanged(_Fixture f, BookRow before) async {
   if (await stages.exists()) {
     final abandoned = await stages
         .list()
-        .where((entry) => entry.path != File(before.sourcePath!).parent.path)
+        .where(
+          (entry) =>
+              !p.equals(entry.path, File(before.sourcePath!).parent.path),
+        )
         .toList();
     expect(abandoned, isEmpty);
   }
@@ -166,6 +175,210 @@ Future<void> _removeReimportedOriginal(_Fixture f, BookEntry current) async {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  test('千章书段落保存只迁移修改章，未改章的进度和笔记保留原文位置', () async {
+    const target = 901;
+    final chapters = [
+      ...revisionOriginalChapters,
+      for (var index = revisionOriginalChapters.length; index < 1047; index++)
+        RevisionTestChapter('chapter-$index.xhtml', '第 $index 章', [
+          '这一段记录第 $index 章的内容。',
+        ]),
+    ];
+    final fixture = await _fixture(
+      epub: buildRevisionTestEpub(chapters: chapters),
+    );
+    final old = await fixture.book;
+    final note = await fixture.db.select(fixture.db.annotations).getSingle();
+    final beforeProgress = await fixture.db
+        .select(fixture.db.readingProgress)
+        .getSingle();
+    final index = await buildRevisionAnchorBookFile(
+      File(old.sourcePath!),
+      revision: old.contentRevision,
+      spineIndex: target,
+    );
+    expect(index.chapters.map((chapter) => chapter.spineIndex), [target]);
+    final chapter = index.chapter(target)!;
+    final cfi = chapter.cfiAt(chapter.text.indexOf('这一段'))!;
+    final edit = await fixture.repository.openParagraph(
+      old.uuid,
+      old.contentRevision,
+      File(old.sourcePath!),
+      target,
+      cfi,
+      cfi,
+    );
+    addTearDown(edit.session.close);
+    final watch = Stopwatch()..start();
+    final stages = <String>[];
+    await fixture.repository.saveParagraph(
+      old.uuid,
+      edit,
+      '${edit.initialText}补字',
+      onStage: stages.add,
+    );
+    watch.stop();
+    debugPrint('千章合成书段落保存：${watch.elapsedMilliseconds} 毫秒');
+    expect(stages, ['正在写入 EPUB…', '正在更新书库和阅读位置…']);
+    final saved = await fixture.book;
+    expect(saved.charCount, old.charCount + 2);
+    final newIndex = await buildRevisionAnchorBookFile(
+      File(saved.sourcePath!),
+      revision: saved.contentRevision,
+      spineIndex: target,
+    );
+    expect(newIndex.chapter(target)!.text, contains('${edit.initialText}补字'));
+    final retained = await fixture.db
+        .select(fixture.db.annotations)
+        .getSingle();
+    final record = requireAnchorRecord(retained.anchorJson);
+    expect(
+      record.original.toJson(),
+      requireAnchorRecord(note.anchorJson).original.toJson(),
+    );
+    expect(record.status, 'verified');
+    expect(record.effective.revision, saved.contentRevision);
+    expect(retained.startCfi, note.startCfi);
+    final progress = await fixture.db
+        .select(fixture.db.readingProgress)
+        .getSingle();
+    expect(progress.locatorCfi, beforeProgress.locatorCfi);
+    expect(
+      requireAnchorRecord(progress.anchorJson).effective.revision,
+      saved.contentRevision,
+    );
+  });
+
+  test('修改章删除标注原文时，不把它迁到另一章的同一句话', () async {
+    final fixture = await _fixture(
+      epub: buildRevisionTestEpub(
+        chapters: [
+          ...revisionOriginalChapters,
+          const RevisionTestChapter('duplicate.xhtml', '其他章节', [
+            revisionBefore,
+            revisionQuote,
+            revisionAfter,
+          ]),
+        ],
+      ),
+    );
+    final old = await fixture.book;
+    final note = await fixture.db.select(fixture.db.annotations).getSingle();
+    final edit = await fixture.repository.openParagraph(
+      old.uuid,
+      old.contentRevision,
+      File(old.sourcePath!),
+      0,
+      note.startCfi,
+      note.endCfi,
+    );
+    addTearDown(edit.session.close);
+    await fixture.repository.saveParagraph(old.uuid, edit, '改为完全不同的段落。');
+    final retained = await fixture.db
+        .select(fixture.db.annotations)
+        .getSingle();
+    expect(requireAnchorRecord(retained.anchorJson).status, 'pending');
+    expect(retained.startCfi, note.startCfi);
+    expect(retained.note, note.note);
+  });
+
+  test('段落保存遇到触及修改章的跨章标注，按完整范围验证原文', () async {
+    final fixture = await _fixture();
+    final old = await fixture.book;
+    final file = File(old.sourcePath!);
+    final index = await buildRevisionAnchorBookFile(
+      file,
+      revision: old.contentRevision,
+    );
+    final first = index.chapter(0)!;
+    final second = index.chapter(1)!;
+    final start = first.cfiAt(first.text.indexOf(revisionAfter))!;
+    final end = second.cfiAt(
+      second.text.indexOf(revisionBookmarkQuote) + 3,
+      end: true,
+    )!;
+    final range = index.capture(start, endCfi: end)!;
+    await fixture.db
+        .update(fixture.db.annotations)
+        .write(
+          AnnotationsCompanion(
+            startCfi: Value(start),
+            endCfi: Value(end),
+            quote: Value(range.quote),
+            anchorJson: Value(AnchorRecord(original: range).encode()),
+          ),
+        );
+    final cfi = first.cfiAt(first.text.indexOf(revisionBefore))!;
+    final edit = await fixture.repository.openParagraph(
+      old.uuid,
+      old.contentRevision,
+      file,
+      0,
+      cfi,
+      cfi,
+    );
+    addTearDown(edit.session.close);
+    await fixture.repository.saveParagraph(
+      old.uuid,
+      edit,
+      '${edit.initialText}补字',
+    );
+    final saved = await fixture.book;
+    final retained = await fixture.db
+        .select(fixture.db.annotations)
+        .getSingle();
+    final anchor = requireAnchorRecord(retained.anchorJson);
+    expect(anchor.isResolved, isTrue);
+    expect(anchor.effective.revision, saved.contentRevision);
+    final next = await buildRevisionAnchorBookFile(
+      File(saved.sourcePath!),
+      revision: saved.contentRevision,
+    );
+    expect(
+      next.capture(retained.startCfi, endCfi: retained.endCfi)?.quote,
+      range.quote,
+    );
+  });
+
+  test('段落写回不覆盖已有草稿，解除冲突后可重试且保留书架元数据', () async {
+    final fixture = await _fixture();
+    final entry = fixture.entry;
+    final repository = fixture.repository;
+    final progress = await fixture.db
+        .select(fixture.db.readingProgress)
+        .getSingle();
+    final edit = await repository.openParagraph(
+      entry.id,
+      entry.contentRevision!,
+      File(entry.filePath),
+      0,
+      progress.locatorCfi,
+      progress.locatorCfi,
+    );
+    addTearDown(edit.session.close);
+    final input = '${edit.initialText}补字';
+    await repository.saveDraft(
+      entry.id,
+      entry.contentRevision!,
+      (_) => {'保留': '草稿'},
+    );
+    await expectLater(
+      repository.saveParagraph(entry.id, edit, input),
+      throwsA(isA<LibraryImportException>()),
+    );
+    expect((await repository.openDraft(entry.id))!.data['保留'], '草稿');
+    expect(edit.session.changedPaths, isEmpty);
+    expect((await fixture.book).contentRevision, entry.contentRevision);
+    await repository.discardDraft(entry.id);
+    await fixture.db
+        .update(fixture.db.books)
+        .write(const BooksCompanion(title: Value('书架别名')));
+    await repository.saveParagraph(entry.id, edit, input);
+    final saved = await fixture.book;
+    expect(saved.title, '书架别名');
+    expect(saved.contentRevision, isNot(entry.contentRevision));
+  });
 
   test('正文和元数据保存保持书籍身份、迁移位置，原版与最近版可以恢复', () async {
     final f = await _fixture();

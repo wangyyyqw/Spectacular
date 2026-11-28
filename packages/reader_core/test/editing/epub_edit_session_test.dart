@@ -114,6 +114,63 @@ void main() {
     );
   });
 
+  EpubParagraphEdit select(String start, [String? end]) {
+    const path = 'OPS/chapter.xhtml';
+    final chapter = session.readText(path);
+    String point(String text) =>
+        session.cfiForSourceOffset(path, chapter.indexOf(text) + 1);
+    return EpubParagraphEdit.fromSelection(
+      session,
+      0,
+      point(start),
+      point(end ?? start),
+    );
+  }
+
+  test('单标签显示整段文本，保留原标签属性并转义输入', () {
+    final edit = select('另一段');
+    expect(edit.isHtml, isFalse);
+    expect(edit.initialText, '另一段');
+    edit.apply('另一段');
+    expect(session.changedPaths, isEmpty);
+    edit.apply('文字 <em> &');
+    expect(
+      session.readText(edit.first.path),
+      editingXhtml.replaceFirst('另一段', '文字 &lt;em&gt; &amp;'),
+    );
+  });
+
+  test('选中行内文字编辑完整源码，错误闭合不写入，修正后只替换该段', () {
+    final edit = select('乙😀');
+    const original = '<p id="p" class="note">甲&amp;<em id="e">乙😀</em>丙</p>';
+    expect(edit.initialText, original);
+    for (final invalid in [
+      '<p><em>正文</p>',
+      '<p>正文',
+      '</p><p>',
+      '<p><br></p>',
+    ]) {
+      expect(() => edit.apply(invalid), throwsA(isA<EpubEditException>()));
+      expect(session.changedPaths, isEmpty);
+      expect(session.readText(edit.first.path), editingXhtml);
+    }
+    const corrected = '<p data-text=">"><em>新正文</em><br/></p>';
+    edit.apply(corrected);
+    expect(
+      session.readText(edit.first.path),
+      editingXhtml.replaceFirst(original, corrected),
+    );
+  });
+
+  test('跨同级段落保留中间源码和换行，自闭合标签进入源码模式', () {
+    final edit = select('乙😀', '另一段');
+    expect(edit.initialText, contains('</p>\n<p id="second">'));
+    edit.apply('<p>上行<br/>下行</p>');
+    final withBreak = select('下行');
+    expect(withBreak.isHtml, isTrue);
+    expect(withBreak.initialText, '<p>上行<br/>下行</p>');
+  });
+
   test('正文替换保留行内结构，撤销重做和过期目标防护生效', () {
     final node = _paragraph(session);
     session.replaceText(node, '甲&新😀丙');

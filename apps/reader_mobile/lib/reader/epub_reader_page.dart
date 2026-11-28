@@ -21,6 +21,7 @@ import 'package:reader_ui/decorations/decoration_image_store.dart';
 import 'package:reader_ui/panels/search_panel.dart';
 import 'package:reader_ui/panels/settings_panel.dart';
 import 'package:reader_ui/theme/reader_margins.dart';
+import 'package:reader_ui/theme/reader_environment.dart';
 import 'package:reader_ui/reader_page.dart';
 import 'package:reader_ui/menu/reader_menu_overlay.dart';
 import 'package:reader_ui/reader_session.dart';
@@ -46,6 +47,7 @@ import 'package:reader_core/epub/epub_chapter_source.dart';
 import 'package:reader_core/epub/epub_format_opener.dart';
 
 import 'reading_session_tracker.dart';
+import 'paragraph_edit_sheet.dart';
 import 'reader_settings.dart';
 import 'reader_chinese_converter.dart';
 import 'reader_background_store.dart';
@@ -1376,6 +1378,10 @@ class _EpubReaderPageState extends State<EpubReaderPage>
         child: Text('打开失败：$error'),
       );
     }
+    return Builder(builder: _buildReader);
+  }
+
+  Widget _buildReader(BuildContext panelContext) {
     final settings = _settings;
     return ReaderPage(
       key: const ValueKey<String>('reader-page'),
@@ -1469,9 +1475,11 @@ class _EpubReaderPageState extends State<EpubReaderPage>
       },
       readingHighlight: _ttsController?.highlight,
       onBookEnd: _openFinishPage,
-      onOpenEditor: _canEditBook ? () => _openEditor(null) : null,
+      onOpenEditor: _canEditBook ? _openEditor : null,
       onChapterRules: _canRechapter ? _openChapterRules : null,
-      onEditTarget: _canEditBook ? _openEditor : null,
+      onEditTarget: _canEditParagraph
+          ? (target) => _editParagraph(panelContext, target)
+          : null,
       onLog: (event, fields) =>
           unawaited(ReaderLog.instance.log(event, fields: fields)),
       onResolveSearchCfi: _resolveSearchCfi,
@@ -1622,6 +1630,59 @@ class _EpubReaderPageState extends State<EpubReaderPage>
     }
   }
 
+  bool get _canEditParagraph =>
+      widget.bookEditorRepository?.library.supportsPersistence == true &&
+      widget.sourcePath != null;
+
+  Future<void> _editParagraph(
+    BuildContext panelContext,
+    ReaderEditTarget target,
+  ) async {
+    if (_editorOpen || _closing) return;
+    final repository = widget.bookEditorRepository!;
+    final bookId = widget.bookId;
+    final source = File(widget.sourcePath!);
+    _editorOpen = true;
+    _syncReadingActivity();
+    var updated = false;
+    try {
+      final saved = await showReaderDrawer<bool>(
+        context: panelContext,
+        readerTheme: _settings.inkMode
+            ? ReaderEnvironment.inkTheme
+            : _pageTheme,
+        // 本分支的原生抽屉拖动会直接退场；关闭统一经过表单的未保存检查。
+        enableDrag: false,
+        isDismissible: false,
+        builder: (_) => ParagraphEditSheet(
+          open: () async {
+            await _ttsController?.pause();
+            await _readerSession?.flushProgress();
+            return repository.openParagraph(
+              bookId,
+              target.contentRevision ?? _contentRevision,
+              source,
+              target.spineIndex,
+              target.cfi,
+              target.endCfi ?? target.cfi,
+            );
+          },
+          save: (edit, input, onStage) =>
+              repository.saveParagraph(bookId, edit, input, onStage: onStage),
+        ),
+      );
+      updated = saved == true;
+      if (updated && mounted) {
+        Navigator.of(context).pop(EpubReaderExit.contentUpdated);
+      }
+    } finally {
+      if (!updated) {
+        _editorOpen = false;
+        if (mounted) _syncReadingActivity();
+      }
+    }
+  }
+
   bool get _canEditBook =>
       widget.bookEditorRepository != null &&
       widget.sourcePath != null &&
@@ -1630,7 +1691,7 @@ class _EpubReaderPageState extends State<EpubReaderPage>
         _ => false,
       };
 
-  Future<void> _openEditor(ReaderEditTarget? target) async {
+  Future<void> _openEditor() async {
     if (!_canEditBook || _editorOpen) return;
     final repository = widget.bookEditorRepository;
     final path = widget.sourcePath;
@@ -1642,15 +1703,13 @@ class _EpubReaderPageState extends State<EpubReaderPage>
       await _readerSession?.flushProgress();
       if (!mounted) return;
       final progress = _readerSession?.progress;
-      final location =
-          target ??
-          (progress?.cfi == null
-              ? null
-              : ReaderEditTarget(
-                  spineIndex: progress!.spineIndex,
-                  cfi: progress.cfi!,
-                  contentRevision: _contentRevision,
-                ));
+      final location = progress?.cfi == null
+          ? null
+          : ReaderEditTarget(
+              spineIndex: progress!.spineIndex,
+              cfi: progress.cfi!,
+              contentRevision: _contentRevision,
+            );
       final saved = await Navigator.of(context).push<bool>(
         MaterialPageRoute(
           builder: (_) => BookEditorRoute(
@@ -1661,7 +1720,6 @@ class _EpubReaderPageState extends State<EpubReaderPage>
             title: widget.bookTitle,
             target: location,
             readingSettings: _settings,
-            editInitialTarget: target != null,
           ),
         ),
       );

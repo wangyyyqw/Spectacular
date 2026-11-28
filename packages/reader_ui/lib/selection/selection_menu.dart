@@ -198,7 +198,6 @@ AppGlyph _glyphOf(String id) => switch (id) {
   'dictionary' => AppGlyph.menuBook,
   'edit-source' => AppGlyph.edit,
   'relocate' => AppGlyph.link,
-  'select-all' => AppGlyph.multiSelect,
   'dismiss' => AppGlyph.close,
   _ => AppGlyph.more,
 };

@@ -24,6 +24,7 @@ import 'package:reader_ui/annotations/annotation.dart'
     show ReaderAnnotationType;
 import 'package:reader_ui/decorations/decoration_image_store.dart';
 
+import '../diagnostics/reader_log.dart' show recordAppEvent;
 import '../reader/reader_decoration_image_store.dart';
 import '../storage/book_review_store.dart';
 import 'book_list_store.dart';
@@ -1187,9 +1188,7 @@ class LibraryStore {
     }
     final title =
         existing?.title ??
-        (meta.title.trim().isEmpty
-            ? '未命名书籍'
-            : meta.title.trim());
+        (meta.title.trim().isEmpty ? '未命名书籍' : meta.title.trim());
     final author = existing == null
         ? meta.author.trim()
         : existing.author ?? '';
