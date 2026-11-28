@@ -523,6 +523,8 @@ void main() {
     );
     await tester.pump(const Duration(milliseconds: 160));
     await tester.pumpAndSettle();
+    // 最后一帧提交视口后，再推进120ms位置合并窗口。
+    await tester.pump(const Duration(milliseconds: 160));
     final scrolled = session.progress!;
     expect(scrolled.pageIndex, greaterThan(2));
 

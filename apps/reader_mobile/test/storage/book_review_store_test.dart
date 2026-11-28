@@ -179,12 +179,12 @@ void main() {
       store.save(book.id, content: '不应保存的修改'),
       throwsA(isA<FormatException>()),
     );
-    expect(await store.snapshot(), isEmpty);
+    expect((await store.snapshot())[book.id]!.content, '原来的书评');
     await library.importBytes(buildTestEpub(title: '移除后保存'));
     expect((await store.snapshot())[book.id]!.content, '原来的书评');
   });
 
-  test('删书后隐藏书评，重新导入同一本书后恢复', () async {
+  test('删书后保留展示书评，重新导入同一本书后沿用记录', () async {
     final book = await library.importBytes(buildTestEpub(title: '级联书评'));
     await progress.save(
       book.id,
@@ -195,7 +195,7 @@ void main() {
     await library.remove(book.id);
 
     expect(await db.select(db.bookReviews).get(), hasLength(1));
-    expect(await store.snapshot(), isEmpty);
+    expect((await store.snapshot())[book.id]!.content, '会随书删除');
 
     final restored = await library.importBytes(buildTestEpub(title: '级联书评'));
     expect(restored.id, book.id);

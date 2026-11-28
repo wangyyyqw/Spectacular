@@ -1980,18 +1980,25 @@ class _ReaderPageState extends State<ReaderPage> with WidgetsBindingObserver {
     if (store == null) {
       return;
     }
-    final items = await store.list();
-    if (!mounted || generation != _annotationGeneration) {
-      return;
+    try {
+      final items = await store.list();
+      if (!mounted || generation != _annotationGeneration) return;
+      setState(() {
+        _annotations = items;
+        _annotationsByChapter.clear();
+        _annotationScheduledChapters.clear();
+        _resolvedAnnotations = const [];
+      });
+      await _relocateAnnotations();
+      if (mounted) setState(() => _painter = _buildPainter());
+    } catch (error, stackTrace) {
+      if (!mounted || generation != _annotationGeneration) return;
+      ReaderUiDiagnostics.record(
+        'annotation_load_failed',
+        error: error,
+        stackTrace: stackTrace,
+      );
     }
-    setState(() {
-      _annotations = items;
-      _annotationsByChapter.clear();
-      _annotationScheduledChapters.clear();
-      _resolvedAnnotations = const [];
-    });
-    await _relocateAnnotations();
-    if (mounted) setState(() => _painter = _buildPainter());
   }
 
   /// 批量删除标注，完成后只刷新一次阅读页。

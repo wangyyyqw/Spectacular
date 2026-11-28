@@ -126,6 +126,7 @@ Future<ReaderSession> _openImageBreakSession(
     contentTopInset: 56.075,
     contentSideInsets: (left: 8.8, right: 8.53333333333336),
   );
+  await session.completeChapterPreload(0);
   return session;
 }
 

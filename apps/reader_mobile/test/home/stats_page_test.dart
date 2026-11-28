@@ -9,6 +9,7 @@ import 'package:reader_mobile/home/book_duration_chart.dart';
 import 'package:reader_mobile/home/reading_book_color.dart';
 import 'package:reader_mobile/home/reading_calendar.dart';
 import 'package:reader_mobile/home/stats_page.dart';
+import 'package:reader_mobile/diagnostics/reader_log.dart';
 import 'package:reader_mobile/library/library_store.dart';
 import 'package:reader_mobile/storage/reading_session_store.dart';
 import 'package:reader_mobile/theme/app_theme.dart';
@@ -381,6 +382,7 @@ void main() {
   });
 
   testWidgets('切入等待和切出复用统计图表，刷新成功更新且失败保留旧内容', (tester) async {
+    ReaderLog.instance.resetForTest();
     tester.view
       // 移除花瓣区块后页面变短，使用较矮窗口继续覆盖滚动位置保留。
       ..physicalSize = const Size(1280, 700)
@@ -462,7 +464,10 @@ void main() {
     await tester.pumpAndSettle();
     expect(rebuilt, isEmpty);
     expect(_valueOf(tester, 'stats-book-duration-total'), '10 分钟');
-    expect(find.text('统计刷新失败，请稍后重试'), findsOneWidget);
+    expect(
+      await ReaderLog.instance.exportText(),
+      contains('stats_reload_failed'),
+    );
     expect(tester.takeException(), isNull);
   });
 

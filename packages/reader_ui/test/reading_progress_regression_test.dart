@@ -86,7 +86,7 @@ class _ParagraphSource
   }
 
   static String _cfiAt(int spineIndex, int paragraph) =>
-      'epubcfi(/6/${(spineIndex + 1) * 2}!/4/${(paragraph + 1) * 2})';
+      'epubcfi(/6/${(spineIndex + 1) * 2}!/4/${(paragraph + 1) * 2}/1)';
 }
 
 class _CountingStore extends MemoryReaderProgressStore {

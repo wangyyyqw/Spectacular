@@ -54,16 +54,13 @@ Future<void> _openSheet(
 
 void _expectSheet(WidgetTester tester, String key) {
   final material = tester.widget<Material>(_key(key));
-  expect(
-    material.borderRadius,
-    const BorderRadius.vertical(top: Radius.circular(8)),
-  );
+  expect(material.borderRadius, ReaderUiStyle.sheetRadius);
   expect(material.clipBehavior, Clip.antiAlias);
   expect(tester.takeException(), isNull);
 }
 
 void main() {
-  testWidgets('阅读菜单四入口可点击，夜间抽屉使用更浅的面板底色', (tester) async {
+  testWidgets('阅读菜单四入口可点击，抽屉沿用宿主主题且控件保持可读', (tester) async {
     ReaderMenuEntry? selected;
     Widget menu({Widget? drawer}) => ReaderMenuOverlay(
       open: true,
@@ -111,7 +108,7 @@ void main() {
     );
     final buttonColor = Theme.of(context).textButtonTheme.style?.foregroundColor
         ?.resolve({});
-    expect(buttonColor, ReaderTheme.black.text);
+    expect(buttonColor, Theme.of(context).colorScheme.primary);
     final contrast = ReaderTheme(
       id: 'controls',
       name: '控件',

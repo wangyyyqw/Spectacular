@@ -102,7 +102,7 @@ void main() {
     expect(shape.borderRadius.resolve(TextDirection.ltr).topLeft.x, 20);
   });
 
-  testWidgets('日夜阅读面板的按钮文字与表面跟随正文主题', (tester) async {
+  testWidgets('日夜正文下阅读面板的按钮文字与表面跟随宿主主题', (tester) async {
     for (final theme in [
       ReaderTheme.white,
       ReaderTheme.black,
@@ -131,17 +131,18 @@ void main() {
         ),
       );
       await _pumpFrames(tester, frames: 8);
-      expect(panel!.colorScheme.surface, theme.background);
-      expect(panel!.colorScheme.inverseSurface, theme.text);
-      expect(panel!.colorScheme.onInverseSurface, theme.background);
-      expect(panel!.cardTheme.color, theme.background);
+      final host = buildAppTheme().colorScheme;
+      expect(panel!.colorScheme.surface, host.surface);
+      expect(panel!.colorScheme.inverseSurface, host.inverseSurface);
+      expect(panel!.colorScheme.onInverseSurface, host.onInverseSurface);
+      expect(panel!.cardTheme.color, host.surface);
       expect(
         panel!.textButtonTheme.style!.foregroundColor!.resolve({}),
-        theme.text,
+        host.primary,
       );
       expect(
         panel!.filledButtonTheme.style!.foregroundColor!.resolve({}),
-        theme.background,
+        host.onPrimary,
       );
       expect(theme.luminance, greaterThanOrEqualTo(4.5));
       expect(tester.takeException(), isNull);

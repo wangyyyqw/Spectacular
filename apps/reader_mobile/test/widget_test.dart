@@ -52,7 +52,7 @@ void main() {
       expect(find.text(label), findsWidgets);
     }
     expect(find.text('书架还是空的'), findsOneWidget);
-    expect(find.byTooltip('导入 EPUB'), findsOneWidget);
+    expect(find.byTooltip('导入 EPUB / TXT'), findsOneWidget);
 
     await tester.tap(
       find.descendant(
@@ -79,7 +79,7 @@ void main() {
 
     await tester.tap(find.text('我的'));
     await _settle(tester);
-    expect(find.text('书架排序'), findsOneWidget);
+    expect(find.text('界面主题'), findsOneWidget);
   });
 
   testWidgets('书架：导入后出现书籍卡片，可进入阅读并返回', (tester) async {
@@ -117,10 +117,11 @@ void main() {
     // 阅读页无 AppBar 返回键：直接 pop 根导航（等价系统返回）。
     tester.state<NavigatorState>(find.byType(Navigator).first).pop();
     await _settle(tester);
-    expect(find.byTooltip('导入 EPUB'), findsOneWidget);
+    expect(find.byTooltip('导入 EPUB / TXT'), findsOneWidget);
   });
 
   testWidgets('启动失败在四页持续提示临时模式，重试与诊断失败仍可再操作', (tester) async {
+    ReaderLog.instance.resetForTest();
     tester.view.physicalSize = const Size(360, 640);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -167,7 +168,10 @@ void main() {
     expect(attempts, 2);
     retry.complete(null);
     await _settle(tester);
-    expect(find.text('本地数据库仍不可用，请稍后重试'), findsOneWidget);
+    expect(
+      await ReaderLog.instance.exportText(),
+      contains('storage_retry_failed'),
+    );
     expect(storage.library, same(oldLibrary));
     expect(oldHome.mounted, isTrue);
 
@@ -236,7 +240,13 @@ void main() {
     expect(stats.progressStore, same(storage.progressStore));
     expect(shelf.progressStore, isA<DriftProgressStore>());
     expect(shelf.allowImport, isTrue);
-    expect(find.textContaining('65%'), findsOneWidget);
+    expect(
+      (await pumpReaderTask(
+        tester,
+        shelf.progressStore.load(entry.id),
+      ))?.readingPercent,
+      0.65,
+    );
     expect(File(entry.filePath).existsSync(), isTrue);
     expect(tester.widget<IconButton>(_key('bookshelf-import')).onPressed,
         isNotNull);

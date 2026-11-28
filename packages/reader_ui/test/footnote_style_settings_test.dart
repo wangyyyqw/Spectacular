@@ -224,7 +224,7 @@ void main() {
         );
         expect(
           rect.height + (bubble ? 8 : 0),
-          closeTo(screen.height * (bubble ? .40 : .20), .01),
+          closeTo(screen.height * (bubble ? .40 : .15), .01),
         );
         if (bubble) expect(rect.left, closeTo(screen.width - rect.right, .01));
         final scrollable = tester.state<ScrollableState>(

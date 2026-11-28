@@ -416,7 +416,7 @@ Future<({ReaderSession session, Completer<String?> resolved})>
 _startDelayedSearch(WidgetTester tester) async {
   final pending = await _showDelayedSearchReader(tester);
   await _openSearch(tester);
-  await tester.tap(find.byType(ListTile));
+  await tester.tap(find.byKey(const ValueKey('search-hit-0-200')));
   await tester.pumpAndSettle();
   return pending;
 }
@@ -1445,7 +1445,7 @@ void main() {
     final observer = _NavigationObserver();
     await _pushSearchReader(tester, observer);
     await _openSearch(tester);
-    await tester.tap(find.byType(ListTile));
+    await tester.tap(find.byKey(const ValueKey('search-hit-0-10')));
     await tester.pumpAndSettle();
     expect(observer.pops, 0);
     expect(find.byType(ReaderPage), findsOneWidget);
@@ -1476,7 +1476,7 @@ void main() {
     final observer = _NavigationObserver();
     await _pushSearchReader(tester, observer, elementAnchor: true);
     await _openSearch(tester);
-    await tester.tap(find.byType(ListTile));
+    await tester.tap(find.byKey(const ValueKey('search-hit-0-10')));
     await tester.pumpAndSettle();
     expect(observer.pops, 0);
     expect(find.byType(ReaderPage), findsOneWidget);
@@ -1588,7 +1588,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(source.started.isCompleted, isTrue);
     await _openSearch(tester);
-    await tester.tap(find.byType(ListTile));
+    await tester.tap(find.byKey(const ValueKey('search-hit-0-200')));
     await tester.pumpAndSettle();
     final expected = pending.session.progress;
     final expectedCfi = pending.session.readingCfi;

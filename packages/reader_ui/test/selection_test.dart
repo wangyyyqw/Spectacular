@@ -333,7 +333,7 @@ void main() {
       );
     });
 
-    testWidgets('日夜正文下均显示紧凑深色单行菜单，图标在文字上方', (tester) async {
+    testWidgets('日夜正文下菜单沿用宿主主题，图标在文字上方', (tester) async {
       for (final theme in [ReaderTheme.white, ReaderTheme.black]) {
         final selected = <String>[];
         await _pumpMenu(
@@ -352,8 +352,9 @@ void main() {
         expect(tester.getSize(menu).width, lessThanOrEqualTo(300));
         expect(tester.getSize(menu).height, lessThanOrEqualTo(60));
         final scheme = Theme.of(tester.element(menu)).colorScheme;
-        expect(scheme.surface, const Color(0xFF282B31));
-        expect(scheme.onSurface, const Color(0xFFF5F5F5));
+        final host = Theme.of(tester.element(find.byType(Scaffold)));
+        expect(scheme.surface, host.colorScheme.surface);
+        expect(scheme.onSurface, host.colorScheme.onSurface);
         final positions = <double>[];
         for (final entry in _menuLabels.entries) {
           final button = find.byKey(ValueKey('selection-action-${entry.key}'));

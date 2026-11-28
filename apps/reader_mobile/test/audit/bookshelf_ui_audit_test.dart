@@ -7,7 +7,9 @@ import 'package:reader_mobile/storage/book_review_store.dart';
 import 'package:reader_mobile/theme/app_theme.dart';
 import 'package:reader_ui/reader_session.dart';
 import 'package:reader_ui/theme/reader_frosted_surface.dart';
+import 'package:reader_ui/theme/reader_ui_style.dart';
 
+import '../support/reader_pump.dart';
 import '../support/test_epub.dart';
 
 class _MemoryReviews implements BookReviewStore {
@@ -163,16 +165,9 @@ void main() {
         readFile: (_) async => bytes,
       ),
     );
-    await tester.runAsync(() async {
-      await tester.tap(_key('bookshelf-import'));
-      for (var attempt = 0; attempt < 100; attempt++) {
-        if ((await library.list()).isNotEmpty) {
-          await Future<void>.delayed(const Duration(milliseconds: 20));
-          break;
-        }
-        await Future<void>.delayed(const Duration(milliseconds: 10));
-      }
-    });
+    await _tap(tester, _key('bookshelf-import'));
+    await tester.tap(find.text('从本机导入'));
+    await pumpReaderUntil(tester, find.text('工具栏导入'));
     await tester.pumpAndSettle();
     final book = (await library.list()).single;
     await tester.longPress(_key('book-card-${book.id}'));
@@ -195,9 +190,8 @@ void main() {
       (await library.groupAssignments())[book.id],
       (await library.listGroups()).single.id,
     );
-    await tester.longPress(_key('book-card-${book.id}'));
-    await tester.pumpAndSettle();
-    await _tap(tester, _key('book-detail-multi-select'));
+    await _tap(tester, _key('bookshelf-multi-select'));
+    await _tap(tester, _key('book-card-${book.id}'));
     expect(find.text('已选 1 本'), findsOneWidget);
     await _tap(tester, find.byTooltip('退出多选'));
     await tester.longPress(_key('book-card-${book.id}'));
@@ -240,7 +234,13 @@ void main() {
     await tester.enterText(_key('book-detail-title-field'), '编辑后的书名');
     await tester.enterText(_key('book-detail-author-field'), '编辑后的作者');
     await tester.pump();
-    await _tap(tester, _key('book-detail-save'));
+    await tester.tap(_key('book-detail-save'));
+    await pumpReaderUntilComplete(
+      tester,
+      () => find.byType(CircularProgressIndicator).evaluate().isEmpty,
+      maxFrames: 200,
+    );
+    await tester.pumpAndSettle();
     expect((await library.bookById(book.id))?.title, '编辑后的书名');
     expect((await library.bookById(book.id))?.author, '编辑后的作者');
     await _scrollTo(tester, _key('book-detail-new-tag-field'));
@@ -273,10 +273,7 @@ void main() {
     final sheet = tester.widget<Material>(_key('book-detail-finish-sheet'));
     expect(find.byType(ReaderFrostedSurface), findsOneWidget);
     expect(sheet.color, Colors.transparent);
-    expect(
-      sheet.borderRadius,
-      const BorderRadius.vertical(top: Radius.circular(8)),
-    );
+    expect(sheet.borderRadius, ReaderUiStyle.sheetRadius);
     await _tap(tester, _key('book-detail-finish-rating-4'));
     await tester.enterText(_key('book-detail-finish-review'), '读完后的简短感想');
     await _tap(tester, _key('book-detail-finish-save'));

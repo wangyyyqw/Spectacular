@@ -188,7 +188,7 @@ Future<void> _clickSearchResult(WidgetTester tester) async {
   await tester.enterText(find.byKey(const ValueKey('search-input')), 'ABtail');
   await tester.pump(const Duration(milliseconds: 350));
   await tester.pumpAndSettle();
-  await tester.tap(find.byType(ListTile));
+  await tester.tap(find.byKey(const ValueKey('search-hit-0-4')));
   await tester.pumpAndSettle();
 }
 

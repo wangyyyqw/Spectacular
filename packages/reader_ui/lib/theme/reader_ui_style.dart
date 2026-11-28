@@ -193,7 +193,6 @@ ThemeData _inputs(ThemeData base) {
     ),
     listTileTheme: base.listTileTheme.copyWith(
       iconColor: colors.onSurfaceVariant,
-      textColor: colors.onSurface,
       selectedColor: colors.onPrimaryContainer,
       selectedTileColor: colors.primaryContainer,
       titleTextStyle: base.textTheme.bodyMedium,

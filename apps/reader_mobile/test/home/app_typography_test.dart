@@ -136,32 +136,38 @@ void main() {
     }),
   );
 
-  testWidgets('阅读面板继承界面字号，主次文字随阅读配色更新', (tester) async {
-    for (final readerTheme in [ReaderTheme.white, ReaderTheme.black]) {
-      await tester.pumpWidget(
-        MaterialApp(
-          theme: buildAppTheme(fontFamily: 'user_test_font'),
-          home: ReaderPanelTheme(
-            theme: readerTheme,
-            child: const Scaffold(
-              body: ListTile(title: Text('阅读面板主文字'), subtitle: Text('阅读面板说明')),
+  testWidgets('阅读面板继承界面字号，主次文字沿用宿主配色', (tester) async {
+    for (final brightness in Brightness.values) {
+      final host = buildAppTheme(
+        brightness: brightness,
+        fontFamily: 'user_test_font',
+      );
+      for (final readerTheme in [ReaderTheme.white, ReaderTheme.black]) {
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: host,
+            home: ReaderPanelTheme(
+              theme: readerTheme,
+              child: const Scaffold(
+                body: ListTile(
+                  title: Text('阅读面板主文字'),
+                  subtitle: Text('阅读面板说明'),
+                ),
+              ),
             ),
           ),
-        ),
-      );
-      await tester.pumpAndSettle();
-      final primary = _style(tester, find.text('阅读面板主文字'));
-      final secondary = _style(tester, find.text('阅读面板说明'));
-      expect(primary.fontSize, 14);
-      expect(primary.fontFamily, 'user_test_font');
-      expect(secondary.fontFamily, 'user_test_font');
-      expect(primary.color, readerTheme.text);
-      expect(secondary.fontSize, 12);
-      expect(
-        secondary.color,
-        Color.alphaBlend(readerTheme.sub, readerTheme.background),
-      );
-      expect(tester.takeException(), isNull);
+        );
+        await tester.pumpAndSettle();
+        final primary = _style(tester, find.text('阅读面板主文字'));
+        final secondary = _style(tester, find.text('阅读面板说明'));
+        expect(primary.fontSize, 14);
+        expect(primary.fontFamily, 'user_test_font');
+        expect(secondary.fontFamily, 'user_test_font');
+        expect(primary.color, host.colorScheme.onSurface);
+        expect(secondary.fontSize, 12);
+        expect(secondary.color, host.colorScheme.onSurfaceVariant);
+        expect(tester.takeException(), isNull);
+      }
     }
   });
 

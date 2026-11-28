@@ -32,7 +32,7 @@ void main() {
     if (dir.existsSync()) dir.deleteSync(recursive: true);
   });
 
-  test('按书汇总想法和划线，排除书签、空书和已移出书架的书', () async {
+  test('按书汇总想法和划线，排除书签与空书，保留已移出书架的笔记', () async {
     final annotations = library.annotationStore(noted.id)!;
     await annotations.add(
       type: ReaderAnnotationType.thought,
@@ -58,7 +58,10 @@ void main() {
 
     await library.remove(noted.id);
     counts = await library.bookNoteCounts();
-    expect(counts, isEmpty);
+    expect(counts.keys, [noted.id]);
+    expect(counts[noted.id]!.thoughts, 1);
+    expect(counts[noted.id]!.marks, 1);
+    expect((await library.retainedBooks()).single.id, noted.id);
   });
 
   test('票根累计时长包含所有短会话，未达展示条件的书也保留时长', () async {

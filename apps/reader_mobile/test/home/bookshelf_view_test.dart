@@ -80,24 +80,30 @@ void main() {
       final toolbarIcons = tester.widgetList<AppIcon>(
         find.descendant(of: toolbarFinder, matching: find.byType(AppIcon)),
       );
-      expect(toolbarIcons.map((icon) => icon.strokeWidth), <double>[1.3, 1.3]);
+      expect(toolbarIcons.map((icon) => icon.strokeWidth), <double>[
+        1.3,
+        1.3,
+        1.3,
+      ]);
       final toolbarButtons = tester.widgetList<IconButton>(
-        find.descendant(
-          of: toolbarFinder,
-          matching: find.byType(IconButton),
-        ),
+        find.descendant(of: toolbarFinder, matching: find.byType(IconButton)),
       );
       final theme = Theme.of(tester.element(find.byType(BookshelfPage)));
-      expect(toolbarButtons, hasLength(2));
+      expect(toolbarButtons, hasLength(3));
       for (final button in toolbarButtons) {
         expect(button.color, theme.colorScheme.onSurfaceVariant);
-        expect(button.disabledColor, theme.disabledColor);
+        if (button.key != const ValueKey('bookshelf-tag-stacks')) {
+          expect(button.disabledColor, theme.disabledColor);
+        }
       }
       for (final button in [
         find.byTooltip('列表视图'),
         find.byKey(const ValueKey('bookshelf-multi-select')),
       ]) {
-        final icon = find.descendant(of: button, matching: find.byType(AppIcon));
+        final icon = find.descendant(
+          of: button,
+          matching: find.byType(AppIcon),
+        );
         expect(tester.getCenter(icon).dy, closeTo(groupCenter, .01));
       }
       final cover = tester.getRect(
@@ -116,12 +122,14 @@ void main() {
       );
       await tester.pump(const Duration(milliseconds: 80));
       expect(
-        tester.getCenter(
-          find.descendant(
-            of: find.byTooltip('网格视图'),
-            matching: find.byType(AppIcon),
-          ),
-        ).dy,
+        tester
+            .getCenter(
+              find.descendant(
+                of: find.byTooltip('网格视图'),
+                matching: find.byType(AppIcon),
+              ),
+            )
+            .dy,
         closeTo(groupCenter, .01),
       );
       expect(list, findsOneWidget);
