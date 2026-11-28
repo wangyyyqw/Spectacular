@@ -48,6 +48,7 @@ import '../sync/sync_state.dart';
 part 'library_revision.dart';
 part 'library_editing.dart';
 part 'library_metadata.dart';
+part 'library_tags.dart';
 part 'library_edit_drafts.dart';
 part 'library_sweep_paths.dart';
 part 'library_txt.dart';
@@ -59,6 +60,9 @@ part 'library_sync_apply.dart';
 enum BookImportOutcome { added, updated, unchanged }
 
 const txtChapterRulesSettingKey = 'txt.chapterRules.v1';
+
+/// 当前设备各书架分组的标签堆叠顺序；标签关联仍由书库正常同步。
+const bookshelfTagStacksKey = 'local.bookshelf.tagStacks';
 
 typedef BookNoteCounts = ({int thoughts, int marks, DateTime updatedAt});
 

@@ -2,6 +2,11 @@ part of 'library_store.dart';
 
 typedef _BookMetadata = ({String title, String author, String description});
 typedef _BookCover = ({Uint8List bytes, String extension});
+typedef _PreparedBookMetadata = ({
+  Directory directory,
+  File file,
+  String? coverPath,
+});
 typedef _MetadataWriteRequest = ({
   String sourcePath,
   String expectedRevision,
@@ -77,37 +82,17 @@ extension LibraryMetadataOperations on LibraryStore {
     _BookCover? cover,
     List<BookTag>? tags,
   }) async {
-    await _requireMetadataEditable(old);
-    final root = await _bookDirectory(old.uuid);
-    final versions = await Directory(p.join(root.path, 'versions'))
-        .create(recursive: true);
-    final stage = await versions.createTemp('metadata-');
+    final prepared = await _prepareBookMetadata(
+      old,
+      metadata: metadata,
+      cover: cover,
+      tags: tags,
+    );
     var committed = false;
     try {
-      final file = File(p.join(stage.path, 'source.epub'));
-      final request = (
-        sourcePath: old.sourcePath!,
-        expectedRevision: old.contentRevision,
-        outputPath: file.path,
-        metadata: metadata,
-        cover: cover,
-        tags: tags?.map((tag) => tag.name).toList(),
-      );
-      await _writeBookMetadataFile(request);
-      final coverFile = cover == null
-          ? null
-          : await File(p.join(stage.path, 'cover.${cover.extension}'))
-                .writeAsBytes(cover.bytes, flush: true);
       await _db!.transaction(() async {
         await _requireMetadataEditable(old);
-        // 暂存文件只由本次串行操作持有，提交时一次计算最终版本摘要。
-        final revision = await hashImportFile(file.path);
-        await _commitBookMetadata(
-          old,
-          (file: file, revision: revision, coverPath: coverFile?.path),
-          metadata,
-          tags,
-        );
+        await _commitPreparedBookMetadata(old, prepared, metadata, tags);
         if (_syncReaders != 0) {
           throw const LibraryImportException('请先退出阅读或编辑，再修改图书资料');
         }
@@ -116,11 +101,63 @@ extension LibraryMetadataOperations on LibraryStore {
       if (cover != null) await _deleteRetiredSource(old.coverPath);
       _notify();
       return _entryFromRow((await _bookRowOfUuid(old.uuid))!);
-    } on EpubEditException catch (error) {
-      throw LibraryImportException('图书资料未保存：${error.message}');
     } finally {
-      if (!committed) await _discardUncommittedEditStage(stage);
+      if (!committed) {
+        await _discardUncommittedEditStage(prepared.directory);
+      }
     }
+  }
+
+  /// 只生成独立新版本，多书操作可以全部准备成功后再一次切换数据库。
+  Future<_PreparedBookMetadata> _prepareBookMetadata(
+    BookRow old, {
+    _BookMetadata? metadata,
+    _BookCover? cover,
+    List<BookTag>? tags,
+  }) async {
+    await _requireMetadataEditable(old);
+    final root = await _bookDirectory(old.uuid);
+    final versions = await Directory(p.join(root.path, 'versions'))
+        .create(recursive: true);
+    final stage = await versions.createTemp('metadata-');
+    try {
+      final file = File(p.join(stage.path, 'source.epub'));
+      await _writeBookMetadataFile((
+        sourcePath: old.sourcePath!,
+        expectedRevision: old.contentRevision,
+        outputPath: file.path,
+        metadata: metadata,
+        cover: cover,
+        tags: tags?.map((tag) => tag.name).toList(),
+      ));
+      final coverFile = cover == null
+          ? null
+          : await File(p.join(stage.path, 'cover.${cover.extension}'))
+                .writeAsBytes(cover.bytes, flush: true);
+      return (directory: stage, file: file, coverPath: coverFile?.path);
+    } catch (error) {
+      await _discardUncommittedEditStage(stage);
+      if (error is EpubEditException) {
+        throw LibraryImportException('图书资料未保存：${error.message}');
+      }
+      rethrow;
+    }
+  }
+
+  Future<void> _commitPreparedBookMetadata(
+    BookRow old,
+    _PreparedBookMetadata prepared,
+    _BookMetadata? metadata,
+    List<BookTag>? tags,
+  ) async {
+    // 暂存文件只由本次串行操作持有，提交时一次计算最终版本摘要。
+    final revision = await hashImportFile(prepared.file.path);
+    await _commitBookMetadata(
+      old,
+      (file: prepared.file, revision: revision, coverPath: prepared.coverPath),
+      metadata,
+      tags,
+    );
   }
 
   Future<void> _requireMetadataEditable(BookRow old) async {

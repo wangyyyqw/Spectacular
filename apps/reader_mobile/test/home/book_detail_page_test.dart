@@ -74,6 +74,39 @@ void main() {
     }
   });
 
+  testWidgets('详情页删除标签需确认，删除后所有书的关联同时消失', (tester) async {
+    final library = LibraryStore.memory();
+    late BookEntry entry;
+    late BookEntry another;
+    late BookTag tag;
+    await tester.runAsync(() async {
+      entry = await library.importBytes(buildTestEpub(title: '详情删除甲'));
+      another = await library.importBytes(buildTestEpub(title: '详情删除乙'));
+      tag = await library.createTag('待删除标签');
+      await library.addBookTag(entry.id, tag.id);
+      await library.addBookTag(another.id, tag.id);
+    });
+    await tester.pumpWidget(MaterialApp(home: BookDetailPage(entry: entry, library: library)));
+    await tester.pumpAndSettle();
+    final remove = find.byTooltip('删除标签「待删除标签」');
+    await tester.ensureVisible(remove);
+    await tester.tap(remove);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('所有书籍和标签堆叠'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('delete-tag-confirm')));
+    await pumpReaderUntilComplete(
+      tester,
+      () => find.byKey(ValueKey('book-detail-tag-${tag.id}')).evaluate().isEmpty,
+      description: '详情标签删除',
+    );
+    await tester.pumpAndSettle();
+    expect(await library.listTags(), isEmpty);
+    expect(await library.bookTags(entry.id), isEmpty);
+    expect(await library.bookTags(another.id), isEmpty);
+    expect(find.byKey(ValueKey('book-detail-tag-${tag.id}')), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('详情页隐藏图书信息与导入报告，保留阅读记录', (tester) async {
     late BookEntry entry;
     await tester.runAsync(() async {

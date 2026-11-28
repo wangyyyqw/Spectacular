@@ -19,6 +19,7 @@ import 'book_rating.dart';
 import 'book_reading_chart.dart';
 import 'reading_insights.dart';
 import 'reading_metric.dart';
+import 'tag_delete_confirmation.dart';
 import 'finish_book_sheet.dart';
 import '../storage/book_review_store.dart';
 import '../storage/drift_progress_store.dart';
@@ -360,6 +361,27 @@ class _BookDetailPageState extends State<BookDetailPage> {
     }
   }
 
+  Future<void> _deleteTag(BookTag tag) async {
+    if (_writingBook || !await confirmDeleteBookTag(context, tag) || !mounted) {
+      return;
+    }
+    setState(() {
+      _savingTags = true;
+      _writeError = null;
+    });
+    try {
+      await widget.library.deleteTag(tag.id);
+      await _reloadTags();
+    } on LibraryImportException catch (error) {
+      _showMessage(error.message, isWriteError: true);
+    } catch (error, stackTrace) {
+      recordAppError('book_tag_delete_failed', error, stackTrace: stackTrace);
+      _showMessage('删除失败，标签仍保留，请重试', isWriteError: true);
+    } finally {
+      if (mounted) setState(() => _savingTags = false);
+    }
+  }
+
   Future<void> _reloadTags() async {
     final tags = await widget.library.listTags();
     final selected = await widget.library.bookTags(_entry.id);
@@ -669,6 +691,9 @@ class _BookDetailPageState extends State<BookDetailPage> {
                   selected: _selectedTagIds.contains(tag.id),
                   showCheckmark: true,
                   onSelected: _writingBook ? null : (_) => _toggleTag(tag),
+                  deleteIcon: const AppIcon(AppGlyph.delete, size: 18),
+                  deleteButtonTooltipMessage: '删除标签「${tag.name}」',
+                  onDeleted: _writingBook ? null : () => _deleteTag(tag),
                 ),
             ],
           ),

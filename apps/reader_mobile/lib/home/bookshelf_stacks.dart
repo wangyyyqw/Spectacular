@@ -1,7 +1,6 @@
 import '../library/library_store.dart';
 
-/// 按当前设备的书架分组保存堆叠偏好；标签关联仍由书库正常同步。
-const bookshelfTagStacksKey = 'local.bookshelf.tagStacks';
+export '../library/library_store.dart' show bookshelfTagStacksKey;
 
 /// 一个书架位置：未堆叠的单本，或同一标签下的多本书。
 class ShelfStack<T> {
@@ -11,32 +10,26 @@ class ShelfStack<T> {
   final BookTag? tag;
 }
 
-/// 已排序、已限定书架分组的书籍按标签选择顺序认领，堆叠占首本的位置。
+/// 堆叠按标签顺序展示；同书可属于多个堆叠，未堆叠书籍保持原顺序。
 List<ShelfStack<T>> stackBooksByTags<T>({
   required List<T> books,
   required String Function(T) bookId,
   required Map<String, Set<String>> bookTags,
   required List<BookTag> tags,
 }) {
-  final owners = <String, ShelfStack<T>>{};
+  final stackedIds = <String>{};
+  final stacks = <ShelfStack<T>>[];
   for (final tag in tags) {
-    final matches = books.where((book) {
-      final id = bookId(book);
-      return !owners.containsKey(id) &&
-          (bookTags[id]?.contains(tag.id) ?? false);
-    }).toList();
+    final matches = books
+        .where((book) => bookTags[bookId(book)]?.contains(tag.id) ?? false)
+        .toList();
     if (matches.length < 2) continue;
-    final stack = ShelfStack(tag: tag, books: matches);
-    for (final book in matches) {
-      owners[bookId(book)] = stack;
-    }
+    stacks.add(ShelfStack(tag: tag, books: matches));
+    stackedIds.addAll(matches.map(bookId));
   }
-  final emitted = <ShelfStack<T>>{};
   return [
+    ...stacks,
     for (final book in books)
-      if (owners[bookId(book)] case final stack?) ...[
-        if (emitted.add(stack)) stack,
-      ] else
-        ShelfStack(books: [book]),
+      if (!stackedIds.contains(bookId(book))) ShelfStack(books: [book]),
   ];
 }

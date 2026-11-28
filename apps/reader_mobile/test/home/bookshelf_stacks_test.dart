@@ -14,7 +14,7 @@ import '../support/test_epub.dart';
 import '../support/reader_pump.dart';
 
 void main() {
-  test('堆叠按标签优先级认领、占首本位置、单本与未选标签保持原顺序', () {
+  test('标签堆叠按设置顺序展示，多标签书可重复，未堆叠书保持原顺序', () {
     final tags = [
       for (final id in ['a', 'b', 'c'])
         BookTag(id: id, name: id, createdAt: DateTime(2026)),
@@ -34,7 +34,7 @@ void main() {
     );
     expect(stacks.map((stack) => stack.books), [
       ['1', '3', '4'],
-      ['2', '5'],
+      ['1', '2', '5'],
       ['6'],
       ['7'],
     ]);
@@ -52,9 +52,93 @@ void main() {
     );
     expect(reversed.map((stack) => stack.books), [
       ['1', '2'],
-      ['3'],
+      ['1', '3'],
     ]);
+    expect(reversed.map((stack) => stack.tag?.id), ['b', 'a']);
   });
+
+  for (final grid in [true, false]) {
+    testWidgets('历史分组内同书出现在三个标签堆叠，搜索与多选不重复：网格=$grid', (tester) async {
+      tester.view.physicalSize = const Size(700, 1000);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final library = LibraryStore.memory();
+      final books = <BookEntry>[];
+      final tags = <BookTag>[];
+      late ShelfGroup group;
+      await tester.runAsync(() async {
+        group = await library.createGroup('历史');
+        for (final title in ['共同书', '穿越书', '明朝书', '寒门书', '其他分组书']) {
+          books.add(await library.importBytes(buildTestEpub(title: title)));
+        }
+        await library.setBooksGroup(
+          books.take(4).map((book) => book.id),
+          groupId: group.id,
+        );
+        for (final name in ['穿越', '明朝', '寒门']) {
+          tags.add(await library.createTag(name));
+        }
+        for (var i = 0; i < tags.length; i++) {
+          await library.addBookTag(books.first.id, tags[i].id);
+          await library.addBookTag(books[i + 1].id, tags[i].id);
+        }
+        await library.addBookTag(books.last.id, tags.first.id);
+        await library.setSetting('bookshelf.grid', '$grid');
+        await library.setSetting(
+          bookshelfTagStacksKey,
+          jsonEncode({group.id: tags.reversed.map((tag) => tag.id).toList()}),
+        );
+      });
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildAppTheme(),
+          home: BookshelfPage(
+            library: library,
+            progressStore: MemoryReaderProgressStore(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(ValueKey('bookshelf-group-${group.id}')));
+      await tester.pumpAndSettle();
+      Finder book(BookEntry entry) =>
+          find.byKey(ValueKey('book-${grid ? 'card' : 'row'}-${entry.id}'));
+      expect(find.byType(BookCoverStack), findsNWidgets(3));
+      expect(
+        tester
+            .widgetList<BookCoverStack>(find.byType(BookCoverStack))
+            .map((stack) => stack.books.map((book) => book.title).toList()),
+        [
+          unorderedEquals(['共同书', '寒门书']),
+          unorderedEquals(['共同书', '明朝书']),
+          unorderedEquals(['共同书', '穿越书']),
+        ],
+      );
+      for (var i = 0; i < tags.length; i++) {
+        await tester.tap(find.byKey(ValueKey('book-stack-${tags[i].id}')));
+        await tester.pumpAndSettle();
+        expect(book(books.first), findsOneWidget);
+        expect(book(books[i + 1]), findsOneWidget);
+        expect(book(books.last), findsNothing);
+        await tester.tap(find.byKey(const ValueKey('bookshelf-stack-back')));
+        await tester.pumpAndSettle();
+      }
+      await tester.tap(find.byKey(const ValueKey('bookshelf-multi-select')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('bookshelf-select-all')));
+      await tester.pumpAndSettle();
+      expect(find.text('已选 4 本'), findsOneWidget);
+      await tester.tap(find.byTooltip('退出多选'));
+      await tester.pumpAndSettle();
+      final search = find.byKey(const ValueKey('bookshelf-search-field'));
+      await tester.tap(search);
+      await tester.enterText(search, '共同书');
+      await tester.pumpAndSettle();
+      expect(book(books.first), findsOneWidget);
+      expect(find.byType(BookCoverStack), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+  }
 
   for (final grid in [true, false]) {
     testWidgets('分组内标签堆叠可设置、展开、搜索、多选与恢复：网格=$grid', (tester) async {

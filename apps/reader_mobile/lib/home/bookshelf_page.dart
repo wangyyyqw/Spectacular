@@ -380,9 +380,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
       }
     }
     final selected = _stackTags[groupId ?? 'default'] ?? const <String>[];
-    final tags = _tags
-        .where((tag) => counts.containsKey(tag.id) || selected.contains(tag.id))
-        .toList();
+    final tags = List<BookTag>.of(_tags);
     await showReaderDrawer<void>(
       context: context,
       builder: (_) => TagStackSettingsSheet(
@@ -392,6 +390,11 @@ class _BookshelfPageState extends State<BookshelfPage> {
         selected: selected
             .where((id) => tags.any((tag) => tag.id == id))
             .toList(),
+        onDelete: (tag) async {
+          await widget.library.deleteTag(tag.id);
+          await _loadPreferences();
+          await _reload();
+        },
         onSave: (ids) async {
           final next = {..._stackTags, groupId ?? 'default': ids};
           await widget.library.setSetting(
@@ -744,16 +747,9 @@ class _BookshelfPageState extends State<BookshelfPage> {
     final sorted = _sorted(filtered.toList());
     final expanded = _expandedStack;
     if (expanded == null || groupId != _activeGroupId) return sorted;
-    final stacks = _tagStacks(sorted, groupId);
     return [
-      for (final stack in stacks)
-        if (stack.tag?.id == expanded.id ||
-            (stack.tag == null &&
-                (_bookTags[stack.books.single.entry.id]?.contains(
-                      expanded.id,
-                    ) ??
-                    false)))
-          ...stack.books,
+      for (final book in sorted)
+        if (_bookTags[book.entry.id]?.contains(expanded.id) ?? false) book,
     ];
   }
 
@@ -952,6 +948,10 @@ class _BookshelfPageState extends State<BookshelfPage> {
         _bookGroups = bookGroups;
         _tags = tags;
         _bookTags = bookTags;
+        if (_expandedStack != null &&
+            !tags.any((tag) => tag.id == _expandedStack!.id)) {
+          _expandedStack = null;
+        }
         final groupIds = _orderedGroupIds;
         if (!groupIds.contains(_activeGroupId)) {
           _activeGroupId = groupIds.firstOrNull;
