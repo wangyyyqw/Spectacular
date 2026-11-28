@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:async';
 import 'dart:io';
+import 'dart:isolate';
 import 'dart:math' as math;
 
 import 'package:crypto/crypto.dart';
@@ -1004,8 +1005,14 @@ class LibraryStore {
       _notify();
       return updated;
     }
+    final old = await _editableBook(id);
+    if (old.title == normalizedTitle &&
+        (old.author ?? '') == normalizedAuthor &&
+        (old.description ?? '') == normalizedDescription) {
+      return _entryFromRow(old);
+    }
     return _writeBookMetadata(
-      await _editableBook(id),
+      old,
       metadata: (
         title: normalizedTitle,
         author: normalizedAuthor,

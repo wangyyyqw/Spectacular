@@ -59,6 +59,31 @@ Future<List<Map<String, Object?>>> _rows(AppDatabase db, String table) async =>
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  test('资料没有变化时不重写 EPUB、不产生版本或通知', () async {
+    final f = await _library();
+    final book = await f.library.importBytes(buildTestEpub());
+    final before = (await f.db.select(f.db.books).getSingle()).toJson();
+    final versions = Directory('${f.root.path}/books/${book.id}/versions');
+    final paths = [for (final entry in versions.listSync()) entry.path];
+    var notifications = 0;
+    f.library.addListener(() => notifications++);
+
+    final unchanged = await f.library.updateBookMetadata(
+      book.id,
+      title: '  ${book.title}  ',
+      author: ' ${book.author} ',
+      description: ' ${book.description} ',
+    );
+
+    expect(unchanged.filePath, book.filePath);
+    expect(unchanged.contentRevision, book.contentRevision);
+    expect((await f.db.select(f.db.books).getSingle()).toJson(), before);
+    expect([
+      for (final entry in versions.listSync()) entry.path,
+    ], unorderedEquals(paths));
+    expect(notifications, 0);
+  });
+
   test('资料、封面和多个标签写入当前 EPUB，导出重开保留正文和未修改字段', () async {
     final f = await _library();
     final source = buildTestEpub(

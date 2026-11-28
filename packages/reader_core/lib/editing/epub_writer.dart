@@ -41,13 +41,13 @@ typedef _WriteRequest = ({
 });
 
 Future<void> _write(_WriteRequest request) async {
-  await _checkBase(request);
   final target = File(request.output);
   await target.parent.create(recursive: true);
   final temporary = await target.parent.createTemp('.epub-edit-');
   final staged = File('${temporary.path}/result.epub');
   try {
     _copyArchive(request, staged);
+    // 打开会话时已记录基线，复制后再核对，避免写前重复读取整本书。
     await _checkBase(request);
     await _validateOutput(staged);
     if (await target.exists()) throw const EpubEditException('导出目标已被其他操作创建');

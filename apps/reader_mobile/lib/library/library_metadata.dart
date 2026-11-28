@@ -2,6 +2,71 @@ part of 'library_store.dart';
 
 typedef _BookMetadata = ({String title, String author, String description});
 typedef _BookCover = ({Uint8List bytes, String extension});
+typedef _MetadataWriteRequest = ({
+  String sourcePath,
+  String expectedRevision,
+  String outputPath,
+  _BookMetadata? metadata,
+  _BookCover? cover,
+  List<String>? tags,
+});
+
+// 只传递资料和路径，避免后台闭包携带书库、数据库或界面状态。
+Future<void> _writeBookMetadataFile(_MetadataWriteRequest request) =>
+    Isolate.run(() async {
+      final session = await EpubEditSession.open(File(request.sourcePath));
+      try {
+        if (session.baseDigest != request.expectedRevision) {
+          throw const LibraryImportException('书籍文件已变化，请重新导入后修改资料');
+        }
+        _editBookMetadata(
+          session,
+          request.metadata,
+          request.cover,
+          request.tags,
+        );
+        await EpubWriter.write(session, File(request.outputPath));
+      } finally {
+        session.close();
+      }
+    });
+
+void _editBookMetadata(
+  EpubEditSession session,
+  _BookMetadata? metadata,
+  _BookCover? cover,
+  List<String>? tags,
+) {
+  final editor = PackageEditor(session);
+  if (metadata != null) {
+    editor.setMetadata({
+      'title': metadata.title,
+      'description': metadata.description,
+    });
+    final authors = OpfParser.parse(session.readText(session.opfPath))
+        .meta
+        .author;
+    if (authors != metadata.author) {
+      editor.setMetadataValues('creator', [
+        if (metadata.author.isNotEmpty) metadata.author,
+      ]);
+    }
+  }
+  if (tags != null) editor.setMetadataValues('subject', tags);
+  if (cover != null) {
+    final path = p.posix.join(
+      p.posix.dirname(session.opfPath),
+      'images',
+      'cover-${newSyncId()}.${cover.extension}',
+    );
+    editor.addResource(
+      path,
+      cover.bytes,
+      'image/${cover.extension == 'jpg' ? 'jpeg' : cover.extension}',
+    );
+    editor.setCover(path);
+  }
+}
 
 /// 详情修改不改变正文资源和 spine，因此只更新文件版本，不重新迁移文本位置。
 extension LibraryMetadataOperations on LibraryStore {
@@ -17,24 +82,26 @@ extension LibraryMetadataOperations on LibraryStore {
     final versions = await Directory(p.join(root.path, 'versions'))
         .create(recursive: true);
     final stage = await versions.createTemp('metadata-');
-    EpubEditSession? session;
     var committed = false;
     try {
-      session = await EpubEditSession.open(File(old.sourcePath!));
-      if (session.baseDigest != old.contentRevision) {
-        throw const LibraryImportException('书籍文件已变化，请重新导入后修改资料');
-      }
-      _editBookMetadata(session, metadata, cover, tags);
       final file = File(p.join(stage.path, 'source.epub'));
-      await EpubWriter.write(session, file);
-      final revision = await hashImportFile(file.path);
+      final request = (
+        sourcePath: old.sourcePath!,
+        expectedRevision: old.contentRevision,
+        outputPath: file.path,
+        metadata: metadata,
+        cover: cover,
+        tags: tags?.map((tag) => tag.name).toList(),
+      );
+      await _writeBookMetadataFile(request);
       final coverFile = cover == null
           ? null
           : await File(p.join(stage.path, 'cover.${cover.extension}'))
                 .writeAsBytes(cover.bytes, flush: true);
       await _db!.transaction(() async {
         await _requireMetadataEditable(old);
-        await _verifyImportSnapshot(file, revision);
+        // 暂存文件只由本次串行操作持有，提交时一次计算最终版本摘要。
+        final revision = await hashImportFile(file.path);
         await _commitBookMetadata(
           old,
           (file: file, revision: revision, coverPath: coverFile?.path),
@@ -52,7 +119,6 @@ extension LibraryMetadataOperations on LibraryStore {
     } on EpubEditException catch (error) {
       throw LibraryImportException('图书资料未保存：${error.message}');
     } finally {
-      session?.close();
       if (!committed) await _discardUncommittedEditStage(stage);
     }
   }
@@ -63,45 +129,6 @@ extension LibraryMetadataOperations on LibraryStore {
     }
     await _editableBook(old.uuid, old.contentRevision);
     await _requireNoEditDraft(old.id);
-  }
-
-  void _editBookMetadata(
-    EpubEditSession session,
-    _BookMetadata? metadata,
-    _BookCover? cover,
-    List<BookTag>? tags,
-  ) {
-    final editor = PackageEditor(session);
-    if (metadata != null) {
-      editor.setMetadata({
-        'title': metadata.title,
-        'description': metadata.description,
-      });
-      final authors = OpfParser.parse(session.readText(session.opfPath))
-          .meta
-          .author;
-      if (authors != metadata.author) {
-        editor.setMetadataValues('creator', [
-          if (metadata.author.isNotEmpty) metadata.author,
-        ]);
-      }
-    }
-    if (tags != null) {
-      editor.setMetadataValues('subject', [for (final tag in tags) tag.name]);
-    }
-    if (cover != null) {
-      final path = p.posix.join(
-        p.posix.dirname(session.opfPath),
-        'images',
-        'cover-${newSyncId()}.${cover.extension}',
-      );
-      editor.addResource(
-        path,
-        cover.bytes,
-        'image/${cover.extension == 'jpg' ? 'jpeg' : cover.extension}',
-      );
-      editor.setCover(path);
-    }
   }
 
   Future<void> _commitBookMetadata(

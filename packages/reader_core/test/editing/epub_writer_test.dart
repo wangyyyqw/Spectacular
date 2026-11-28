@@ -250,6 +250,46 @@ void main() {
     }
   });
 
+  test('未修改压缩资源的 CRC 损坏仍拒绝导出并清理暂存文件', () async {
+    final input = await createEditingFixture(directory);
+    final files = ZipDecoder().decodeBytes(await input.readAsBytes())
+      ..addFile(ArchiveFile.string('unused.bin', '保留压缩资源' * 100));
+    final bytes = Uint8List.fromList(ZipEncoder().encode(files));
+    final data = ByteData.sublistView(bytes);
+    var corrupted = false;
+    for (var offset = 0; offset + 46 < bytes.length; offset++) {
+      if (data.getUint32(offset, Endian.little) != 0x02014b50) continue;
+      final length = data.getUint16(offset + 28, Endian.little);
+      final name = String.fromCharCodes(
+        bytes.sublist(offset + 46, offset + 46 + length),
+      );
+      if (name != 'unused.bin') continue;
+      expect(data.getUint16(offset + 10, Endian.little), 8);
+      final localOffset = data.getUint32(offset + 42, Endian.little);
+      final badCrc = data.getUint32(offset + 16, Endian.little) ^ 1;
+      data.setUint32(offset + 16, badCrc, Endian.little);
+      data.setUint32(localOffset + 14, badCrc, Endian.little);
+      corrupted = true;
+      break;
+    }
+    expect(corrupted, isTrue);
+    await input.writeAsBytes(bytes);
+    final session = await EpubEditSession.open(input);
+    try {
+      PackageEditor(session).setMetadata({'title': '只改资料'});
+      final output = File('${directory.path}/rejected-crc.epub');
+      await expectLater(
+        EpubWriter.write(session, output),
+        throwsA(isA<EpubEditException>()),
+      );
+      expect(output.existsSync(), isFalse);
+      expect(directory.listSync().whereType<Directory>(), isEmpty);
+      expect(await input.readAsBytes(), bytes);
+    } finally {
+      session.close();
+    }
+  });
+
   test('写出期间关闭会话会丢弃输出，原书保持可读且没有残留暂存目录', () async {
     final input = await createEditingFixture(directory);
     final before = await input.readAsBytes();
