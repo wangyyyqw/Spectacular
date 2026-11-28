@@ -12,6 +12,10 @@ val newBuildDir: Directory =
 rootProject.layout.buildDirectory.value(newBuildDir)
 
 subprojects {
+    // 离线听书已携带支持 API 14 的 ONNX Runtime；OCR 复用同一原生库。
+    configurations.configureEach {
+        exclude(group = "com.microsoft.onnxruntime", module = "onnxruntime-android")
+    }
     // 与 settings.gradle.kts 的宿主 Kotlin 工具链一致，避免插件另载一套编译器。
     buildscript.configurations.configureEach {
         resolutionStrategy.eachDependency {

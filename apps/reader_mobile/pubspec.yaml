@@ -47,6 +47,7 @@ dependencies:
   sqlite3_flutter_libs: ^0.6.0+eol
   drift: ^2.35.2
   crypto: ^3.0.7
+  flutter_onnx_ocr: ^0.2.0
   path: ^1.9.1
   path_provider: ^2.1.6
   flutter_tts: ^4.2.5
@@ -107,6 +108,10 @@ flutter:
 
   assets:
     - assets/branding/app_icon.png
+    - assets/ocr/snapfind_ppocrv4/LICENSE-2.0.txt
+    - assets/ocr/snapfind_ppocrv4/ch_PP-OCRv4_det_mobile.onnx
+    - assets/ocr/snapfind_ppocrv4/ch_PP-OCRv4_rec_mobile.onnx
+    - assets/ocr/snapfind_ppocrv4/ppocr_keys.txt
     - assets/reader_highlight/rainbow_glass.png
     - assets/fonts/LICENSE.txt
     - assets/textures/

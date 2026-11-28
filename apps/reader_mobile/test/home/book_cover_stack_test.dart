@@ -1,7 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reader_mobile/home/book_cover_image.dart';
 import 'package:reader_mobile/home/book_cover_stack.dart';
+import 'package:reader_mobile/home/book_cover_title_focus.dart';
+import 'package:reader_mobile/home/book_cover_title_focus_store.dart';
 import 'package:reader_mobile/library/library_store.dart';
 
 List<BookEntry> _books(int count) => [
@@ -32,6 +36,14 @@ Future<void> _show(
 
 Finder _cover(String position) =>
     find.byKey(ValueKey('book-cover-stack-$position'));
+
+class _FocusStore extends BookCoverTitleFocusStore {
+  final pending = <String, Completer<CoverTitleFocus?>>{};
+
+  @override
+  Future<CoverTitleFocus?> resolve(String? imagePath, String title) =>
+      pending.putIfAbsent(title, Completer<CoverTitleFocus?>.new).future;
+}
 
 List<double> _regionRatios(WidgetTester tester, int count, Size size) {
   final paths = [
@@ -64,6 +76,33 @@ List<double> _regionRatios(WidgetTester tester, int count, Size size) {
 }
 
 void main() {
+  testWidgets('识别完成后按原图比例显示，新书名不采用旧请求的焦点', (tester) async {
+    final books = _books(2);
+    final store = _FocusStore();
+    Future<void> show(List<BookEntry> entries) => _show(
+      tester,
+      BookCoverStack(books: entries, width: 120, height: 160, focusStore: store),
+    );
+    await show(books);
+    final initialSize = tester.getSize(_cover('0'));
+    final renamed = books.first.copyWith(title: '更新书名');
+    await show([renamed, books.last]);
+    const focus = CoverTitleFocus(
+      imageSize: Size(500, 1000),
+      titleBounds: Rect.fromLTRB(.15, .05, .85, .15),
+    );
+    store.pending[books.first.title]!.complete(focus);
+    await tester.pump();
+    expect(tester.getSize(_cover('0')), initialSize);
+    store.pending[renamed.title]!.complete(focus);
+    await tester.pumpAndSettle();
+    expect(tester.getSize(_cover('0')).aspectRatio, closeTo(.5, .0001));
+    store.pending[books.last.title]!.completeError(StateError('模拟识别失败'));
+    await tester.pump();
+    expect(tester.getSize(_cover('1')), initialSize);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('最多渲染四本封面，按拼接分区展示且不添加 Hero', (tester) async {
     final books = _books(8);
     await _show(tester, BookCoverStack(books: books, width: 120, height: 160));
@@ -74,6 +113,10 @@ void main() {
       expect(cover.showFrame, isFalse);
     }
     expect(find.byType(ClipPath), findsNWidgets(8));
+    expect(
+      find.byKey(const ValueKey('book-cover-stack-seams')),
+      findsOneWidget,
+    );
     expect(find.byType(Hero), findsNothing);
   });
 
@@ -89,6 +132,10 @@ void main() {
         ),
       );
       expect(find.byType(BookCoverImage), findsNWidgets(count));
+      expect(
+        find.byKey(const ValueKey('book-cover-stack-seams')),
+        findsOneWidget,
+      );
       expect(find.byType(ClipPath), findsNWidgets(count * 2));
       final ratios = _regionRatios(tester, count, size);
       final expected = 1 / count;
@@ -146,6 +193,7 @@ void main() {
       BookCoverStack(books: _books(1), width: 120, height: 160),
     );
     expect(find.byType(BookCoverImage), findsOneWidget);
+    expect(find.byKey(const ValueKey('book-cover-stack-seams')), findsNothing);
     expect(_cover('0'), findsOneWidget);
     expect(_cover('1'), findsNothing);
     expect(_cover('2'), findsNothing);

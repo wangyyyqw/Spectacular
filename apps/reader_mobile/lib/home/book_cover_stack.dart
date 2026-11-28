@@ -1,15 +1,22 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
 import '../library/library_store.dart';
 import 'book_cover_image.dart';
+import 'book_cover_title_focus.dart';
+import 'book_cover_title_focus_store.dart';
 
 const bookStackPreviewCount = 4;
 const _coverRotation = -35 * math.pi / 180;
 
-typedef _CoverRegion = ({Path path, Offset center});
-typedef _CoverLayout = ({Size coverSize, List<_CoverRegion> regions});
+typedef _CoverRegion = ({Path path, Offset center, double rotation});
+typedef _CoverLayout = ({
+  Size coverSize,
+  List<_CoverRegion> regions,
+  List<Path> seams,
+});
 
 /// 首屏预解码与拼接使用相同的单张封面尺寸。
 Size bookStackCoverSize(Size size, int count) {
@@ -27,11 +34,13 @@ class BookCoverStack extends StatelessWidget {
     required this.books,
     this.width,
     this.height,
+    this.focusStore,
   });
 
   final List<BookEntry> books;
   final double? width;
   final double? height;
+  final BookCoverTitleFocusStore? focusStore;
 
   @override
   Widget build(BuildContext context) => ExcludeSemantics(
@@ -86,33 +95,140 @@ class BookCoverStack extends StatelessWidget {
                 key: ValueKey('book-cover-stack-region-$index'),
                 clipper: _CoverCollageClipper(region.path),
                 clipBehavior: Clip.antiAlias,
-                child: _cover(
-                  index,
-                  layout.coverSize,
-                  region.center,
-                  count == 3 && index == 2,
+                child: _CollageCover(
+                  book: books[index],
+                  index: index,
+                  count: count,
+                  coverSize: layout.coverSize,
+                  region: region,
+                  focusStore: focusStore ?? coverTitleFocusStore,
                 ),
               ),
             ),
+          Positioned.fill(
+            child: CustomPaint(
+              key: const ValueKey('book-cover-stack-seams'),
+              painter: _CoverSeamPainter(layout.seams),
+            ),
+          ),
         ],
       ),
     );
   }
+}
 
-  Widget _cover(int index, Size size, Offset center, bool horizontal) => Stack(
+class _CollageCover extends StatefulWidget {
+  const _CollageCover({
+    required this.book,
+    required this.index,
+    required this.count,
+    required this.coverSize,
+    required this.region,
+    required this.focusStore,
+  });
+
+  final BookEntry book;
+  final int index;
+  final int count;
+  final Size coverSize;
+  final _CoverRegion region;
+  final BookCoverTitleFocusStore focusStore;
+
+  @override
+  State<_CollageCover> createState() => _CollageCoverState();
+}
+
+class _CollageCoverState extends State<_CollageCover> {
+  Offset _translation = Offset.zero;
+  Size? _imageSize;
+  var _generation = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_loadFocus());
+  }
+
+  @override
+  void didUpdateWidget(covariant _CollageCover oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.book.id != widget.book.id ||
+        oldWidget.book.title != widget.book.title ||
+        oldWidget.book.coverPath != widget.book.coverPath ||
+        oldWidget.book.contentRevision != widget.book.contentRevision ||
+        oldWidget.focusStore != widget.focusStore ||
+        oldWidget.count != widget.count ||
+        oldWidget.coverSize != widget.coverSize ||
+        oldWidget.region.center != widget.region.center ||
+        oldWidget.region.rotation != widget.region.rotation) {
+      _generation++;
+      _translation = Offset.zero;
+      _imageSize = null;
+      unawaited(_loadFocus());
+    }
+  }
+
+  Future<void> _loadFocus() async {
+    final generation = ++_generation;
+    try {
+      final focus = await widget.focusStore.resolve(
+        widget.book.coverPath,
+        widget.book.title,
+      );
+      if (!mounted || generation != _generation || focus == null) return;
+      final placement = coverTitleFocusPlacement(
+        focus: focus,
+        coverSize: widget.coverSize,
+        clipPath: widget.region.path,
+        regionCenter: widget.region.center,
+        rotation: widget.region.rotation,
+      );
+      setState(() {
+        _translation = placement.translation;
+        _imageSize = placement.imageSize;
+      });
+    } on Object {
+      // OCR、平台运行时或缓存不可用时保留原有居中裁切。
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => _buildStackCover(
+    book: widget.book,
+    index: widget.index,
+    coverSize: _imageSize ?? widget.coverSize,
+    region: widget.region,
+    localTranslation: _translation,
+  );
+}
+
+Widget _buildStackCover({
+  required BookEntry book,
+  required int index,
+  required Size coverSize,
+  required _CoverRegion region,
+  required Offset localTranslation,
+}) {
+  final cosine = math.cos(region.rotation);
+  final sine = math.sin(region.rotation);
+  final translation = Offset(
+    localTranslation.dx * cosine - localTranslation.dy * sine,
+    localTranslation.dx * sine + localTranslation.dy * cosine,
+  );
+  return Stack(
     clipBehavior: Clip.none,
     children: [
       Positioned.fromRect(
         rect: Rect.fromCenter(
-          center: center,
-          width: size.width,
-          height: size.height,
+          center: region.center + translation,
+          width: coverSize.width,
+          height: coverSize.height,
         ),
         child: Transform.rotate(
-          angle: _coverRotation + (horizontal ? math.pi / 2 : 0),
+          angle: region.rotation,
           child: BookCoverImage(
             key: ValueKey('book-cover-stack-$index'),
-            book: books[index],
+            book: book,
             showFrame: false,
           ),
         ),
@@ -122,7 +238,7 @@ class BookCoverStack extends StatelessWidget {
 }
 
 _CoverLayout _collageLayout(Size size, int count) {
-  if (count <= 1) return (coverSize: size, regions: []);
+  if (count <= 1) return (coverSize: size, regions: [], seams: []);
   final frame =
       (Path()..addRect(
             Rect.fromCenter(
@@ -140,6 +256,7 @@ _CoverLayout _collageLayout(Size size, int count) {
   final regions = <_CoverRegion>[];
   var coverWidth = 0.0;
   final cells = _collageCells(frame.getBounds(), size.width, count);
+  final seams = _collageSeams(cells, transform);
   for (final (index, cell) in cells.indexed) {
     final path = Path.combine(
       PathOperation.intersect,
@@ -157,13 +274,83 @@ _CoverLayout _collageLayout(Size size, int count) {
     regions.add((
       path: path.transform(transform.storage),
       center: MatrixUtils.transformPoint(transform, bounds.center),
+      rotation: _coverRotation + (horizontal ? math.pi / 2 : 0),
     ));
   }
   // 每张使用同一尺寸；半像素余量覆盖旋转采样边缘，不让接缝露底。
   return (
     coverSize: Size(coverWidth + .5, (coverWidth + .5) * 4 / 3),
     regions: regions,
+    seams: seams,
   );
+}
+
+List<Path> _collageSeams(List<Rect> cells, Matrix4 transform) {
+  final seams = <Path>[];
+  for (var firstIndex = 0; firstIndex < cells.length; firstIndex++) {
+    final first = cells[firstIndex];
+    for (
+      var secondIndex = firstIndex + 1;
+      secondIndex < cells.length;
+      secondIndex++
+    ) {
+      final second = cells[secondIndex];
+      final seam = Path();
+      final verticalX = (first.right - second.left).abs() < .001
+          ? first.right
+          : (second.right - first.left).abs() < .001
+          ? second.right
+          : null;
+      if (verticalX != null) {
+        final top = math.max(first.top, second.top);
+        final bottom = math.min(first.bottom, second.bottom);
+        if (bottom > top) {
+          seam
+            ..moveTo(verticalX, top)
+            ..lineTo(verticalX, bottom);
+        }
+      }
+      final horizontalY = (first.bottom - second.top).abs() < .001
+          ? first.bottom
+          : (second.bottom - first.top).abs() < .001
+          ? second.bottom
+          : null;
+      if (horizontalY != null) {
+        final left = math.max(first.left, second.left);
+        final right = math.min(first.right, second.right);
+        if (right > left) {
+          seam
+            ..moveTo(left, horizontalY)
+            ..lineTo(right, horizontalY);
+        }
+      }
+      if (seam.computeMetrics().isNotEmpty) {
+        seams.add(seam.transform(transform.storage));
+      }
+    }
+  }
+  return seams;
+}
+
+class _CoverSeamPainter extends CustomPainter {
+  const _CoverSeamPainter(this.seams);
+
+  final List<Path> seams;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = Colors.white.withValues(alpha: .9)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1;
+    for (final seam in seams) {
+      canvas.drawPath(seam, paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_CoverSeamPainter oldDelegate) =>
+      oldDelegate.seams != seams;
 }
 
 List<Rect> _collageCells(Rect bounds, double width, int count) {

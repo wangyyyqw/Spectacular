@@ -82,3 +82,13 @@ python3 tool/subset_bundled_fonts.py \
 源码与合成测试中的厂商 CSS 前缀、OPF 属性、脚注类名及数据属性属于输入文件格式。为继续读取已有 EPUB，这些协议字符串和对应转换功能按原样保留。它们不表示与相关产品存在隶属、合作或背书关系。
 
 私人书籍、原书摘录、截图、数据库、日志及历史验收附件不作为开源素材，留在 Git 忽略的本地目录中。
+
+## 标签拼图 OCR 模型
+
+标签拼图使用与 [SnapFind](https://github.com/Loecedas/SnapFind) Rapid 版相同的 PP-OCRv4 中文 ONNX 检测与识别模型。模型权重归属 RapidOCR/PaddleOCR 上游，按 Apache License 2.0 分发；完整许可随应用资源保存在 `apps/reader_mobile/assets/ocr/snapfind_ppocrv4/LICENSE-2.0.txt`。识别字典取自 PaddleOCR `release/2.7` 的 `ppocr_keys_v1.txt`，同样遵守 PaddleOCR 的 Apache License 2.0。模型只在设备本地运行。
+
+| 资源 | 上游来源 | SHA-256 |
+| --- | --- | --- |
+| `ch_PP-OCRv4_det_mobile.onnx` | [RapidOCR v3.10.0](https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.10.0/onnx/PP-OCRv4/det/ch_PP-OCRv4_det_mobile.onnx) | `d2a7720d45a54257208b1e13e36a8479894cb74155a5efe29462512d42f49da9` |
+| `ch_PP-OCRv4_rec_mobile.onnx` | [RapidOCR v3.10.0](https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.10.0/onnx/PP-OCRv4/rec/ch_PP-OCRv4_rec_mobile.onnx) | `48fc40f24f6d2a207a2b1091d3437eb3cc3eb6b676dc3ef9c37384005483683b` |
+| `ppocr_keys.txt` | [PaddleOCR release/2.7](https://github.com/PaddlePaddle/PaddleOCR/blob/release/2.7/ppocr/utils/ppocr_keys_v1.txt) | `28b2362ad4ab2dc38769aa72feb535e3a9ddb3fd2a7585a05920e6393b1dc7f7` |
