@@ -58,7 +58,9 @@ class ListSplitTargetsOperation {
 
       for (final item in document.findAllElements('item', namespaceUri: '*')) {
         final id = item.getAttribute('id') ?? '';
-        final href = Uri.decodeFull(item.getAttribute('href') ?? '');
+        final href = Uri.decodeComponent(
+          Uri.parse(item.getAttribute('href') ?? '').path,
+        );
         final mediaType = item.getAttribute('media-type') ?? '';
         final propsStr = item.getAttribute('properties') ?? '';
 
@@ -142,7 +144,7 @@ class ListSplitTargetsOperation {
                   _normalizePath(
                     p.posix.join(
                       p.posix.dirname(navigationPath),
-                      Uri.decodeFull(target.href),
+                      Uri.decodeComponent(Uri.parse(target.href).path),
                     ),
                   ),
                   from: opfDir.isEmpty ? '.' : opfDir,

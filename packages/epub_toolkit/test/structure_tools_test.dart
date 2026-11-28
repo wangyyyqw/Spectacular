@@ -777,13 +777,13 @@ void main() {
     );
     await fixture.write(output('input.epub'));
     final files = <String>[];
-    await SplitOperation.execute(
+    final splitLog = await SplitOperation.execute(
       epubPath: output('input.epub'),
       outputDir: output('parts'),
       splitPoints: [2],
       onOutput: files.add,
     );
-    expect(files, hasLength(2));
+    expect(files, hasLength(2), reason: splitLog);
     for (final filePath in files) {
       final reopened = await reopenStructureEpub(filePath);
       final package = structurePackage(reopened);
@@ -814,6 +814,82 @@ void main() {
     );
     final secondNavigation = await NavigationEditorOperation.load(files.last);
     expect(secondNavigation.entries(NavigationSection.toc).single.title, '第二章');
+  });
+
+  test('拆分保留多级 CSS、内联样式和字体图片依赖，循环导入只处理一次', () async {
+    final fixture = StructureEpubFixture(opfPath: '内容/书籍.opf');
+    fixture.archive.addFile(
+      ArchiveFile.string(
+        fixture.opfPath,
+        structureText(fixture.archive, fixture.opfPath).replaceFirst(
+          '</manifest>',
+          '<item id="nested" href="Styles/nested.css" media-type="text/css"/>'
+              '<item id="deep" href="Styles/deep.css" media-type="text/css"/>'
+              '<item id="image" href="Images/间接.png" media-type="image/png"/>'
+              '<item id="inline" href="Images/内联.png" media-type="image/png"/>'
+              '<item id="font" href="Fonts/body.woff2" media-type="font/woff2"/>'
+              '<item id="unused" href="Styles/unused.css" media-type="text/css"/>'
+              '</manifest>',
+        ),
+      ),
+    );
+    fixture.setText('Styles/main.css', '@import "nested.css";');
+    fixture.setText(
+      'Styles/nested.css',
+      '@IMPORT url( "deep.css" ); @import "main.css";'
+          '/* @import "unused.css"; */',
+    );
+    fixture.setText(
+      'Styles/deep.css',
+      'p::before { content:"/*"; }'
+          'p { background: url("../Images/%E9%97%B4%E6%8E%A5.png?v=1#img"); }'
+          '@font-face { font-family: body; src: url( ../Fonts/body.woff2 ); }'
+          'p::after { content:"*/"; }',
+    );
+    fixture.setText('Styles/unused.css', 'p { color: red; }');
+    fixture.setText(
+      StructureEpubFixture.chapterHrefs.first,
+      fixture
+          .text(StructureEpubFixture.chapterHrefs.first)
+          .replaceFirst(
+            '</head>',
+            '<style>p { background-image: url("../Images/内联.png"); }</style></head>',
+          ),
+    );
+    for (final name in ['Images/间接.png', 'Images/内联.png']) {
+      fixture.archive.addFile(
+        ArchiveFile.bytes(fixture.pathFor(name), structurePngBytes),
+      );
+    }
+    fixture.archive.addFile(
+      ArchiveFile.bytes(fixture.pathFor('Fonts/body.woff2'), [1, 2, 3]),
+    );
+    await fixture.write(output('input.epub'));
+    final files = <String>[];
+    final splitLog = await SplitOperation.execute(
+      epubPath: output('input.epub'),
+      outputDir: output('parts'),
+      splitPoints: [2],
+      onOutput: files.add,
+    );
+    expect(files, hasLength(2), reason: splitLog);
+    for (final file in files) {
+      final reopened = await reopenStructureEpub(file);
+      for (final resource in [
+        'Styles/main.css',
+        'Styles/nested.css',
+        'Styles/deep.css',
+        'Images/间接.png',
+        'Fonts/body.woff2',
+      ]) {
+        expect(reopened.findFile(fixture.pathFor(resource)), isNotNull);
+      }
+      expect(reopened.findFile(fixture.pathFor('Styles/unused.css')), isNull);
+    }
+    final first = await reopenStructureEpub(files.first);
+    expect(first.findFile(fixture.pathFor('Images/内联.png')), isNotNull);
+    final second = await reopenStructureEpub(files.last);
+    expect(second.findFile(fixture.pathFor('Images/内联.png')), isNull);
   });
 
   test('跨书 merge 处理同名文件和 ID 冲突，split 保持各分卷正文与资源', () async {

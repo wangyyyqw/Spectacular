@@ -377,22 +377,28 @@ class SplitOperation {
       if (file == null) continue;
 
       final content = utf8.decode(file.content);
-      final refs = _extractReferences(content, opfDir, bookpath, allBookpaths);
+      final refs = _extractReferences(content, bookpath, allBookpaths);
       referenced.addAll(refs);
     }
 
-    // 扫描引用的 CSS
+    // 样式表可继续导入样式表；每个路径只扫描一次，循环导入也能结束。
     final cssToScan = referenced
         .where((p) => p.toLowerCase().endsWith('.css'))
         .toList();
-    for (final cssPath in cssToScan) {
+    for (var index = 0; index < cssToScan.length; index++) {
+      final cssPath = cssToScan[index];
       final file = archive.findFile(cssPath);
       if (file == null) continue;
 
       final content = utf8.decode(file.content);
       final cssDir = _getDir(cssPath);
       final refs = _extractCssReferences(content, cssDir, allBookpaths);
-      referenced.addAll(refs);
+      for (final reference in refs) {
+        if (referenced.add(reference) &&
+            reference.toLowerCase().endsWith('.css')) {
+          cssToScan.add(reference);
+        }
+      }
     }
 
     // 排除内容文档本身
@@ -404,12 +410,11 @@ class SplitOperation {
   /// 从 HTML 内容提取引用
   static Set<String> _extractReferences(
     String content,
-    String opfDir,
     String currentPath,
     Set<String> allBookpaths,
   ) {
-    final refs = <String>{};
     final currentDir = _getDir(currentPath);
+    final refs = _extractCssReferences(content, currentDir, allBookpaths);
 
     for (final match in RegExp(
       r"""(?:href|src)\s*=\s*["']([^"']*)["']""",
@@ -430,7 +435,9 @@ class SplitOperation {
 
       if (href.isEmpty) continue;
 
-      final bookpath = _normalizePath('$currentDir${Uri.decodeFull(href)}');
+      final bookpath = _normalizePath(
+        '$currentDir${Uri.decodeComponent(Uri.parse(href).path)}',
+      );
       if (allBookpaths.contains(bookpath)) {
         refs.add(bookpath);
       }
@@ -447,18 +454,29 @@ class SplitOperation {
   ) {
     final refs = <String>{};
 
+    final withoutComments = content.replaceAllMapped(
+      RegExp(
+        r'''"(?:[^"\\]|\\[\s\S])*"|'(?:[^'\\]|\\[\s\S])*'|/\*[\s\S]*?\*/''',
+      ),
+      (match) => match.group(0)!.startsWith('/*') ? '' : match.group(0)!,
+    );
     for (final match in RegExp(
-      r"""url\(["']?([^)]*?)["']?\)""",
-    ).allMatches(content)) {
-      var url = match.group(1)!;
-
-      if (url.startsWith('http://') ||
-          url.startsWith('https://') ||
-          url.startsWith('data:')) {
+      r'''url\(\s*(?:"([^"]*)"|'([^']*)'|([^)]*?))\s*\)|@import\s+(?:"([^"]*)"|'([^']*)')''',
+      caseSensitive: false,
+    ).allMatches(withoutComments)) {
+      final reference = [
+        for (var group = 1; group <= 5; group++) ?match.group(group),
+      ].single.trim();
+      final uri = Uri.tryParse(reference);
+      if (uri == null ||
+          uri.hasScheme ||
+          uri.hasAuthority ||
+          uri.path.isEmpty) {
         continue;
       }
-
-      final bookpath = _normalizePath('$cssDir${Uri.decodeFull(url)}');
+      final bookpath = _normalizePath(
+        '$cssDir${Uri.decodeComponent(uri.path)}',
+      );
       if (allBookpaths.contains(bookpath)) {
         refs.add(bookpath);
       }
@@ -693,7 +711,9 @@ class SplitOperation {
 
       for (final item in document.findAllElements('item', namespaceUri: '*')) {
         final id = item.getAttribute('id') ?? '';
-        final href = Uri.decodeFull(item.getAttribute('href') ?? '');
+        final href = Uri.decodeComponent(
+          Uri.parse(item.getAttribute('href') ?? '').path,
+        );
         final mediaType = item.getAttribute('media-type') ?? '';
         final propsStr = item.getAttribute('properties') ?? '';
         final props = propsStr.isEmpty
