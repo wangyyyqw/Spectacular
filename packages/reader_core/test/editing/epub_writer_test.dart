@@ -175,6 +175,44 @@ void main() {
     });
   }
 
+  test('html/body 包装的 OPF 可修改标签并保留外层结构', () async {
+    final input = await createEditingFixture(
+      directory,
+      packageText:
+          '<html><head></head><body>${_metadataPackage('3.0')}</body></html>',
+    );
+    final session = await EpubEditSession.open(input);
+    final output = File('${directory.path}/wrapped-opf.epub');
+    try {
+      PackageEditor(session).setMetadataValues('subject', ['测试标签']);
+      await EpubWriter.write(session, output);
+
+      final reopened = await openEpubFile(output, verifyCrc: true);
+      expect(reopened.ok, isTrue);
+      final document = reopened.document!;
+      try {
+        final opf = XmlDocument.parse(
+          document.archive.readString(document.opfPath)!,
+        );
+        expect(opf.rootElement.name.local, 'html');
+        expect(
+          opf.rootElement.childElements
+              .singleWhere((element) => element.name.local == 'body')
+              .childElements
+              .single
+              .name
+              .local,
+          'package',
+        );
+        expect(_dcValues(opf, 'subject'), ['测试标签']);
+      } finally {
+        document.archive.close();
+      }
+    } finally {
+      session.close();
+    }
+  });
+
   test('UTF-16 原章节写回保留字节序与 BOM', () async {
     final text = editingXhtml.replaceFirst('UTF-8', 'UTF-16');
     final data = ByteData((text.length + 1) * 2)

@@ -58,10 +58,7 @@ List<String> validateEditPackage(
   String opfPath, {
   String? original,
 }) {
-  final package = XmlDocument.parse(source).rootElement;
-  if (package.name.local != 'package') {
-    throw const EpubEditException('OPF 根元素必须是 package');
-  }
+  final package = _packageElement(XmlDocument.parse(source).rootElement);
   final manifest = _packageSection(package, 'manifest');
   final spine = _packageSection(package, 'spine');
   final before = _originalPackage(original);
@@ -78,6 +75,33 @@ List<String> validateEditPackage(
     warnings.add('保留原有包问题：$opfPath → $message');
   }
   return warnings;
+}
+
+XmlElement _packageElement(XmlElement root) {
+  if (root.name.local == 'package') return root;
+  if (root.name.local == 'html') {
+    final bodies = root.childElements
+        .where((element) => element.name.local == 'body')
+        .toList();
+    final packages = root.descendants
+        .whereType<XmlElement>()
+        .where((element) => element.name.local == 'package')
+        .toList();
+    final bodyPackages = bodies.length != 1
+        ? const <XmlElement>[]
+        : bodies.single.descendants
+              .whereType<XmlElement>()
+              .where((element) => element.name.local == 'package')
+              .toList();
+    if (bodies.length == 1 &&
+        packages.length == 1 &&
+        bodyPackages.length == 1) {
+      return bodyPackages.single;
+    }
+  }
+  throw const EpubEditException(
+    'OPF 根元素必须是 package，或是仅包含一个 body/package 的 html 包装',
+  );
 }
 
 Set<String?> _invalidOriginalRefs(XmlElement? package) {
