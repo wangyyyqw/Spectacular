@@ -1844,7 +1844,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
           itemCount: stacks.length,
           itemBuilder: (context, index) {
             final stack = stacks[index];
-            if (stack.tag != null) return _buildTagStack(stack);
+            if (stack.tag != null) return _buildTagStack(stack, grid: true);
             final item = stack.books.single;
             final pinned = _pinnedIds.contains(item.entry.id);
             return _desktopBook(
@@ -1869,12 +1869,14 @@ class _BookshelfPageState extends State<BookshelfPage> {
     );
   }
 
-  Widget _buildTagStack(ShelfStack<_ShelfItem> stack) => BookStackTile(
-    tag: stack.tag!,
-    books: [for (final item in stack.books) item.entry],
-    grid: _grid,
-    onOpen: () => setState(() => _expandedStack = stack.tag),
-  );
+  Widget _buildTagStack(ShelfStack<_ShelfItem> stack, {required bool grid}) =>
+      BookStackTile(
+        tag: stack.tag!,
+        books: [for (final item in stack.books) item.entry],
+        grid: grid,
+        showTitle: _showTitles,
+        onOpen: () => setState(() => _expandedStack = stack.tag),
+      );
 
   ({SliverGridDelegateWithFixedCrossAxisCount delegate, double cardWidth})
   _shelfGridMetrics(double width, TextScaler textScaler) {
@@ -1903,7 +1905,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
             (_showTitles
                 ? _shelfTitleGap + textScaler.scale(_shelfTitleHeight)
                 : 0),
-        mainAxisSpacing: 20,
+        mainAxisSpacing: _showTitles ? 20 / 3 : 20,
         crossAxisSpacing: _shelfGridSpacing,
       ),
       cardWidth: cardWidth,
@@ -1945,7 +1947,7 @@ class _BookshelfPageState extends State<BookshelfPage> {
           ),
           itemBuilder: (context, index) {
             final stack = stacks[index];
-            if (stack.tag != null) return _buildTagStack(stack);
+            if (stack.tag != null) return _buildTagStack(stack, grid: false);
             final item = stack.books.single;
             return _desktopBook(
               _BookRow(
